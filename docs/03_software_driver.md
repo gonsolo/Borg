@@ -130,6 +130,44 @@ of a fixed demo scene. The z-buffer, texturing, and per-vertex
 interpolation this exercised are unchanged — they're now driven by
 whatever geometry and textures the host application uploads.
 
+## The borgvk source
+
+borgvk lives in `mesa/src/borg/vulkan/` and is written in Rust; only the generated entry
+point tables, the `borgvk_burst_gen` tool and the static link probe are C. The crate in
+`rust/` follows NVK's Rust code: bindgen reads the Mesa runtime headers named in
+`rust/bindings.h`, cbindgen writes `borgvk_rust.h` for the C callers, and meson builds a
+static library that `libvulkan_borg.so` links whole.
+
+| Modules | Contents |
+|---|---|
+| `entrypoint`, `object`, `types`, `util` | the `entrypoint!` macro and handle casts, objects allocated in place, limits and plain data |
+| `device`, `physical_device`, `wsi` | instance and devices, properties and format queries, presentation |
+| `memory`, `image`, `sampler`, `descriptor_set`, `pipeline`, `query`, `sync`, `event` | the Vulkan objects |
+| `cmd_buffer`, `render`, `clear`, `copy`, `texel`, `draw`, `dispatch` | command buffers and what they record |
+| `queue`, `cube`, `state_upload`, `texture_upload`, `corpus` | submission, the cube path, the driver corpus recorder |
+| `compiler`, `compile`, `nir_info`, `nir_passes`, `shader_cache` | shaders through borgc, or from a cache file on the board |
+| `serial`, `transport`, `format`, `drm`, `hw`, `sim`, `sim_process` | wire packets and the back ends |
+
+Image layout, tile addressing, the texel formats (generated from `TexFormat.scala`) and the
+texture and sampler descriptors are a crate of their own, `borg_layout` in
+`mesa/src/borg/layout/`.
+
+Four things are easy to get wrong:
+
+* The generated dispatch tables reference the entry points weakly, so a library member that
+  holds only entry points is never linked and the runtime's fallback runs silently. The
+  library is linked whole, and `meson test --suite borg` checks that every Rust entry point
+  is in the `.so`.
+* Recorded commands replay through `Device::cmd_dispatch`, which holds borgvk's own entry
+  points and no-ops for the rest: an entry point that only forwards to `vk_common_*` must stay.
+* Objects live in zeroed memory from the runtime's allocators and never move
+  (`object::allocate`). No C struct points at a Rust one: bindgen cannot see Rust types.
+* bindgen binds some libc calls to glibc's `*64` names, which musl lacks: the board build
+  (`make -C software/vkcube`) fails to link where the host build passes.
+
+Every change runs `meson test --suite borg` in a build with `-Dbuild-tests=true`, the driver
+corpus (`scripts/borgvk_corpus/check.sh`, compared with a run of main) and the board build.
+
 ## Vulkan Conformance (CTS)
 
 The host-side Vulkan driver **borgvk** (a native Mesa ICD that runs the
