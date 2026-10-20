@@ -150,7 +150,6 @@ dEQP-VK.graphicsfuzz.global-array-loops
 dEQP-VK.graphicsfuzz.pow-vec4
 dEQP-VK.graphicsfuzz.spv-dead-break-and-unroll
 dEQP-VK.graphicsfuzz.spv-stable-maze-O-dead-code
-dEQP-VK.graphicsfuzz.stable-colorgrid-modulo-true-conditional-simple-loop
 dEQP-VK.graphicsfuzz.stable-quicksort-conditional-bitwise-or-clamp
 dEQP-VK.pipeline.monolithic.bind_point.graphics_compute.write_write.setup_cp_gs_cs_gp.cmd_dispatch_draw
 dEQP-VK.pipeline.monolithic.blend.format.r16g16b16a16_sfloat.states.color_1mcc_1mda_rsub_alpha_da_da_rsub-color_sas_1mdc_rsub_alpha_1msa_sa_add-color_cc_cc_rsub_alpha_sa_1mca_min-color_z_1msa_max_alpha_1msc_cc_rsub
