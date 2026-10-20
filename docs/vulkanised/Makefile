@@ -2,7 +2,7 @@ PDF = borg_vulkanised_2027.pdf
 
 .PHONY: all show clean
 
-all: $(PDF)
+all: show
 
 $(PDF): abstract.tex vkcube_ulx3s.jpg
 	latexmk -pdf -interaction=nonstopmode -outdir=build abstract.tex
