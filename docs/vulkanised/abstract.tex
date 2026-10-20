@@ -142,6 +142,12 @@ pixels, so the fragment core runs a 2x2 quad on four lanes, and implicit
 LOD in the texture unit uses the same quad. A one-lane core would be
 smaller and would return zero derivatives.
 
+\paragraph{Descriptors become hardware tables.}
+Instead of a fixed texture format, the texture unit reads Vulkan's image
+and sampler state from descriptor tables in memory, which the driver fills
+directly; render targets use the same tiled layout, so rendering to a
+texture needs no copy.
+
 \paragraph{The draw front end.}
 A single register write renders a whole draw: primitive assembly for
 lists, strips, fans, indices, restart and instancing; one vertex shader run
@@ -242,6 +248,14 @@ status page.
 \end{itemize}
 
 Next are the full Vulkan~1.0 must-pass list and a tapeout on wafer.space.
+
+\section{Availability}
+
+Borg's RTL, firmware, driver, compiler and test scripts are open source on
+GitHub, and the book at \url{https://gonsolo.github.io/Borg/} documents the
+hardware units, the compiler and driver contract, and the conformance status
+group by group. A short video of \texttt{cube.c} on the board is in the
+repository (\texttt{docs/images/BorgVkcubeULX3S.gif}).
 
 \begin{thebibliography}{6}
 \bibitem{chisel} J.~Bachrach et al. Chisel: Constructing Hardware in a
