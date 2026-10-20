@@ -1,7 +1,23 @@
 # The Software Driver
 
-The firmware running on Hutt provides a Vulkan-like API for rendering triangles.
-It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_spirb.c`) and a thin kernel (`borg_kernel.c`) that drains geometry, textures, and shaders streamed at runtime by the borgvk Mesa driver over serial, rather than rendering baked demo content.
+Applications reach Borg through **borgvk**, a native Vulkan driver in Mesa
+(`mesa/src/borg/vulkan/`), modelled on v3dv. It builds on Mesa's Vulkan runtime
+for objects, synchronization and WSI, compiles shaders with borgc
+([The Shader Compiler](02_compiler.md)), and turns command buffers into a stream
+of packets: geometry, textures, shaders, state and draws. The same stream has
+three destinations:
+
+- **The ULX3S over serial.** On a host PC, borgvk sends the packets to the
+  firmware kernel on the board (below), which feeds the hardware.
+- **The direct simulator.** For conformance, borgvk hands the stream to
+  `direct_sim`, a compiled model of the Borg RTL
+  ([Simulation](06_simulation.md)); the Vulkan CTS runs on it.
+- **Linux on the board.** A DRM render-node driver on the RV64 Hutt takes the
+  same packets, so the unmodified `cube.c` runs on the board without a host
+  ([Running on an FPGA](04_fpga.md)).
+
+The rest of this chapter describes the firmware side on Hutt, then the
+conformance testing.
 
 ## Memory-Mapped Hardware
 
@@ -24,49 +40,23 @@ Each helper loads a one-instruction shader, writes the operands to registers,
 triggers execution, and reads back the result. The `borg_run()` function handles
 the start/poll/wait protocol.
 
-## Rendering Pipeline and Shader Invocations
+## How a Draw Runs
 
-For each triangle, the driver runs the following pipeline stages on Borg:
+The CPU no longer drives shaders per triangle. It writes a draw's state and
+triggers it with `SEQ_TRIGGER`; the hardware does the rest: primitive assembly
+(lists, strips, fans, indices, restart, instancing), one vertex shader run per
+triangle, varyings stored with `SOUT` and read back with `FATTR`, homogeneous
+setup without clipping, binning into tiles, and one fragment shader run per
+covered 2x2 quad. [Geometry Front End](B1_geometry_front_end.md) has the details
+and a step-by-step recipe.
 
-### 1. Vertex Shader (3 invocations per triangle)
+## Tile Buffer, Depth and Stencil
 
-Run once per vertex. Transforms positions (e.g. rotation) using uniforms
-set by the CPU.
-
-### 2. Rasterize Shader (1 invocation per pixel)
-
-For each pixel in the bounding box, the rasterizer shader evaluates all three edge functions simultaneously. Pixel integer coordinates are automatically expanded to FP16 by the hardware `coordLut` and injected into `r30`/`r31`. If all three edges are valid, the hardware `inside_flag` is set.
-
-### 3. Fragment Shader (1 invocation per visible pixel)
-
-For pixels inside the triangle, the hardware FSM auto-chains to the fragment shader. The fragment shader is a unified program (`shader.frag`) compiled with the Poletto & Sarkar linear scan register allocator. Taking up to 29 registers, it simultaneously performs barycentric interpolation for all outputs:
-
-- Per-vertex RGB color blending
-- Z-buffer depth interpolation
-- UV texture coordinate interpolation
-
-### Summary
-
-| Stage              | Shader        | Invocations           |
-|--------------------|---------------|-----------------------|
-| Vertex shading     | `vert.s`      | 3 per triangle        |
-| Rasterization      | `rasterize.s` | 1 per pixel           |
-| Fragment shading   | `shader.frag` | 1 per visible pixel   |
-| **Total per pixel**|               | **1 to 2 shader runs**|
-
-## Tile Buffer and Z-Buffer
-
-To reduce DRAM bandwidth, Borg includes a 16-pixel **Hardware Tile Buffer**.
-Each pixel in the buffer stores both RGB color and a 16-bit Z-depth value.
-
-During rasterization, the fragment shader computes the Z-depth for the current
-pixel. The hardware then performs an automatic **depth test** against the value
-stored in the tile buffer. If the new pixel is closer, the color and depth are
-updated in the buffer.
-
-Once a tile (typically 4×4 or 16×1 pixels) is complete, the CPU or DMA engine
-flushes the buffer to DRAM in a single burst write. This avoids the "read-modify-write"
-penalty of performing depth testing directly in DRAM.
+Each tile is rendered in an on-chip **tile buffer** holding colour, FP32 depth
+and stencil. Depth, stencil, scissor and blending are tested and applied in
+hardware; the finished tile is flushed to memory in the attachment's format.
+Formats beyond the native ones are raw attachments that the fragment shader packs
+and blends through `TLD` ([Colour Attachment Formats](B3_colour_formats.md)).
 
 ```c
 // Accessing the tile buffer via MMIO
@@ -77,41 +67,11 @@ uint32_t bz = BorgGpuRegs.tile_bz;
 
 ## Texturing
 
-Borg supports **hardware-assisted texture mapping**. While the final texel
-fetch still happens in firmware (to avoid complex DRAM controller logic),
-the hardware handles the most expensive part of the coordinate calculation.
-
-### Morton Encoding
-
-Textures are stored in DRAM using a **Morton order** (Z-order curve) layout.
-This significantly improves cache locality compared to a linear scanline layout.
-The hardware `MortonEncode` unit automatically converts interpolated `U` and `V`
-coordinates into a linear memory offset:
-
-{{snippet:hardware/borg/src/Borg.scala:mmio}}
-
-### Texel Lookup
-
-The firmware simply reads the pre-calculated `tex_addr_morton` from the MMIO
-status registers and uses it as an offset into the texture data in DRAM:
-
-```c
-uint16_t offset = BORG_GPU->tex_addr & 0xFFFF; /* bits [15:0] = Morton index */
-r = DRAM_IN(tex_base + offset * 3 + 0);
-g = DRAM_IN(tex_base + offset * 3 + 1);
-b = DRAM_IN(tex_base + offset * 3 + 2);
-```
-
-### Performance
-
-Hardware acceleration reduces the per-pixel cost significantly:
-
-| Operation                | Implementation | Cost |
-|--------------------------|----------------|------|
-| UV Interpolation         | Fragment Shader| 0 extra cycles |
-| Morton Encoding          | **Hardware**   | 0 extra cycles |
-| Depth Test               | **Hardware**   | 0 extra cycles |
-| Texel Read               | Firmware       | 3 DRAM reads |
+Sampling is done by the texture unit: `TEX` and `TEXA` read texture and sampler
+descriptors from memory and support 51 formats, mipmaps with implicit LOD, all
+address modes and border colours, trilinear filtering, depth compare, gather,
+`texelFetch` and offsets. The firmware's earlier role, fetching texels by Morton
+address, is gone. See [Texture Unit](B2_texture_unit.md).
 
 ## The borgvk Kernel
 
@@ -122,9 +82,9 @@ triangle, exercising z-buffering and hardware texturing with no host
 involved.
 
 `borg_kernel.c` replaces that with a thin runtime driven entirely by
-the borgvk Mesa driver over serial: it drains 0xAD (MVP)/0xAE
-(geometry)/0xAF (texture rows)/0xB0 (borgc-compiled shaders) packets
-and feeds the autonomous TBR sequencer, so real, unmodified Vulkan
+the borgvk Mesa driver over serial: it drains borgvk's packets
+(0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc-compiled
+shaders, and the later state and draw packets) and feeds the hardware, so real, unmodified Vulkan
 applications (e.g. Khronos's `cube.c`) render on the hardware instead
 of a fixed demo scene. The z-buffer, texturing, and per-vertex
 interpolation this exercised are unchanged — they're now driven by
@@ -170,42 +130,28 @@ corpus (`scripts/borgvk_corpus/check.sh`, compared with a run of main) and the b
 
 ## Vulkan Conformance (CTS)
 
-The host-side Vulkan driver **borgvk** (a native Mesa ICD that runs the
-unmodified Khronos `cube.c` and ships each frame to the FPGA over serial) is
-exercised by the official Khronos Conformance Test Suite,
-[VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
+borgvk is tested with the Khronos Conformance Test Suite,
+[VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`), release
+1.4.6.2, against the Vulkan 1.0 must-pass list. The cases run on the direct
+simulator, many in parallel, through `scripts/cts_par.sh`:
 
 ```bash
-make vulkan-cts
-# ==> borgvk: passed 6887 of 1647405 mandatory Vulkan CTS tests = 0.418%
+MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.api.*'
 ```
 
-The default target runs five `dEQP-VK.api.*` classes (~9,276 cases combined):
+The `api` group passes without failures (tag `conformance/vk1.0-api-direct-sim`);
+the per-group results and known limits are in
+[Vulkan 1.0 Conformance Status](conformance/STATUS.md). These are results on a
+simulation of the RTL, not a conformance submission.
 
-| Test class | Pass | Total | 0 failures? | What it validates |
-|---|---|---|---|---|
-| `api.info.*` | 5,936 | 8,182 | ✅ | Device/format/limit/feature reporting |
-| `api.format_feature_flags2.*` | 184 | 184 | ✅ | `VkFormatProperties3` / 64-bit feature flags |
-| `api.device_init.*` | 224 | 236 | ✅ | `VkDevice` creation and property queries |
-| `api.null_handle.*` | 23 | 24 | ✅ | `destroy(VK_NULL_HANDLE)` no-op behaviour |
-| `api.granularity.*` | 520 | 650 | ✅ | Image/buffer granularity queries |
-| **Total** | **6,887** | **9,276** | ✅ | |
+`make vulkan-cts` still runs the small slice of `api` cases described below,
+which was the first contact with the CTS.
 
-borgvk is intentionally narrow — it renders a single hand-compiled cube over the
-serial link, not arbitrary geometry — so the cases that pass are the
-**query/setup** ones that read back the driver's reported capabilities or create
-Vulkan objects, never rendering. Rendering classes (`dEQP-VK.draw.*`, `.pipeline.*`,
-`api.smoke.triangle`, …) drive the cube-only serial path and therefore fail;
-this is an honest "the Vulkan API surface works" data point, **not** a
-conformance claim.
+### Bugs the CTS caught first
 
-Run a specific slice with `make vulkan-cts VK_CTS_CASE='dEQP-VK.api.granularity.*'`;
-`VK_CTS_CASE` accepts comma-separated globs (deqp-vk `--deqp-case` syntax).
-
-### Bugs the CTS caught
-
-Pointing a real conformance harness at the driver immediately surfaced a genuine
-bug: `vkGetPhysicalDeviceSparseImageFormatProperties2` was an unimplemented
+In the early serial-only days, when borgvk could render only the cube and just
+the query and setup cases could pass, pointing the CTS at the driver
+immediately surfaced a genuine bug: `vkGetPhysicalDeviceSparseImageFormatProperties2` was an unimplemented
 (`NULL`) dispatch entry, so *any* call segfaulted inside the Mesa runtime's common
 shim. Implementing it (Borg has no sparse residency, so it reports zero
 properties) turned the `api.info.sparse_image_format_properties2.*` group from a
