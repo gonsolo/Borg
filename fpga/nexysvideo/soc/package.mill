@@ -1,0 +1,5 @@
+   package build.fpga.nexysvideo.soc
+   import mill._, scalalib._
+   import build.BorgModule
+
+   object `package` extends BorgModule
