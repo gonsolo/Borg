@@ -1,6 +1,28 @@
 # borgvk design notes
 
-Explanations that used to sit as comments in `mesa/src/borg/vulkan/`, moved here verbatim. Each note names the function it was in and the code line it stood above; line numbers refer to mesa commit `e1872f516f7`. Some notes describe an earlier state of the driver and are out of date.
+Explanations that used to sit as comments in the C driver in `mesa/src/borg/vulkan/`, moved here verbatim. Each note names the function it was in and the code line it stood above; line numbers refer to mesa commit `e1872f516f7`. Some notes describe an earlier state of the driver and are out of date.
+
+The driver is Rust now (see the software driver chapter). Where each C file went:
+
+| C file | Rust modules in `rust/` |
+|---|---|
+| `borgvk_cmd_buffer.c` | `cmd_buffer` |
+| `borgvk_compiler.c`, `borgvk_compiler_cache.c` | `compiler`, `compile`, `nir_info`, `nir_passes` |
+| `borgvk_descriptor_set.c` | `descriptor_set` |
+| `borgvk_device.c` | `device`, `physical_device` |
+| `borgvk_hw.c` | `hw` |
+| `borgvk_pipeline.c` | `pipeline` |
+| `borgvk_query.c` | `query` |
+| `borgvk_shader_cache.c` | `shader_cache` |
+| `borgvk_sim.c` | `sim`, `format` |
+| `borgvk_sync.c` | `sync` |
+| `borgvk_wsi.c` | `wsi` |
+| `borgvk_serial.c` | `serial`, `transport` |
+| `borgvk_memory.c` | `memory`, `image`, `sampler`, `copy`, `clear`, `texel`, `render` |
+| `borgvk_queue.c` | `queue`, `draw`, `dispatch`, `cube`, `state_upload`, `texture_upload`, `corpus`, `sim_process` |
+| `borgvk_private.h` | the structs in their modules, `types` |
+| `borgvk_serial_test.c` | the tests in `serial` |
+| `borgvk_burst_gen.c` | still C, a client of `borgvk_rust.h` |
 
 ## borgvk_cmd_buffer.c
 
