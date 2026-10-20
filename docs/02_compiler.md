@@ -1,170 +1,83 @@
 # The Shader Compiler
 
-The Borg toolchain compiles standard GLSL shaders into compact binary
-blobs that run on the FP16 hardware. The pipeline has four stages.
+borgc translates Vulkan shaders into Borg machine code. It is written in Rust
+and lives inside Mesa, in `mesa/src/borg/compiler/`, next to the driver that
+calls it. Mesa turns SPIR-V into NIR and runs the NIR passes Borg needs
+(`borg_nir_passes.c`); borgc takes the NIR from there and returns a SPIR-B blob
+the driver uploads.
 
-## Pipeline Overview
+The earlier Python compiler (`spirv_compiler.py`, `borg_backend.py`) is gone.
 
-The canonical compiler for vert/frag shaders is now **borgc** (Rust), located at `mesa/src/borg/compiler/lib.rs`. It lowers Mesa NIR (from SPIR-V via the Mesa SPIR-V→NIR frontend) directly to Borg ISA and runs at borgvk submit time rather than firmware build time. The Python scripts `spirv_compiler.py` and `borg_backend.py` that formerly implemented this pipeline have been removed.
+## The pipeline
 
-## Stage 1 vs Stage 2 — What Each Script Does
+One `ShaderState` carries a shader through five steps (`pipeline.rs`):
 
-These two scripts have completely different responsibilities and it is
-important not to confuse them.
+1. **Survey.** Count instructions and texture reads, pick the stage's preset
+   registers, and decide whether push constants live in the uniform window.
+2. **Selection** (`select.rs`). NIR instructions become Borg instructions on
+   virtual registers. One selector serves vertex, fragment and compute shaders.
+   Structured control flow maps onto the quad's execution mask: `if`/`else`
+   become `EXPUSH`, `EXELSE` and `EXPOP`; loops branch back while any lane is
+   still active (`EXANY` and a PC-relative `BRNZ`). An operation borgc cannot
+   translate correctly makes it refuse the shader with a reason instead of
+   emitting something close.
+3. **Outputs.** Epilogues chosen by the driver's option word pack the
+   fragment colour for the attachment format (raw formats, half, bytes, several
+   targets) or expand points to quads.
+4. **Optimisation.** Spilling down to a register limit when needed, placing
+   constants (below), dead-code removal, FMA fusion and scheduling for register
+   pressure.
+5. **Assembly.** Fixed registers first (texture results in r20–r23, the
+   per-vertex values `FATTR` writes, the outputs), then register allocation
+   (`regalloc.rs`), encoding (`emit.rs`) and the blob.
 
-### `spirv_compiler.py` — Semantic Translation
+If allocation fails, the driver's entry point recompiles with a tighter spill
+limit.
 
-This script *understands* SPIR-V. It knows about the SPIR-V type system
-(image types, sampled-image types, composite types, storage classes,
-decorations) and maps each high-level SPIR-V concept to a virtual
-register or pseudo-assembly instruction.
+## Registers and constants
 
-- **Input**: `shader.spvasm` (text output of `spirv-dis`)
-- **Output**: `shader.s` (Borg pseudo-assembly with `@borg` annotations)
-- **Knows about**: SPIR-V SSA IDs, composite types, uniform structs,
-  texture samplers, storage classes (`Input`, `Output`, `Uniform`,
-  `UniformConstant`), `OpImageSampleImplicitLod`, etc.
-- **Does NOT know about**: physical register numbers, instruction
-  bit-patterns, or hardware constraints.
+A lane has 32 registers, and some are taken: the invocation IDs in r30/r31, the
+texture result block, the stage's presets. Constants therefore do not live in
+registers by default. Each instruction may read one operand from a small
+uniform window, selected by its `f3` field. In a vertex or fragment shader borgc
+places constants there; when there are more than fit, the window keeps the most
+read ones and the rest are fetched from a pool in memory. In a compute shader the
+most used constants become preset registers the driver fills, and the rest are
+loaded from the pool near each use. An instruction that would need two window
+operands gets one of them copied into a register first.
 
-Virtual registers are named `f0`, `f1`, … and are unlimited — the script
-never worries about running out of hardware registers.
+## The ISA, generated
 
-### `borg_backend.py` — Mechanical Lowering
+borgc does not hand-encode instructions. The ISA is one file in riscv-opcodes
+format, `hardware/borg/isa/opcodes`, and `scripts/isa_gen.py` generates
+borgc's `opcodes.rs` from it, the same way it generates the hardware's decoder
+constants and the C header. Branches are PC-relative (`BRZ`/`BRNZ` by a signed
+10-bit word offset, `JMP` by 18 bits), so a program runs wherever it is loaded;
+a branch out of `BRNZ`'s reach becomes a `BRZ` over a `JMP`.
 
-This script knows nothing about SPIR-V. It takes the pseudo-assembly
-produced by `spirv_compiler.py` and performs two purely mechanical tasks:
+## Compute
 
-1. **Register allocation** — runs Poletto & Sarkar (1999) linear-scan
-   allocation to assign each virtual register (`f0`, `f1`, …) to a
-   physical Borg hardware register (`r0`–`r29`). Uniforms go to the
-   32-entry uniform buffer instead of the GPR file.
+Compute shaders take the same path. `barrier()` lowers to `BARRIER`, values
+live across it are saved, and integer atomics on storage buffers and shared
+memory are supported. A workgroup of one invocation would leave three of the
+four quad lanes idle, so borgc packs four such workgroups into one quad. The
+CTS precision tests all dispatch this way; together with smaller dispatch slices
+in the driver, an `atan2` vec4 case went from over 40 minutes to about two.
 
-2. **Instruction encoding** — encodes each pseudo-assembly instruction
-   as a 32-bit RISC-V R-type word and serialises everything into the
-   `.borg` SPIR-B binary.
+## How changes are checked
 
-- **Input**: `shader.s` (pseudo-assembly)
-- **Output**: `shader.borg` (SPIR-B binary blob)
-- **Knows about**: physical register indices, bit-field layouts,
-  `funct7` / `funct3` encoding, the SPIR-B file format.
-- **Does NOT know about**: SPIR-V, type systems, image samplers, or
-  semantic shader concepts.
+- **Rust unit tests**, built with `-Dbuild-tests=true` (`meson test --suite borg`).
+- **Replay:** with `BORGC_REPLAY_DIR` set, the driver saves every shader's NIR;
+  `borgc-replay` recompiles them in seconds, so a refactoring can be proven
+  byte-identical.
+- **Corpus:** `scripts/borgc_corpus/check.sh` reruns the CTS cases whose
+  shaders reach borgc (graphics, and with `SET=compute` the compute set) and
+  compares pass/fail and the compiled blobs with a reference.
 
-## Stage 1: SPIR-V → Pseudo-Assembly
+## Further reading
 
-`spirv_compiler.py` runs two passes over the `.spvasm` input:
-
-**Pass 1 (metadata)** collects names, constants, struct types, storage
-classes, decorations, and sampler variable IDs from declarative opcodes
-like `OpName`, `OpDecorate`, `OpConstant`, `OpTypeImage`,
-`OpTypeSampledImage`, and `OpVariable`.
-
-**Pass 2 (codegen)** walks executable opcodes and emits instructions:
-
-| SPIR-V Opcode | Pseudo-Assembly | Notes |
-| --- | --- | --- |
-| `OpFMul` | `fmul.s rd, ra, rb` | Scalar multiply |
-| `OpFAdd` | `fadd.s rd, ra, rb` | Scalar or vector add |
-| `OpExtInst FMA` | `fmadd.s rd, ra, rb, rc` | Fused multiply-add |
-| `OpFNegate` | `fneg.s rd, rs` | Sign flip (host-side) |
-| `OpExtInst Sin` | `fsin.s rd, rs` | Lookup table (host-side) |
-| `OpExtInst Cos` | `fcos.s rd, rs` | Lookup table (host-side) |
-| `OpMatrixTimesVector` | 2×fmul + 2×fmadd | 2D rotation expansion |
-| `OpImageSampleImplicitLod` | `ftex.s rd, rs_u, rs_v` | Texture sample; rd=R, rd+1=G, rd+2=B (implicit) |
-
-`OpLoad` of a sampler object (`UniformConstant` storage class) emits no
-code — it is tracked internally as a sampler reference consumed by
-`OpImageSampleImplicitLod`.
-
-The compiler emits `@borg` annotations at the end of the output that
-declare which virtual registers serve as uniforms, attributes, outputs,
-FTEX channels, or constants. These drive register allocation and the
-SPIR-B metadata tables in the backend.
-
-## Stage 2: Pseudo-Assembly → SPIR-B
-
-`borg_backend.py` lowers the pseudo-assembly into two outputs:
-
-1. **Host code** (C) for operations the Borg FPU cannot perform:
-   sin/cos lookups, sign-bit negation, register loads/stores.
-
-2. **Borg IMEM instructions** (32-bit encoded) for hardware-accelerated
-   `fmul`, `fadd`, `fmadd`, and `ftex` operations.
-
-### Register Allocation
-
-The backend runs Poletto & Sarkar linear-scan allocation:
-
-- **Uniforms** → 32-entry uniform buffer (`u0`–`u31`). They are read
-  via the `funct3` field and do not consume GPR slots.
-- **FTEX implicit outputs** (`ftex_implicit` annotations) → must be
-  allocated to GPRs at `rd+1` and `rd+2` relative to the FTEX result
-  register, since hardware writes them implicitly.
-- **Everything else** → GPR pool (`r0`–`r29`).
-
-### Instruction Encoding
-
-Each instruction is a 32-bit word using standard RISC-V R-type encoding:
-
-| Mnemonic | funct7 | rs2 | rs1 | funct3 | rd | opcode |
-| --- | --- | --- | --- | --- | --- | --- |
-| `fadd` | `0x00` | rs2 | rs1 | mode | rd | `1010011` |
-| `fmul` | `0x04` | rs2 | rs1 | mode | rd | `1010011` |
-| `fmadd` | rs3 | rs2 | rs1 | mode | rd | `1000011` |
-| `fneg` | `0x06` | `00000` | rs1 | mode | rd | `1010011` |
-| `fstep` | `0x08` | `00000` | rs1 | mode | rd | `1010011` |
-| `frcp` | `0x0A` | `00000` | rs1 | mode | rd | `1010011` |
-| `ftex` | `0x0C` | rs2(V) | rs1(U) | mode | rd(R) | `1010011` |
-
-The `funct3` field (`mode`) selects which operand reads from the uniform
-buffer: `0`=all GPR, `1`=rs1, `2`=rs2, `3`=rs3. This allows one
-uniform operand per instruction without an extra register-file port.
-
-A 32-bit word of `0x00000000` halts execution.
-
-For `ftex`: `rd` receives texel R; hardware implicitly writes texel G to
-`rd+1` and texel B to `rd+2` on the two clock cycles following `texDone`.
-
-## The SPIR-B Binary Format
-
-The final `.borg` file is a self-describing blob with everything the
-firmware needs to load and run a shader:
-
-```text
-Offset  Size       Field
-──────  ─────────  ────────────────────────────
-0       1 byte     num_instructions   (N)
-1       1 byte     num_uniforms       (U)
-2       1 byte     num_attributes     (A)
-3       1 byte     num_outputs        (O)
-4       1 byte     num_consts         (C)
-5       1 byte     reserved
-6       N × 4      instructions       uint32_le[]
-6+N*4   U          uniform_regs       uint8[]
-...     A          attribute_regs     uint8[]
-...     O          output_regs        uint8[]
-...     C          const_regs         uint8[]
-...     C × 2      const_vals         uint16_le[]
-```
-
-At runtime, `spirb_parse()` loads this into memory and the driver uses
-the register maps to bind shader inputs/outputs before each invocation.
-
-## Build Integration
-
-`shader_blobs.h` is a checked-in static artifact in `software/borg/compiler/`. The Python shader-build pipeline has been removed; the vert and frag blobs are now compiled at borgvk submit time by borgc (`mesa/src/borg/compiler/lib.rs`). The rasterize blob is hand-written Borg ISA and kept for reference but is not rebuilt automatically. The three `.borg` blobs are embedded into the firmware binary via `xxd -i`, making the shaders part of the ROM image with no filesystem needed.
-
-## Three Shaders
-
-The cube demo uses three shaders:
-
-**Vertex shader** — Applies a full 4×4 MVP matrix to vertex positions (3 input attributes x/y/z; 16 MVP uniforms; 4 clip-space outputs rx/ry/rz/rw). Produces 16 IMEM instructions and 96 bytes of SPIR-B.
-
-**Rasterize shader** (`rasterize.s`) — Evaluates all three edge functions (e0, e1, e2) in a single call. Uses hardware-injected pixel centers in r30 (px+0.5) and r31 (py+0.5). Hand-written in Borg ISA. Produces 12 IMEM instructions and 69 bytes of SPIR-B.
-
-**Fragment shader** (`shader.frag`) — Computes barycentric weights from
-edge values, interpolates UV coordinates and per-face vertex color
-(lighting factor), samples the texture via `ftex` (`OpImageSampleImplicitLod`),
-and modulates: `outRGB = texel.rgb × vertexColor.rgb`. Also interpolates
-depth (Z) for the tile-buffer Z-test. Produces 25 IMEM instructions.
+- [Compiler and Driver Contract](B0_compiler_contract.md): what the hardware
+  expects from compiled code.
+- [ISA Gaps](B4_isa_gaps.md): what shaders need that the ISA lacks.
+- [borgc design notes](B6_borgc_notes.md): the reasons behind individual
+  decisions in the source.
