@@ -11,12 +11,14 @@ the same thing, the **bold** term is preferred in technical writing.
 |------|---------|
 | **Borg** | The project; the whole GPU system (hardware + firmware + driver). |
 | **Borg GPU** | The GPU hardware implemented in Chisel — the FPGA/ASIC portion. Use when distinguishing it from the host-side software stack. |
-| **BorgCore** | The shader execution unit: FP16 FMA pipeline, 32-entry register file, configurable instruction memory (72 entries default, 32 on ASIC). The Scala class name; use in technical/RTL contexts. *Synonym (prose only):* "shader processor". |
+| **BorgCore** | The shader execution unit: an FP32 FMA pipeline (FP16 selectable) running a 2x2 quad on four lanes, 32 registers per lane, and an instruction cache over DRAM. The Scala class name; use in technical/RTL contexts. *Synonym (prose only):* "shader processor". |
 | **BorgSequencer** | The tile-based rendering orchestrator. Drives BorgCore and BorgRasterizer across two passes (bin + render). |
 | **BorgRasterizer** | Hardware edge-function unit. Evaluates coverage and invokes BorgCore for each covered pixel. |
+| **draw front end** | The hardware that renders a whole draw from one `SEQ_TRIGGER` write: primitive assembly, one vertex shader run per triangle, varyings through `SOUT`/`FATTR`, homogeneous setup. See [Geometry Front End](B1_geometry_front_end.md). |
+| **texture unit** | `BorgSampler`, driven by `TEX`/`TEXA` through texture and sampler descriptor tables in memory. See [Texture Unit](B2_texture_unit.md). |
 | **tile buffer** | The 16-pixel on-chip SRAM (BorgTileBuffer) that holds RGBZ during rasterization. *Not* "on-chip SRAM buffer". |
 | **BorgBinner** | Pass-1 hardware: counts triangles per tile and stores them in the binner's on-chip SRAM. |
-| **Hutt** | The RV32I/RV64I CPU core (replaced TinyQV in 2026-03), parameterized by XLEN — RV32I on ASIC/TT, RV64I on ULX3S. Runs firmware; communicates with BorgCore via MMIO. |
+| **Hutt** | The RV32I/RV64I CPU core (replaced TinyQV in 2026-03), parameterized by XLEN: RV32I in the ULX3S vkcube SoC, RV64 for Linux. Runs firmware or Linux; drives Borg through MMIO. The ASIC carries no CPU. |
 | **MemoryController** | Arbitrates the CPU instruction port, CPU data port, and GPU memory port across QspiBackend (flash/PSRAM) and SdramBackend (SDRAM). |
 
 ## Shader formats
@@ -24,6 +26,7 @@ the same thing, the **bold** term is preferred in technical writing.
 | Term | Meaning |
 |------|---------|
 | **SPIR-B** | Borg's binary shader format (analogous to SPIR-V). Produced by borgc (the Mesa NIR→Borg compiler). Loaded at runtime by `borg_spirb.c`. *Not* "SPIR-V" — Borg uses its own encoding. |
+| **opcode file** | `hardware/borg/isa/opcodes` with `fields.csv`: the ISA in riscv-opcodes format. `scripts/isa_gen.py` (`make isa`) generates the Scala decoder constants, `borg_isa.h` and borgc's `opcodes.rs` from it. |
 | **borgc** | The Rust NIR→Borg compiler in-tree under `mesa/src/borg/compiler/`. Compiles Vulkan SPIR-V shaders to SPIR-B for the Mesa driver. |
 | **SPIR-V** | Khronos standard IR. Mesa's `vk_spirv_to_nir` converts SPIR-V to NIR; borgc then lowers NIR to SPIR-B. |
 
@@ -45,5 +48,6 @@ the same thing, the **bold** term is preferred in technical writing.
 | **firtool** | LLVM/CIRCT tool that converts Chisel's FIRRTL output to Verilog (or MLIR for Arcilator). |
 | **Arcilator** | CIRCT-based fast simulator: compiles MLIR to LLVM IR, then to a native binary. Faster than Verilator for this design. |
 | **Verilator** | Cycle-accurate C++ simulator compiled from the emitted Verilog. |
+| **direct simulator** | `simulation/direct`: Borg alone (no CPU, no firmware) compiled by Arcilator and fed borgvk's packet stream; the Vulkan CTS runs on it. |
 | **SystemRDL / PeakRDL** | Register-description language + toolchain used to define the MMIO layout (`hardware/rdl/*.rdl`). Generates both `BorgGpuRegs.scala` and `borg_regs.h`. |
-| **borgvk** | The Mesa Vulkan ICD (in `mesa/src/borg/vulkan/`) that runs unmodified `vkcube` on Linux and ships frames to the ULX3S over serial. |
+| **borgvk** | The Mesa Vulkan ICD (in `mesa/src/borg/vulkan/`) that runs unmodified `vkcube`: on a host with the ULX3S over serial, on the direct simulator, and on Linux on the board through the DRM driver. |
