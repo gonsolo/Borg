@@ -67,12 +67,10 @@ pad's `PAD` pin reports ~3.6 pF against the design-wide 0.2 pF limit
 because `set_max_capacitance` cannot exempt one pin, even though the pad
 is rated for 50 pF).
 
-**Also as of 2026-09-24: the 1×1 slot is sold out.** Borg must now fit the
-1×0.5 slot (core 5.02 mm² vs 1×1's 12.92 mm²) instead — a ~58% synthesis
-area cut from the FP32 datapath (3.26 mm² today), planned once the
-in-progress Vulkan-conformance work merges. See `project_1x0p5_shrink_target`
-in the assistant's project memory for the per-module area breakdown and
-plan; this doc will be updated once that work lands in the repo.
+**Slots.** On 2026-09-24 the 1×1 slot of that shuttle run was sold out, so
+the 1×0.5 slot (core 5.02 mm² against 1×1's 12.92 mm²) became the fallback;
+its lane map is kept (`SLOT=1x0p5`). The flow still targets 1×1 by default. The
+synthesis of 2026-10-19 reports 5.01 mm² of standard cells for `chip_top`.
 
 ---
 
