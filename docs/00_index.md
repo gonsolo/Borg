@@ -17,9 +17,9 @@ nix develop          # or: direnv allow (if using direnv)
 # Run all unit tests (~2 min):
 make test-all
 
-# Cycle-accurate simulation (arcilator is fastest):
-make -C simulation/arcilator vkcube            # headless run
-make -C simulation/arcilator vkcube_gui        # interactive Pygame window
+# Cycle-accurate simulation:
+make -C simulation/arcilator vkcube_gui        # whole SoC, interactive Pygame window
+make -C simulation/direct golden               # Borg alone, the simulator the CTS runs on
 
 # Build and flash the ULX3S FPGA:
 cd fpga/ulx3s && make load   # ~10 min first run; subsequent: ~3 min
@@ -27,9 +27,11 @@ cd fpga/ulx3s && make load   # ~10 min first run; subsequent: ~3 min
 
 ## Known Issues / Limitations
 
-- **Resolution**: the current demo renders at 128×128. 800×480 HDMI is wired but
-  the SDRAM bandwidth at 25 MHz tops out at ~15–20 fps at that resolution; the
-  demo targets 128×128 for the HPG 2026 deadline.
+- **Resolution**: the ULX3S demo renders at 128×128. 800×480 HDMI is wired, but
+  the SDRAM bandwidth at 25 MHz limits the frame rate at that size.
+- **Conformance**: the Vulkan CTS runs against the RTL on the direct simulator;
+  the `api` group passes without failures, the full Vulkan 1.0 list does not yet.
+  See [Vulkan 1.0 Conformance Status](conformance/STATUS.md).
 - `BorgConfig.Default` (ULX3S) is the primary FPGA target.
 - **Gate-level tests**: `make -C asic/wafer.space sim-link-synth` and
   `sim-link-gl` need a synthesis or post-layout netlist from LibreLane; they
@@ -54,12 +56,12 @@ depending on your goal:
 ## Table of Contents
 
 0. [Introduction](00_introduction.md) — Motivation and project overview
-1. [The Borg Shader Processor](01_shader_processor.md) — FP16 FMA, registers, instruction memory
-2. [The Shader Compiler](02_compiler.md) — SPIR-V → pseudo-assembly → SPIR-B pipeline
-3. [The Software Driver](03_software_driver.md) — Shader pipeline, z-buffer, texturing
+1. [The Borg Shader Processor](01_shader_processor.md) — FP32 quad core, registers, instruction cache, the ISA
+2. [The Shader Compiler](02_compiler.md) — borgc: NIR to Borg machine code inside Mesa
+3. [The Software Driver](03_software_driver.md) — borgvk, the Vulkan driver, and its three back ends
 4. [Running on an FPGA](04_fpga.md) — ULX3S FPGA target
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification
-6. [Simulation](06_simulation.md) — Verilator, Arcilator, and interactive viewing
+6. [Simulation](06_simulation.md) — Verilator, Arcilator, the direct simulator, interactive viewing
 7. [Tile-Based Rendering](07_tbr.md) — Two-pass TBR, BorgBinner, BorgSequencer FSM, DRAM layout
 
 ### Appendices
@@ -78,5 +80,5 @@ depending on your goal:
 12. [GPU Memory](B5_gpu_memory.md) — Design: VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
 13. [borgc design notes](B6_borgc_notes.md) — Why the Rust shader compiler does what it does
 14. [borgvk design notes](B7_borgvk_notes.md) — Why the Vulkan driver does what it does
-15. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `info` result, known limits and the open `api` discrepancy
+15. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
 16. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
