@@ -27,13 +27,26 @@ This ensures that any software that runs in simulation will run identically on t
 
 ### Verilator
 The standard backend. It compiles the Chisel-generated Verilog into a high-performance C++ model.
-- **Usage**: `make -C simulation/verilator vkcube`
+- **Usage**: `make -C simulation/verilator cts-uart` (the whole SoC, fed a recorded borgvk stream over the simulated UART)
 - **Speed**: ~500 kHz to 1 MHz on modern CPUs.
 
 ### Arcilator
 A state-of-the-art backend that uses MLIR (Multi-Level Intermediate Representation) to optimize the hardware graph before compilation.
-- **Usage**: `make -C simulation/arcilator vkcube`
+- **Usage**: `make -C simulation/arcilator cts-uart`
 - **Speed**: Generally 2x–4x faster than Verilator.
+
+### Direct simulator
+`simulation/direct` models Borg alone: no CPU, no firmware, no UART. The GPU's
+RTL is compiled with Arcilator as above, and a small C++ host (`driver.cpp`,
+which mirrors the firmware's packet handlers) feeds it borgvk's packet stream
+directly. Without the boot, the idle gaps and the serial link, a CTS case starts
+rendering at once.
+- **Usage**: `make -C simulation/direct` builds `direct_sim`;
+  `make -C simulation/direct golden` checks vkcube, a blended and a stencilled
+  cube bit-exact against reference images.
+- **Speed**: roughly 140,000 to 230,000 cycles per second per instance; the CTS
+  runs many instances in parallel (`DIRECT=1 scripts/cts_par.sh`, see
+  [The Software Driver](03_software_driver.md)).
 
 ## Interactive Viewer
 
