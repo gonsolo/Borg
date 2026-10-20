@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Rerun the driver corpus cases and compare the recorded hashes and the result table with ref/.
 # QUICK=1 runs quick.txt and only checks that no hash or status appears that ref/ lacks.
+# Hashes depend on which cases share a process, so compare only runs of the same case list.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
