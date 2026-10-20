@@ -4,7 +4,7 @@ Send a known-good 4x4 MVP to vkcube on the ULX3S over serial — exercises the
 firmware's 0xAD full-MVP path (borg_vkcube.c) independently of the borgvk Mesa
 driver and WSI.
 
-Packet (matches mesa/src/borg/vulkan/borgvk_serial.c):
+Packet (matches send_mvp in mesa/src/borg/vulkan/rust/serial.rs):
   byte 0      : 0xAD marker
   bytes 1..64 : 16 little-endian float32, column-major mvp[4][4]
   byte 65     : XOR checksum of bytes 1..64

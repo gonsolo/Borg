@@ -142,7 +142,7 @@ def main():
 
         # Drain all borgvk bytes that arrived since the last iteration and
         # inject them into the UART transmitter.  borgvk paces its packet
-        # writes (see borgvk_transport_write_paced in borgvk_serial.c) so the
+        # writes (see send in mesa/src/borg/vulkan/rust/transport.rs) so the
         # firmware's gap-sync can find a genuine idle period between packets.
         while byte_deque:
             sim.uart_inject(byte_deque.popleft())
