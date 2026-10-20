@@ -1,4 +1,4 @@
-# Vulkan 1.0 conformance status (2026-10-07)
+# Vulkan 1.0 conformance status (2026-10-20)
 
 What borgvk and Borg pass in the Khronos CTS today, what fails, and what the numbers do not say.
 This is **not** a Khronos conformance submission.
@@ -18,7 +18,7 @@ Results are labelled with the tier they were measured on; a number from one tier
 | Tier | Setup | Proves | Does not prove | Status |
 |---|---|---|---|---|
 | 1 | Host: `deqp-vk`, borgvk and the DRM shim on x86, Borg RTL in `direct_sim` (arcilator) | Vulkan driver and Borg hardware design, full CTS | The kernel driver, Hutt, the board's memory | **All results in this document** |
-| 2 | QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt (`info` only so far) | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator and shim parity are designed (`../B5_gpu_memory.md`), not built. Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
+| 2 | QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt (`info` only so far) | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator (`GEM_CREATE`, `GEM_MMAP`) is implemented since 2026-10-08 (`../B5_gpu_memory.md`). Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
 | 3 | ULX3S: Hutt, Linux, Rust DRM driver, borgvk, Borg | The whole stack on real hardware | Most CTS groups: `deqp-vk` is about 100 MB, the board has 13.7 MB free | `vkcube` renders (`../evidence/`); a short list of small test programs is planned, not a CTS run |
 
 Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and shim parity alongside the
@@ -142,7 +142,7 @@ What the failures are:
   are the open pipeline and shader-rendering work.
 - **ssbo, ubo, texture, image, spirv_assembly, synchronization:** failure reasons not analysed yet.
 - **memory (36):** all in `memory.pipeline_barrier`.
-- **api:** 0 Fail in the full group, see the `api` rerun below; the 13 in the table are from the faulty run.
+- **api:** 0 Fail in the full group, see the `api` rerun below.
 
 ## `dEQP-VK.info.*` (tier 1)
 
@@ -276,6 +276,19 @@ missing-extension check, so the result matches tier 1.
   Not measured on the wafer.space flow.
 - The older rows in the tables above (sampler, depth, the first 121,750 cases in tree order) and the 150-case samples.
 
+## The compiler corpora (tier 1, 2026-10-20)
+
+After loops in graphics shaders, PC-relative branches and the unified instruction selection, both corpora were
+rerun and recorded as new references (`scripts/borgc_corpus/`):
+
+| Corpus | Cases | Pass | Fail | Other |
+|---|---|---|---|---|
+| Graphics (`check.sh`) | 2,293 | 728 | 12 | 1,553 NotSupported |
+| Compute (`SET=compute check.sh`) | 3,990 | 3,711 | 258 | 21 Timeout |
+
+The 21 timeouts are `glsl.builtin.precision` vec3/vec4 cases near the 120 s per-case limit; their code did not
+change.
+
 ## glsl: the compiler corpus (tier 1, 2026-10-17)
 
 `scripts/borgc_corpus/check.sh` (2,293 cases, 901 s): **712 Pass, 1,553 NotSupported, 28 Fail**, 9 more Pass than
@@ -327,10 +340,10 @@ with the library present, so the baseline's "13" came from the broken environmen
 
 An earlier rerun the same day showed 87 failures. That was an environment fault: `direct_sim` could not load
 `libstdc++.so.6`, so every case that needs the simulator failed. The "13 failures" in the all-groups
-table below come from the same kind of run and are not trusted either.
+table came from the same kind of run and were not trusted either.
 
-**The all-groups table is not reliable.** It was measured without that check; only the `api` row and the
-`info` run were repeated with the library present. The all-groups rerun is pending.
+The all-groups table has been withdrawn for that reason; only the `api` row and the `info` run were repeated with
+the library present. The all-groups rerun is pending.
 
 ## `api` on tier 2 (QEMU, Rust DRM driver, faulting Borg)
 
