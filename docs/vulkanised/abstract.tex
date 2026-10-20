@@ -1,4 +1,4 @@
-% Borg: extended abstract for Vulkanised 2027 (3 pages).
+% Borg: extended abstract for Vulkanised 2027 (2 pages).
 \documentclass[sigconf,nonacm]{acmart}
 
 \usepackage{booktabs}
@@ -34,19 +34,17 @@ Vulkan CTS directly against the RTL with a compiled simulator to find
 hardware bugs before tapeout.
 \end{abstract}
 
-\keywords{Vulkan, GPU architecture, open hardware, Mesa, conformance testing}
+\maketitle
 
-\begin{teaserfigure}
+\begin{figure}[t]
   \centering
-  \includegraphics[width=0.62\textwidth]{vkcube_ulx3s.jpg}
+  \includegraphics[width=0.8\columnwidth]{vkcube_ulx3s.jpg}
   \caption{The unmodified Khronos \texttt{cube.c} rendered by Borg on a
     ULX3S board (Lattice ECP5-85K), shown over HDMI.}
   \Description{Photo of a ULX3S FPGA board connected by HDMI to a small
     display showing the textured Vulkan cube.}
   \label{fig:teaser}
-\end{teaserfigure}
-
-\maketitle
+\end{figure}
 
 \section{Introduction}
 
@@ -64,8 +62,10 @@ starting with the unmodified Khronos \texttt{cube.c}
 driver, borgvk, is a native Mesa ICD modelled on v3dv: it uses Mesa's
 Vulkan runtime and compiles SPIR-V through NIR to Borg's ISA. Its output is
 a stream of command packets, which reaches one of three back ends: the FPGA
-over a serial link, a Linux DRM driver on the board itself, or a compiled
-simulator of the RTL that runs the Vulkan conformance test suite (CTS).
+over a serial link; a DRM driver under Linux on the board's own CPU, where
+\texttt{cube.c} runs with no host computer at all; or a compiled simulator
+of the RTL that runs the Vulkan conformance test suite (CTS). The driver
+code is the same in all three cases.
 
 \begin{figure}[t]
   \centering
@@ -105,9 +105,8 @@ simulator of the RTL that runs the Vulkan conformance test suite (CTS).
 
 \section{What Vulkan~1.0 asks of hardware}
 
-Several features of Borg exist only because the API demanded them. Each
-was cheaper to build than to work around. Table~\ref{tab:features}
-summarizes them.
+Several features of Borg exist only because the API demanded them
+(Table~\ref{tab:features}). Each was cheaper to build than to work around.
 
 \begin{table}[t]
   \caption{Vulkan~1.0 requirements and the Borg hardware behind them.}
@@ -119,11 +118,11 @@ summarizes them.
     \midrule
     Compute on every graphics queue & workgroup dispatch, \texttt{BARRIER}, atomics \\
     Derivatives, implicit LOD & 2x2 quad on four lanes \\
-    Sampled images, samplers & descriptor-table texture unit, 51 formats \\
+    Sampled images, samplers & descriptor-table texture unit: 51 formats, mipmaps, all address modes \\
     Colour attachment formats & raw attachments, blend by read-back \\
     Depth, stencil, scissor, blend & fixed function in the tile pipeline \\
     Occlusion queries & exact passing-sample counts \\
-    4x MSAA & multi-pass rendering per tile \\
+    4x MSAA & multi-pass per tile, about 9\% less area \\
     Vertex input, topologies & hardware draw front end \\
     \bottomrule
   \end{tabular}
@@ -143,20 +142,6 @@ pixels, so the fragment core runs a 2x2 quad on four lanes, and implicit
 LOD in the texture unit uses the same quad. A one-lane core would be
 smaller and would return zero derivatives.
 
-\paragraph{Descriptors become hardware tables.}
-Instead of a fixed texture format, the texture unit reads descriptor
-tables from memory: 51 formats, mipmaps with implicit LOD, every address
-mode and border colour, trilinear filtering, depth compare, gather,
-\texttt{texelFetch} and offsets. The driver writes Vulkan's image and
-sampler state straight into these tables.
-
-\paragraph{Formats and fixed function.}
-Beyond a few native colour formats, every colour attachment is a raw
-attachment: the fragment shader packs the format and blends by reading the
-destination back. Depth, stencil, scissor, blending, exact occlusion query
-counts and 4x MSAA are in hardware. MSAA renders in several passes, which
-saved about 9\% of the area compared with storing all samples at once.
-
 \paragraph{The draw front end.}
 A single register write renders a whole draw: primitive assembly for
 lists, strips, fans, indices, restart and instancing; one vertex shader run
@@ -166,11 +151,9 @@ eye are handled exactly.
 
 \section{A driver and compiler for 32 registers}
 
-borgvk follows the structure of other Mesa drivers: it builds on Mesa's
-Vulkan runtime for objects, synchronization and WSI, and submits through
-the runtime's queue. What is specific to Borg is the target.
-
-The shader compiler, borgc, consumes NIR after Mesa's standard lowering.
+borgvk builds on Mesa's Vulkan runtime for objects, synchronization and
+WSI; what is specific to Borg is the target. Its compiler, borgc, consumes
+NIR after Mesa's standard lowering.
 One instruction selector serves graphics and compute. The core has 32
 registers per lane; constants live in a small uniform window that an
 instruction can read as one of its operands, so the compiler places
@@ -190,26 +173,16 @@ that should be a pure refactoring must produce identical binaries.
 \begin{figure}[t]
 \small
 \begin{verbatim}
-fadd    rd rs1 rs2 f3   31..25=0x00 6..0=0x00
-fmadd   rd rs1 rs2 rs3 f3   26..25=0 6..0=0x04
-tex     rd rs1 rs2 rs3 f3   26..25=2 6..0=0x04
-brnz    rs1 offset f3   31..25=0x28 6..0=0x00
-expush  rs1 f3   31..25=0x2A 24..20=0 11..7=0 6..0=0x00
+fmadd  rd rs1 rs2 rs3 f3  26..25=0 6..0=0x04
+tex    rd rs1 rs2 rs3 f3  26..25=2 6..0=0x04
+brnz   rs1 offset f3      31..25=0x28 6..0=0x00
 \end{verbatim}
 \caption{An excerpt of the opcode file. The decoder, the C header and the
   compiler's encoder are generated from it, so they cannot disagree.}
-\Description{Five lines of an opcode table, each naming an instruction,
+\Description{Three lines of an opcode table, each naming an instruction,
   its operand fields and its fixed bit ranges.}
 \label{lst:opcodes}
 \end{figure}
-
-\paragraph{Three back ends.}
-The packet stream goes to the ULX3S over a serial link, so a desktop
-Vulkan application renders on the FPGA; to the simulator described below;
-or, on the board itself, through a DRM render-node driver under Linux on
-the 64-bit Hutt CPU. In that last configuration \texttt{cube.c} runs on the
-board with no host computer at all. The driver code is the same in all
-three cases; only the transport changes.
 
 \section{Running the CTS against RTL}
 
@@ -258,20 +231,17 @@ status page.
 \section{Lessons for a new implementation}
 
 \begin{itemize}
-  \item Bring up the \texttt{api} group first: it needs almost no shaders
-    and settles the object model.
-  \item Do compute early. It is mandatory, and the precision tests depend
-    on it.
+  \item Bring up the \texttt{api} group first, and compute early: it is
+    mandatory, and the precision tests depend on it.
   \item Make the simulator fast before chasing failures; test throughput
     sets the pace of everything else.
-  \item Refuse what the compiler cannot do. Silent miscompilation hides
-    bugs that the CTS would otherwise report.
-  \item Keep one source of truth for the ISA and register layouts;
-    disagreements between copies were the cause of several bugs above.
+  \item Refuse what the compiler cannot do; silent miscompilation hides
+    bugs the CTS would otherwise report.
+  \item Keep one source of truth for the ISA; disagreements between copies
+    caused several of the bugs above.
 \end{itemize}
 
-The next steps are the full Vulkan~1.0 must-pass list, the remaining
-pipeline and GLSL groups, and a tapeout on wafer.space.
+Next are the full Vulkan~1.0 must-pass list and a tapeout on wafer.space.
 
 \begin{thebibliography}{6}
 \bibitem{chisel} J.~Bachrach et al. Chisel: Constructing Hardware in a
