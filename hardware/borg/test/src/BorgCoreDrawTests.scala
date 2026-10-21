@@ -80,6 +80,31 @@ object BorgCoreDrawTests extends TestSuite {
       }
     }
 
+    utest.test("sout_corner_select_stores_one_corners_lane") {
+      simulate(new BorgCore(quad)) { core =>
+        println("\n--- BorgCore: SOUT index bits 9:8 pick one corner ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.seqBusy.poke(true.B)
+        ids(core, mode = true, i => 100 + i, i => 7)
+        val rec = core.io.record.get
+        rec.outBase.poke(0x2000.U); rec.outInterleave.poke(true.B); rec.outCorner.poke(0.U)
+        // Component 5: every corner's VertexIndex, then corner 1's InstanceIndex over it.
+        writeImem(core, 0, Instructions.SOUT(rs2 = 30, index = 5))
+        writeImem(core, 1, Instructions.SOUT(rs2 = 31, index = 5 | (2 << 8)))
+        writeImem(core, 2, 0)
+        val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+        startAndWaitWithMem(core, mem)
+        val want = Seq(100, 7, 102, 103)
+        for (lane <- 0 until 4) {
+          val a = BigInt(0x2000 + 4 * (3 * 5 + lane))
+          println(f"  corner $lane: [0x${a.toInt}%x] = ${mem.get(a)}")
+          utest.assert(mem.get(a).contains(BigInt(want(lane))))
+        }
+        println("  PASSED")
+      }
+    }
+
     utest.test("sout_without_interleave_is_a_plain_record_store") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: SOUT, setup stride ---")

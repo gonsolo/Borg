@@ -924,10 +924,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // that the operand reads decode as registers.
     val compIdx = RegInit(0.U(10.W))
     val attrK   = RegInit(0.U(2.W))          // FATTR: which of the three words
+    // A vertex shader's SOUT index: bits 7:0 the component, bits 9:8 = k + 1 to store corner k's
+    // lane only (0 = every corner), so a varying can go out as a0, a1 - a0, a2 - a0.
+    val soutSel = compIdx(9, 8)
+    val soutLaneOk = io.record.map { rec =>
+      !(is_sout_reg && rec.outInterleave && soutSel =/= 0.U && (rec.outCorner +& memLane) =/= soutSel - 1.U)
+    }.getOrElse(true.B)
     val byteAddr = io.record.map { rec =>
       val times3 = (compIdx << 1) +& compIdx
+      val comp   = compIdx(7, 0)
       val corner = rec.outCorner +& memLane
-      val word   = Mux(rec.outInterleave, times3 +& corner, compIdx)
+      val word   = Mux(rec.outInterleave, ((comp << 1) +& comp) +& corner, compIdx)
       val soutAddr = (rec.outBase +& (word << 2))(GpuMemIO.AddrBits - 1, 0)
       val attrAddr = (rec.attrBase +& ((times3 +& attrK) << 2))(GpuMemIO.AddrBits - 1, 0)
       Mux(is_fattr_reg, attrAddr, Mux(is_sout_reg, soutAddr, lsAddr))
@@ -994,7 +1001,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // laneHelper describes the quad the dispatcher last shaded, so it never
     // applies to a sequencer-run program: a vertex shader's or the setup
     // ROM's SOUT must not inherit it.
-    val laneActive = VecInit(execMask.asBools)(memLaneIdx) &&
+    val laneActive = VecInit(execMask.asBools)(memLaneIdx) && soutLaneOk &&
                      !(is_store_reg && !is_private_reg && !io.seqBusy && io.laneHelper.get(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
