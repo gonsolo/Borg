@@ -552,7 +552,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val off = MuxLookup(ax, 0.S(4.W))(Seq(0.U -> offU(ctl), 1.U -> offV(ctl),
                                             2.U -> Mux(ttype === T3D.U, offW(ctl), 0.S)))
       val xs = Mux(linear, x8 - 128.S, x8)                // texel centres at +0.5
-      val first = (xs >> 8) + Mux(isFetch, 0.S, off)
+      val first = (xs >> 8) + off
       i0(ax) := first; i1(ax) := first + 1.S
       fr(ax) := Mux(linear, xs(7, 0).asUInt, 0.U)
       wrapEnd := 0.U

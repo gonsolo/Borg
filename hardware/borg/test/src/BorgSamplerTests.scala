@@ -192,7 +192,7 @@ object BorgSamplerTests extends TestSuite {
               (f * size(a)) >> 16
             }
           val xs = if (linear) x8 - 128 else x8
-          val first = (xs >> 8).toInt + (if (isFetch) 0 else offs(a))
+          val first = (xs >> 8).toInt + offs(a)
           val frac = if (linear) (xs & 255).toInt else 0
           def wrap(i0: Int): (Int, Boolean) = {
             val sz = size(a); var i = i0
@@ -583,6 +583,8 @@ object BorgSamplerTests extends TestSuite {
         val mip = Tex(TexFormat.byName("R32_UINT"), 8, 8, levels = 3)
         sample(d, "texelFetch", mip, Samp(), OpFetch.toLong << 16,
                Seq(Lane(0, fetch = (1, 2, 0, 0)), Lane(0, fetch = (3, 3, 0, 1)), Lane(0, fetch = (0, 1, 0, 2)), Lane(0, fetch = (7, 0, 0, 0))))
+        sample(d, "texelFetchOffset (-1,1)", mip, Samp(), (OpFetch.toLong << 16) | (15L << 23) | (1L << 27),
+               Seq(Lane(0, fetch = (2, 2, 0, 0)), Lane(0, fetch = (2, 1, 0, 1)), Lane(0, fetch = (1, 0, 0, 2)), Lane(0, fetch = (7, 0, 0, 0))))
         for ((ou, ov) <- Seq((1, 0), (-2, 3), (7, -8)))
           sample(d, s"offset ($ou,$ov)", rgba, Samp(mode = (Repeat, ClampEdge, Repeat)),
                  (LodExplicit.toLong << 21) | ((ou & 15).toLong << 23) | ((ov & 15).toLong << 27),
