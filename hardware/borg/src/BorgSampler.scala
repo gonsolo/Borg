@@ -764,8 +764,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     // --- Answer the lane ----------------------------------------------------
     is(sResp) {
       if (BorgDebug.trace) when(io.respReady) {
-        printf("[TEX] lane %d u=0x%x v=0x%x lvl=%d taps i0=(%d,%d) addr=0x%x -> %x %x %x %x\n", lane,
-          args(lane).u, args(lane).v, lvl(0), i0(0), i0(1), addr, acc(0), acc(1), acc(2), acc(3))
+        printf("[TEX] lane %d u=0x%x v=0x%x lod=0x%x levels=%d lvl=%d taps i0=(%d,%d) addr=0x%x -> %x %x %x %x\n", lane,
+          args(lane).u, args(lane).v, args(lane).lod, levels, lvl(0), i0(0), i0(1), addr, acc(0), acc(1), acc(2), acc(3))
       }
       when(io.respReady) {
         when(lane === (N - 1).U) { io.done := true.B; state := sIdle }
