@@ -785,17 +785,18 @@ int borg_core_packet(const uint8_t *p) {
     g_att_fmt = (uint32_t)p[2] | (uint32_t)p[3] << 3 | (uint32_t)p[4] << 6;
     return BC_ATT;
   }
-  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour
+  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour, 4 per sample
     int fmt = p[1];
-    if (fmt > 7 || p[2] > 15) return BC_BAD;
-    if (fmt != g_flush_format || (p[2] >> 3) != g_nocolor) {
+    if (fmt > 7 || p[2] > 31) return BC_BAD;
+    if (fmt != g_flush_format || ((p[2] >> 3) & 1) != g_nocolor) {
       g_flush_format = fmt;
-      g_nocolor = p[2] >> 3;
+      g_nocolor = (p[2] >> 3) & 1;
       core_apply_layout();
     }
     BREG_W(flush_zb_base, (p[2] & 1) ? BORG_ZB_SPI : 0);
     BREG_W(flush_sb_base, (p[2] & 2) ? BORG_SB_SPI : 0);
     BREG_W(depth_format, (p[2] >> 2) & 1);
+    BREG_W(attach_ms, (p[2] >> 4) & 1);
     return BC_PASS;
   }
   case 0xB8: { // heap write: byte offset from BORG_HEAP_SPI, nbytes, data
