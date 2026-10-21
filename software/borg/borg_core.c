@@ -219,14 +219,23 @@ void borg_set_sampler(const uint32_t desc[4]) {
   for (int i = 0; i < 4; i++) g_sampler_desc[i] = desc[i];
 }
 
+static uint32_t g_tex_desc[16];   // descriptor 0, also the vertex shader's BORG_VTEX_SLOT
+
+static void tex_desc_store(const uint32_t d[16]) {
+  for (int w = 0; w < 16; w++) {
+    g_tex_desc[w] = d[w];
+    BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)w * 4, d[w]);
+    BDRAM_W(TEX_DESC_TABLE_ADDR + BORG_VTEX_SLOT * 64 + (uint32_t)w * 4, d[w]);
+  }
+  g_vtab_dirty = 1;
+}
+
 void borg_set_texture(int tex_width, int tex_height) {
   // Descriptor 0 (docs/B2_texture_unit.md): a 2D, one-level, one-layer RGBA8 image, linear.
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 0, BC_TEXEL_BASE);
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 4,
-          (uint32_t)(tex_width - 1) | ((uint32_t)(tex_height - 1) << 16) | (1u << 28) | (1u << 30));
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 8, (uint32_t)BORG_TEX_FORMAT_R8G8B8A8_UNORM << 14);
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 12, (uint32_t)tex_width * 4);
-  for (int w = 4; w < 16; w++) BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)w * 4, 0);
+  uint32_t d[16] = { BC_TEXEL_BASE,
+                     (uint32_t)(tex_width - 1) | ((uint32_t)(tex_height - 1) << 16) | (1u << 28) | (1u << 30),
+                     (uint32_t)BORG_TEX_FORMAT_R8G8B8A8_UNORM << 14, (uint32_t)tex_width * 4 };
+  tex_desc_store(d);
   for (int w = 0; w < 4; w++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + (uint32_t)w * 4, g_sampler_desc[w]);
   // Written after the tables: a write to either register also drops the cached descriptors.
   BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);
@@ -236,9 +245,9 @@ void borg_set_texture(int tex_width, int tex_height) {
 static uint32_t g_tex_lvl[12];   // byte offsets of levels 1..12, from the 0xC0 packet
 
 void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 0, BC_TEXEL_BASE);
-  for (int i = 0; i < 3; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + 4 + (uint32_t)i * 4, w[i]);
-  for (int i = 4; i < 16; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)i * 4, g_tex_lvl[i - 4]);
+  uint32_t d[16] = { BC_TEXEL_BASE, w[0], w[1], w[2] };
+  for (int i = 4; i < 16; i++) d[i] = g_tex_lvl[i - 4];
+  tex_desc_store(d);
   for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + (uint32_t)i * 4, samp[i]);
   BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);
   BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
@@ -513,9 +522,10 @@ void borg_core_list_draw(void) {
   list_stage(0, &g_draw_vert);
   list_stage(1, &frag_shader);
   if (g_vtab_dirty || !g_list.vtab_addr) {
-    g_list.vtab_addr = list_alloc(BORG_MAX_VATTRS * 64);
+    g_list.vtab_addr = list_alloc((BORG_MAX_VATTRS + 1) * 64);
     for (int s = 0; s < BORG_MAX_VATTRS; s++)
       for (int w = 0; w < 16; w++) BDRAM_W(g_list.vtab_addr + (uint32_t)(s * 64 + w * 4), w < 4 ? g_vtab[s][w] : 0);
+    for (int w = 0; w < 16; w++) BDRAM_W(g_list.vtab_addr + (uint32_t)(BORG_MAX_VATTRS * 64 + w * 4), g_tex_desc[w]);
     g_vtab_dirty = 0;
   }
 
