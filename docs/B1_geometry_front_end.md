@@ -120,7 +120,8 @@ addresses from its constant window. Varyings go to memory:
 of this invocation's corner, at `recordBase + 4*48 + 4*(3*index + corner)`:
 a component's three per-vertex values sit next to each other. The 10-bit
 index is split over the `rd` and `rs1` fields, as RISC-V S-type stores split
-theirs. Masked lanes store nothing.
+theirs: bits 7:0 are the component, and bits 9:8 = k + 1 store corner k's lane
+only (0 stores every corner). Masked lanes store nothing.
 
 The shader runs once per triangle, not once per unique vertex, which Vulkan
 allows. Vertex-stage stores and atomics are the optional
@@ -225,7 +226,14 @@ read per word for the whole quad). A varying is then
 
     v = λ0*a0 + λ1*a1 + λ2*a2         (FMUL + 2 FMADD)
 
-`flat` uses `a0`, the provoking vertex. `FATTR` reads the record in memory;
+`flat` uses `a0`, the provoking vertex.
+
+borgc's shaders store each component as `a0`, `a1 - a0` and `a2 - a0`
+instead: the vertex shader's coarse `DDX` and `DDY` across the corner lanes
+are the differences, stored with the corner select above. A varying is then
+`a0 + λ1*d1 + λ2*d2` (two FMADDs), which returns a constant exactly; the sum
+of three rounded weights does not (1.0 can come back as 0.99999994, and
+`int()` of it as 0). `FATTR` reads the record in memory;
 caching attributes on chip is a possible later optimization, not part of the
 contract.
 
