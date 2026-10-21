@@ -82,6 +82,7 @@
 #define BORG_TEX_SLOTS          256
 #define BORG_VATTR_SLOT0        128
 #define BORG_MAX_VATTRS         43      // 16 application locations, the point corner or line attribute, 16 more for a line's other endpoint
+#define BORG_VTEX_SLOT          (BORG_VATTR_SLOT0 + BORG_MAX_VATTRS)   // slot 0's copy: the vertex shader's table has no slot 0
 #define TEX_DESC_TABLE_ADDR     TEX_DRAM_BYTE_ADDR_FIXED
 #define SAMPLER_DESC_TABLE_ADDR (TEX_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 64)
 #define TEX_TEXEL_ADDR          (SAMPLER_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 16)
