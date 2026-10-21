@@ -61,7 +61,7 @@ static struct {
 // The viewport and scissor of the draws that follow (0xC2); valid = none sent, the target's full size.
 static struct { int valid; uint32_t sx, sy, ox, oy, zscale, zoff, scx, scy; } g_vp;
 static struct {
-  uint8_t blob[6 + BC_SHADER_MAX_BIG];
+  uint8_t blob[6 + BC_SHADER_MAX_HUGE];
   uint32_t bytes;
   uint32_t code, consts;      // arena addresses of the code and constant window, 0 = not staged
 } g_sh[2];
@@ -657,6 +657,9 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xAF: return BC_PKT_LEN_TEXROW;
   case 0xB0: return BC_PKT_LEN_SHADER;
   case 0xC1: return BC_PKT_LEN_SHADER_BIG;
+#ifdef BORG_HOST
+  case 0xC3: return BC_PKT_LEN_SHADER_HUGE;
+#endif
   case 0xB2: return BC_PKT_LEN_PUSH;
   case 0xB3: return BC_PKT_LEN_BLEND;
   case 0xB4: return BC_PKT_LEN_STATE;
@@ -721,10 +724,12 @@ int borg_core_packet(const uint8_t *p) {
     return BC_TEXROW;
   }
   case 0xB0:
-  case 0xC1: { // borgc shader upload
+  case 0xC1:
+  case 0xC3: { // borgc shader upload
     uint8_t stage = p[1];
     uint32_t blen = (uint32_t)p[2] | ((uint32_t)p[3] << 8);
-    if (stage > 1 || blen < 6 || blen > (p[0] == 0xC1 ? BC_SHADER_MAX_BIG : BC_SHADER_MAX)) return BC_BAD;
+    uint32_t max = p[0] == 0xC3 ? BC_SHADER_MAX_HUGE : p[0] == 0xC1 ? BC_SHADER_MAX_BIG : BC_SHADER_MAX;
+    if (stage > 1 || blen < 6 || blen > max) return BC_BAD;
     borg_stage_shader(stage, p + 4);
     return stage == 0 ? BC_SHADER_VERT : BC_SHADER_FRAG;
   }

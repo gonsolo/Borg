@@ -41,7 +41,7 @@ borg_core.o: $(FIRMWARE_DIR)/borg_core.c $(FIRMWARE_DIR)/borg_core.h $(wildcard 
 	$(HOSTCC) -O2 -DBORG_HOST -I$(FIRMWARE_DIR) -I$(RDL_C_OUT) -c $< -o $@
 
 borg_spirb.o: $(FIRMWARE_DIR)/borg_spirb.c $(FIRMWARE_DIR)/borg_spirb.h
-	$(HOSTCC) -O2 -I$(FIRMWARE_DIR) -c $< -o $@
+	$(HOSTCC) -O2 -DBORG_HOST -I$(FIRMWARE_DIR) -c $< -o $@
 
 direct_sim: $(OBJS) arc.o
 	$(HOSTCXX) -O3 $^ -o $@
