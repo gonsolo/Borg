@@ -13,6 +13,7 @@
 #   OUT          scratch dir           (default /tmp/borg-cts-one)
 #   NO_FW_BUILD  set to reuse $SIM_FW without rebuilding it
 #   DIRECT       set to use simulation/direct/direct_sim (Borg alone, no firmware) -- seconds, not minutes
+#   DIRECT_BIN   that simulator (default simulation/direct/direct_sim; direct_sim_v for BORG_TRACE)
 #
 # The firmware is built exactly like the simulators' Makefiles do (CLOCK_MHZ=25, UART at the
 # sim baud) and copied away, so software/borg/kernel.bin is not reused for the board.
@@ -22,7 +23,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
 MESA_ROOT="${MESA_ROOT:-$HOME/work/Borg/mesa}"
 SIM_BIN="${SIM_BIN:-$REPO/simulation/arcilator/arcilator_sim}"
-DIRECT_BIN="$REPO/simulation/direct/direct_sim"
+DIRECT_BIN="${DIRECT_BIN:-$REPO/simulation/direct/direct_sim}"
 OUT="${OUT:-/tmp/borg-cts-one}"
 SIM_FW="${SIM_FW:-$OUT/kernel_sim.bin}"
 DEQP_DIR="$VK_GL_CTS/build/external/vulkancts/modules/vulkan"
