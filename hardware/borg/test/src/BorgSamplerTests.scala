@@ -590,5 +590,16 @@ object BorgSamplerTests extends TestSuite {
         println("  depth compare (PCF), gather, texelFetch across levels, offsets")
       }
     }
+
+    utest.test("texel_fetch_wide_formats_arrays_and_3d") {
+      withSampler { d =>
+        val lanes = Seq(Lane(0, fetch = (1, 2, 1, 0)), Lane(0, fetch = (3, 3, 2, 1)), Lane(0, fetch = (0, 1, 0, 2)), Lane(0, fetch = (7, 0, 3, 0)))
+        sample(d, "texelFetch RGBA32F", Tex(TexFormat.byName("R32G32B32A32_SFLOAT"), 8, 8, levels = 3), Samp(), OpFetch.toLong << 16, lanes)
+        sample(d, "texelFetch RGBA16F", Tex(TexFormat.byName("R16G16B16A16_SFLOAT"), 8, 8, levels = 3), Samp(), OpFetch.toLong << 16, lanes)
+        sample(d, "texelFetch 2D array", Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 4, levels = 3), Samp(), OpFetch.toLong << 16, lanes)
+        sample(d, "texelFetch 3D", Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 4, levels = 3, ttype = T3D), Samp(), OpFetch.toLong << 16, lanes)
+        println("  texelFetch of 16-byte texels, array layers and 3D slices")
+      }
+    }
   }
 }
