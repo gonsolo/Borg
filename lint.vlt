@@ -88,3 +88,4 @@ lint_off -rule UNUSEDSIGNAL -file "*BorgLinkSlave.sv" -match "*io_gpuMem_wlen*"
 // LinkRx: flitAcc[15:8] only exists for the narrow (w=8) reassembly, which
 // keeps the first slice in the low byte.
 lint_off -rule UNUSEDSIGNAL -file "*LinkRx.sv" -match "*flitAcc*"
+lint_off -rule BLKSEQ -file "*_Verification.sv"

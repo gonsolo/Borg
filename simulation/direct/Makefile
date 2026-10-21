@@ -46,8 +46,27 @@ borg_spirb.o: $(FIRMWARE_DIR)/borg_spirb.c $(FIRMWARE_DIR)/borg_spirb.h
 direct_sim: $(OBJS) arc.o
 	$(HOSTCXX) -O3 $^ -o $@
 
+# The same harness on a Verilated model, for BORG_TRACE printfs (arcilator drops them):
+#   BORG_TRACE=1 mill hardware.soc.runMain soc.BorgDirectSimMain   (fresh mill daemon)
+#   make direct_sim_v
+VDIR = $(ROOT)/out/hardware/borg/verilog_direct
+$(VDIR)/filelist.f: $(ROOT)/out/hardware/borg/firrtl_direct/BorgDirectSimTop.fir
+	rm -rf $(VDIR) && mkdir -p $(VDIR)
+	$(FIRTOOL) $< -O=release --split-verilog --disable-all-randomization \
+	  --lowering-options=disallowLocalVariables,disallowPackedArrays,noAlwaysComb -o $(VDIR)
+
+direct_sim_v: $(VDIR)/filelist.f main_v.cpp main.cpp direct_sim.h driver.h driver.cpp borg_core.o borg_spirb.o
+	rm -rf obj_v
+	verilator --cc --exe --build -j 0 -O3 -x-assign fast -x-initial fast -Wno-fatal -Wno-lint -Wno-style \
+	  --Mdir obj_v -I$(VDIR) -I$(VDIR)/verification -I$(VDIR)/verification/assert --top-module BorgDirectSimTop \
+	  -CFLAGS "-std=c++17 -O3 -DDIRECT_VERILATOR -I$(CURDIR) -I$(CURDIR)/../common -I$(RDL_C_OUT) -I$(FIRMWARE_DIR)" \
+	  -LDFLAGS "$(CURDIR)/borg_core.o $(CURDIR)/borg_spirb.o" -DENABLE_INITIAL_MEM_ \
+	  $$(sed 's|^|$(VDIR)/|' $(VDIR)/filelist.f) $(wildcard $(VDIR)/verification/layers-*.sv) \
+	  $(CURDIR)/main_v.cpp -o direct_sim_v
+	cp obj_v/direct_sim_v .
+
 clean:
-	rm -f arc.h arc.ll borg.mlir state.json *.o direct_sim
+	rm -rf arc.h arc.ll borg.mlir state.json *.o direct_sim direct_sim_v obj_v
 
 # Regression: the direct path must reproduce the firmware-path goldens bit for bit.
 GOLD = ../golden

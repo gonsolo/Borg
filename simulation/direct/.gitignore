@@ -4,3 +4,5 @@ borg.mlir
 state.json
 *.o
 direct_sim
+direct_sim_v
+obj_v/
