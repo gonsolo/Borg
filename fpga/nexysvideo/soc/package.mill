@@ -1,5 +1,7 @@
-   package build.fpga.nexysvideo.soc
-   import mill._, scalalib._
-   import build.BorgModule
+package build.fpga.nexysvideo.soc
+import mill._, scalalib._
+import build.BorgModule
 
-   object `package` extends BorgModule
+object `package` extends BorgModule {
+   override def moduleDeps = Seq(build.hardware.soc)
+}

@@ -2,6 +2,9 @@ package nexysvideo
 
 import chisel3._
 
+import _root_.circt.stage.ChiselStage
+import soc.Emit
+
 class BlinkyTop extends RawModule {
     val clk = IO(Input(Clock()))
     val cpu_resetn = IO(Input(Bool()))
@@ -14,4 +17,15 @@ class BlinkyTop extends RawModule {
     }
     led := blinky.io.led
 
+}
+
+object BlinkyTopMain extends App{
+    val targetDir = "out/nexysvideo_blinky/verilog"
+    Emit.cleanTargetDir(targetDir)
+
+    ChiselStage.emitSystemVerilogFile(
+        gen = new BlinkyTop,
+        args = Array("--target-dir", targetDir),
+        firtoolOpts = Emit.firtoolOpts
+    )
 }
