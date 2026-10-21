@@ -2,7 +2,16 @@
 // around it -- a register-bus master and a flat DRAM behind the GPU memory port.
 // No CPU, no firmware: whoever calls mmio_write()/mmio_read() is the driver.
 #pragma once
+#ifdef DIRECT_VERILATOR
+// The Verilated model (make direct_sim_v): the same ports, with BorgDebug.trace's printfs.
+#include "VBorgDirectSimTop.h"
+struct BorgDirectSimTop {
+  VBorgDirectSimTop view;
+  void eval() { view.eval(); }
+};
+#else
 #include "arc.h"
+#endif
 #include <cstdint>
 #include <cstdio>
 #include <vector>
