@@ -13,6 +13,10 @@
 # MUSTPASS_NATIVE=1 with VK_GL_CTS pointing at a checkout of that same release (e.g.
 # ~/src/VK-GL-CTS-1.0.2.6): the names are used as listed, no mapping or intersection.
 #
+# FRACTION=I,N runs fraction I of N of this CTS's mustpass as deqp-vk splits it for a conformance
+# submission (the mandatory info cases in every fraction), with the submission's logging options;
+# the pattern is a label.
+#
 # PASS_DB=file remembers passing cases: cases listed in it are not run again (and are
 # counted as Pass), new passes are appended.  It is cleared only by hand (PASS_DB_RESET=1).
 #
@@ -39,6 +43,13 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 
 if [[ -n "${CASELIST:-}" ]]; then
   sort -u "$CASELIST" > "$OUT/all.txt"
+elif [[ -n "${FRACTION:-}" ]]; then
+  M="$VK_GL_CTS/external/vulkancts/mustpass/main"
+  ( cd "$OUT" && "$DEQP_DIR/deqp-vk" --deqp-caselist-file="$M/vk-default.txt" --deqp-fraction="$FRACTION" \
+      --deqp-fraction-mandatory-caselist-file="$M/vk-fraction-mandatory-tests.txt" \
+      --deqp-runmode=txt-caselist --deqp-archive-dir="$DEQP_DIR" >/dev/null 2>&1 ) || true
+  sed -n 's/^TEST: //p' "$OUT"/*cases.txt | grep -E '^dEQP-VK\.' > "$OUT/all.txt" || true
+  export DEQP_ARGS="--deqp-log-images=disable --deqp-log-shader-sources=disable"
 elif [[ -n "${MUSTPASS_NATIVE:-}" ]]; then
   # VK_GL_CTS is a checkout of the very release whose mustpass list is wanted: use the
   # names as listed.
