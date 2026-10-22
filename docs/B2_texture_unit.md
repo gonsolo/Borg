@@ -160,19 +160,30 @@ and checks that the second image equals the first pixel for pixel.
 
 ## Software
 
-- **borgc** (`mesa/src/borg/compiler/`) lowers a plain `texture()` to `TEX
-  r20, u, v, ctl` with the control word 0 (texture 0, sampler 0, implicit
-  LOD), built in the shader as `FSTEP(FNEG(r30))` rather than pinned in a
+- **borgc** (`mesa/src/borg/compiler/`) lowers a sample to `TEX r20, u, v,
+  ctl`. The control word carries the instruction's `texture_index` in bits
+  7:0 and `sampler_index` in 15:8, plus the texture and sampler offsets of
+  an array indexed at run time (`IADD`, `IMUL` by 256). A control word of 0
+  is built in the shader as `FSTEP(FNEG(r30))` rather than pinned in a
   constant register. R, G, B, A land in r20-r23, so r23 is a constant
-  register only in shaders that never sample. Other texture ops and more
-  than one texture are reported, not yet compiled.
+  register only in shaders that never sample.
+- **Descriptor indices** are the driver's: before borgc, borgvk replaces
+  each texture and sampler deref by index k, entry k of the pipeline's list
+  of (texture, sampler) descriptor slots. An array indexed at run time takes
+  consecutive entries, and a pipeline with one texture uses index 0. A
+  vertex shader's index k is `BORG_VTEX_SLOT + k`.
 - **Firmware** (`software/borg/borg_driver.c`) stores the texture linear
   RGBA8 at `TEX_TEXEL_ADDR`, and `borg_set_texture` writes texture
   descriptor 0 and sampler descriptor 0 at the start of the texture region
   (`borg_layout.h`), then `TEX_DESC_BASE` and `SAMPLER_DESC_BASE`.
 - **borgvk** packs the sampler descriptor from the app's `VkSampler` at
-  `vkCreateSampler` and sends it in every `0xAF` row packet (marker, row,
-  four descriptor words, 64 RGBA8 texels, checksum).
+  `vkCreateSampler`; a descriptor set holds packed sampler descriptors,
+  immutable ones from the layout. The cube sends its texture in `0xAF` row
+  packets (marker, row, four descriptor words, 64 RGBA8 texels, checksum).
+  A draw sends each entry k as `0xC4` (texture slot k, sampler slot k,
+  texel base) followed by the `0xC0` level offsets and `0xB5` texel chunks;
+  `borg_core` writes descriptor k, its vertex copy and sampler k, and the
+  texels at the base (host builds: 32 slots, the board: 1).
 
 ## Tests
 
