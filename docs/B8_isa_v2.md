@@ -340,4 +340,8 @@ Order, cheapest and most independent first:
 14. `QBALLOT`, `QSHUF`, and the subgroup feature bits in borgvk.
 15. The custom ops move to their custom-0..3 encodings, and opcodes 0x00 and 0x04 are empty.
 
+Step 8 runs right after step 1, with the CSR access it needs from step 7: on 2026-10-22 both
+ULX3S builds miss their clock in the output snoop (vkcube SoC 16.9 MHz against 25, Linux build
+16.0 against 18.75, paths ending in the dispatcher's `frag_b_0`).
+
 Then the pipeline (B9), and later descriptor indexing and `VK_EXT_descriptor_buffer`.
