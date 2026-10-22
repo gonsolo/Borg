@@ -1,0 +1,167 @@
+# Pipeline
+
+Status: design for review, 2026-10-22, not implemented. It builds on ISA v2 (B8) and starts once
+B8's migration has removed the register roles the hardware snoops at write-back (steps 7 and 8):
+a pipeline that writes several instructions' results in flight cannot also watch register
+numbers for outputs.
+
+## Today
+
+One instruction at a time per quad, no overlap (`BorgCore.scala`, `BorgConfig.scala:335-369`):
+
+| Cycle (busy counter) | What happens |
+|---|---|
+| decode | read rs1 (the register file has one read port per lane) |
+| 7 | read rs2 |
+| 6 | read rs3 |
+| 5 | rs3 latched |
+| 4 | operands valid: FMA stage 1, integer ALU, branch, exec mask, memory and TEX start |
+| 3 | FMA stage 2 |
+| 1 | write-back |
+
+8 cycles per instruction on Default and ULX3S (`fmaStages = 3`), 9 on Wafer (`fmaStages = 4`),
+whatever the instruction: an `ADD` waits for the FMA's latency. LOAD, STORE, TEX, ZTEST, SOUT
+and FATTR stop the counter and run a state machine that serves the four lanes in turn; each adds
+a cycle after it resumes. The pipeline is idle about 7 cycles in 8.
+
+ULX3S (2026-10-07, Linux + Borg `Tiny` + HDMI): 71,312 of 83,640 LUTs, 14,414 FFs, 23 of 208
+DP16KD, 75 of 156 MULT18X18D, 321 LUTRAM blocks (TRELLIS_DPR16X4). The core clock reaches
+19.01 MHz against 18.75 MHz; the critical path ends in a lane's special-function unit
+(`lanes_3.special_result`, its correction multiplier). On Wafer the FMA is the limiter, hence
+`fmaStages = 4` at 8 MHz.
+
+## Step 1: an in-order pipeline with interlocks, one quad
+
+### Stages
+
+| Stage | Work |
+|---|---|
+| F | instruction fetch from IMEM / the I-cache; PC + 4 |
+| D | decode; read rs1, rs2, rs3 (three read ports); scoreboard check; the quad's exec mask taken with the instruction |
+| X1..Xn | integer ALU, compares, Zbb, Zicond (n = 1); FMA, conversions (n = `fmaStages`); special functions (several cycles); memory, TEX, atomics (variable) |
+| W | write-back, gated by the instruction's lane mask |
+
+Lanes stay in lockstep: all four go through each stage together.
+
+### Hazards and how each is handled
+
+| Hazard | Handling in step 1 |
+|---|---|
+| Read after write | A scoreboard bit per register, set when an instruction that writes rd issues, cleared at its write-back. D stalls while a source register's bit is set. No forwarding. |
+| Write after write | The same scoreboard on rd: a later write cannot issue while an earlier one to the same register is in flight, so a short operation cannot overtake a long one. |
+| Write port | One write port per lane. Every arithmetic result takes `fmaStages` cycles: the integer path is padded to the FMA's length, so two results never meet at W. Variable-latency units (special functions, memory, TEX) take W in a slot the issue logic reserves. |
+| Branches | `BEQ`..`BGEU` and `JAL` resolve in X1 on the lowest active lane (as v1); F stops after a branch until it resolves, so nothing is flushed. Cost: 2 cycles per taken or untaken branch. |
+| Exec mask | `EXPUSH`, `EXELSE`, `EXPOP` update the mask in X1; D holds the next instruction until then (one bubble). Each instruction carries the mask it issued with to W, so a masked lane never writes. |
+| `EXANY`, `QBALLOT`, `QSHUF`, `DDX`, `DDY` | read all lanes' operand in D (as the DDX path does today); no new hazard |
+| Memory (`LW`, `SW`, AMOs) | The memory unit serves the lanes in turn as v1; D stalls until it is done (blocking). Loads write back through a reserved slot. Program order holds without further work. |
+| TEX | Blocking, as v1: D stalls until the texture unit has written all four lanes. |
+| CSR reads | System values are constant per quad: no hazard. CSR writes (outputs) happen at W in order. |
+| `BARRIER`, `ZTEST`, the end of the program | D waits until the pipeline is empty. |
+| I-cache miss | F stalls. |
+
+### Register file read ports
+
+Three operands per cycle per lane (`FMADD`, `TEX`, `SOUT` with an index need three; most
+instructions two).
+
+- **ULX3S**: three copies of the LUTRAM register file, written together. Today a lane's file is
+  one copy of 32 × 32 bits in TRELLIS_DPR16X4 (16 blocks); two more copies per lane are 128
+  more blocks for the quad, of 321 in use.
+- **Wafer**: a register file in flops costs about 124,000 µm² (`mem_32x32`) and most of it is
+  the read multiplexer, so a second or third port is not affordable. Wafer keeps one read port
+  and reads operands in turn, but overlaps the reads of the next instruction with the execution
+  of the current one (see "Wafer").
+
+### What it gains
+
+The issue rate is one instruction per cycle when independent instructions follow each other.
+Without forwarding, an instruction that needs the result of the one before waits `fmaStages + 1`
+cycles (4 on ULX3S). borgc's scheduler already orders for register pressure; it gets a second
+goal, distance between a value and its first use. Expected, to be measured on the corpus: about
+2.5 to 3.5 cycles per instruction on typical shaders, against 8 today.
+
+Forwarding (results from X1 or Xn into D's operands) and early write-back of short operations
+come only if the stall counters show that dependent instructions dominate. They cost a
+multiplexer per operand per lane and timing on the operand path.
+
+## Step 2: several quads in flight (ULX3S only)
+
+With one quad, the interlocks waste every cycle a dependent instruction or a TEX waits. A second
+source of independent instructions hides that: several quads share the pipeline, and each cycle
+D issues from a quad whose next instruction is ready (fine-grained multithreading, as every GPU).
+
+| Item | Design |
+|---|---|
+| Quads | 4, then 8 if it pays |
+| Per quad | PC, exec-mask stack, scoreboard, CSR state (system values, outputs), a slot in the register file |
+| Register file | block RAM: 4 lanes × 32 registers × 32 bits per quad = 4 Kbit. A DP16KD in 512 × 36 mode holds 16 quads' worth of one lane and one read port; three read ports and four lanes take 12 blocks for up to 16 quads, under one block per quad at 16 (`23 of 208` in use today). The LUTRAM copies of step 1 go. |
+| Selection | round robin over ready quads; a quad waiting for memory or TEX is not ready |
+| Memory and TEX | non-blocking for the pipeline: the requesting quad waits, the others run. The memory port still serves one request at a time; the texture unit one quad at a time. |
+| Fragment order | Two quads covering the same pixels must write the tile in primitive order (blending, depth). The dispatcher does not issue a quad whose 2 × 2 position matches a quad in flight from an earlier primitive. |
+| Compute | quads of one workgroup run interleaved; `BARRIER` waits until every quad of the group arrives (the compute sequencer's segments become a counter) |
+| Vertex | invocations are independent |
+
+Expected: close to one instruction per cycle when four quads have work, and TEX and memory
+latency hidden instead of stalled.
+
+## Wafer
+
+One quad, register files in flops, one read port. The step-1 pipeline with a single port: D
+reads one operand per cycle into the operand latches while the previous instruction executes, so
+a two-operand instruction issues every two cycles, a three-operand one every three, and a
+dependent one after the FMA's 4 stages and write-back. Expected about 4 to 5 cycles per
+instruction against 9 today, at the same clock: the FMA stays the critical path
+(`fmaStages = 4`), and the added logic (scoreboard, padding, slot reservation) is small next to
+it. Several quads in flight are not planned on Wafer: each quad needs its own 124,000 µm²
+register files.
+
+## Timing (ULX3S)
+
+- D has the decoder, three LUTRAM reads and the scoreboard check: shallow logic, not expected
+  to limit.
+- The special-function unit limits today; `FEXP2` and `FLOG2` (B8) go into it. In the pipeline
+  it gets its own stages (table read, interpolation multiply, correction), so its path is cut
+  where it is longest now.
+- The FMA keeps `fmaStages = 3`; the integer path padded to it adds registers, not logic.
+- Target: at least today's 18.75 MHz, measured after each step; a step that loses clock gets
+  its stages cut, not its function.
+
+## Area (ULX3S LUTs, estimates)
+
+| Piece | Estimate |
+|---|---|
+| Step 1: stage registers per lane, instruction and mask carried along | +300 to +600 |
+| Step 1: two more LUTRAM register-file copies per lane | +250 to +500 (128 DPR16X4) |
+| Step 1: scoreboard, issue, write-back slots, padding | +250 to +400 |
+| **Step 1 total** | **+800 to +1,500** |
+| Step 2: per-quad PC, exec stack, scoreboard, CSR state (4 quads) | +500 to +800 |
+| Step 2: quad selection, fragment ordering check | +500 to +1,000 |
+| Step 2: register files to block RAM | −250 to −500 LUTs (the step-1 copies), +12 DP16KD |
+| **Step 2 total** | **+750 to +1,300**, 12 DP16KD |
+
+With B8 (+4,500 to +8,000) that is +6,000 to +10,800 of the about 12,300 LUTs free in the
+2026-10-07 Linux build. The vkcube SoC was at 95% in September; ISA v2 and the pipeline have to
+pay for themselves there with what they remove (the v1 decode, the uniform window, the
+pseudo-registers and snooping), measured step by step. A step over its budget gets its RTL
+redesigned; the four fragment lanes stay.
+
+## Measuring
+
+The performance counters (`perf_total`, `perf_frag`, stall counters; see the reference note on
+Borg perf counters) get, per quad: instructions issued, cycles stalled on a register, on the
+write port, on memory, on TEX, on a branch. Each step reports cycles per instruction on the
+borgc corpus, the quick driver corpus and the cube (frames per second on the board), next to
+LUTs, FFs, block RAM and Fmax.
+
+## Order
+
+1. After B8's steps 7 and 8 (no snooped registers): the step-1 pipeline on ULX3S and Default,
+   behind `BorgConfig.pipelined`; Wafer keeps the v1 sequencing until its own step.
+2. borgc's scheduler gets the distance goal; measure.
+3. Wafer: overlapped operand reads.
+4. Step 2 on ULX3S: block-RAM register files, then 2 quads, then 4.
+5. Forwarding, early write-back of short operations, non-blocking memory within a quad: each
+   only if the counters show its stall dominates.
+
+Each step: Chisel unit tests for the hazards it adds (one test per row of the hazard table),
+direct_sim, the borgc corpus, the quick driver corpus, the cube, and the measurements above.
