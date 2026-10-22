@@ -219,14 +219,16 @@ void borg_set_sampler(const uint32_t desc[4]) {
   for (int i = 0; i < 4; i++) g_sampler_desc[i] = desc[i];
 }
 
-static uint32_t g_tex_desc[16];   // descriptor 0, also the vertex shader's BORG_VTEX_SLOT
+static uint32_t g_tex_desc[BC_TEX_SLOTS][16];   // descriptor k, also the vertex shader's BORG_VTEX_SLOT + k
+static uint32_t g_tex_slot, g_samp_slot, g_tex_base, g_tex_n = 1;   // from the 0xC4 packet
 
 static void tex_desc_store(const uint32_t d[16]) {
   for (int w = 0; w < 16; w++) {
-    g_tex_desc[w] = d[w];
-    BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)w * 4, d[w]);
-    BDRAM_W(TEX_DESC_TABLE_ADDR + BORG_VTEX_SLOT * 64 + (uint32_t)w * 4, d[w]);
+    g_tex_desc[g_tex_slot][w] = d[w];
+    BDRAM_W(TEX_DESC_TABLE_ADDR + g_tex_slot * 64 + (uint32_t)w * 4, d[w]);
+    BDRAM_W(TEX_DESC_TABLE_ADDR + (BORG_VTEX_SLOT + g_tex_slot) * 64 + (uint32_t)w * 4, d[w]);
   }
+  if (g_tex_slot >= g_tex_n) g_tex_n = g_tex_slot + 1;
   g_vtab_dirty = 1;
 }
 
@@ -245,10 +247,10 @@ void borg_set_texture(int tex_width, int tex_height) {
 static uint32_t g_tex_lvl[12];   // byte offsets of levels 1..12, from the 0xC0 packet
 
 void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
-  uint32_t d[16] = { BC_TEXEL_BASE, w[0], w[1], w[2] };
+  uint32_t d[16] = { BC_TEXEL_BASE + g_tex_base, w[0], w[1], w[2] };
   for (int i = 4; i < 16; i++) d[i] = g_tex_lvl[i - 4];
   tex_desc_store(d);
-  for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + (uint32_t)i * 4, samp[i]);
+  for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + g_samp_slot * 16 + (uint32_t)i * 4, samp[i]);
   BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);
   BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
 }
@@ -522,10 +524,11 @@ void borg_core_list_draw(void) {
   list_stage(0, &g_draw_vert);
   list_stage(1, &frag_shader);
   if (g_vtab_dirty || !g_list.vtab_addr) {
-    g_list.vtab_addr = list_alloc((BORG_MAX_VATTRS + 1) * 64);
+    g_list.vtab_addr = list_alloc((BORG_MAX_VATTRS + g_tex_n) * 64);
     for (int s = 0; s < BORG_MAX_VATTRS; s++)
       for (int w = 0; w < 16; w++) BDRAM_W(g_list.vtab_addr + (uint32_t)(s * 64 + w * 4), w < 4 ? g_vtab[s][w] : 0);
-    for (int w = 0; w < 16; w++) BDRAM_W(g_list.vtab_addr + (uint32_t)(BORG_MAX_VATTRS * 64 + w * 4), g_tex_desc[w]);
+    for (uint32_t k = 0; k < g_tex_n; k++)
+      for (int w = 0; w < 16; w++) BDRAM_W(g_list.vtab_addr + (BORG_MAX_VATTRS + k) * 64 + (uint32_t)w * 4, g_tex_desc[k][w]);
     g_vtab_dirty = 0;
   }
 
@@ -681,6 +684,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xB8: return BC_PKT_LEN_MEM;
   case 0xBB: return BC_PKT_LEN_PASS;
   case 0xC0: return BC_PKT_LEN_TEXL;
+  case 0xC4: return BC_PKT_LEN_TEXS;
   case 0xBF: return BC_PKT_LEN_ATT;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
@@ -855,6 +859,7 @@ int borg_core_packet(const uint8_t *p) {
     g_dp.vertex_offset = (int32_t)le32(p + 20);
     g_dp.index_base = g_dp.index_type ? BORG_HEAP_SPI + le32(p + 24) : 0;
     g_dp.ubo_base = le32(p + 28) ? BORG_HEAP_SPI + le32(p + 28) - 1 : 0;   // heap offset + 1; 0 = no uniform buffer
+    g_tex_slot = g_samp_slot = g_tex_base = 0;
     return BC_DRAW;
   }
   case 0xB7: { // vec4 attribute 1 per corner (overrides the 2-float texture coordinate)
@@ -868,15 +873,19 @@ int borg_core_packet(const uint8_t *p) {
   case 0xC0:
     for (int i = 0; i < 12; i++) g_tex_lvl[i] = le32(p + 1 + i * 4);
     return BC_STATE;
+  case 0xC4: // texture slot, sampler slot and texel byte base of the 0xB5 and 0xC0 packets that follow
+    if (p[1] >= BC_TEX_SLOTS || p[2] >= BC_TEX_SLOTS || (le32(p + 3) & 255u) || le32(p + 3) >= BC_TEXEL_BYTES) return BC_BAD;
+    g_tex_slot = p[1]; g_samp_slot = p[2]; g_tex_base = le32(p + 3);
+    return BC_STATE;
   case 0xB5: { // generic texture chunk: texel byte offset, nbytes, descriptor words 1..3, sampler, texels
     uint32_t off = le32(p + 1), nb = (uint32_t)p[5] | ((uint32_t)p[6] << 8);
-    if (nb > BC_TEXG_DATA || (off & 3u) || off + nb > BC_TEXEL_BYTES) return BC_BAD;
+    if (nb > BC_TEXG_DATA || (off & 3u) || g_tex_base + off + nb > BC_TEXEL_BYTES) return BC_BAD;
     uint32_t w[3], samp[4];
     for (int i = 0; i < 3; i++) w[i] = le32(p + 7 + i * 4);
     for (int i = 0; i < 4; i++) samp[i] = le32(p + 19 + i * 4);
     if (((w[1] >> 10) & 15u) == 0) for (int i = 0; i < 12; i++) g_tex_lvl[i] = 0;   // one level: no offsets
     borg_set_texture_desc(w, samp);
-    borg_write_texels(off, p + 35, nb);
+    borg_write_texels(g_tex_base + off, p + 35, nb);
     g_texture_bound = 1;   // the host owns descriptor 0 now
     return BC_TEXG;
   }
