@@ -17,3 +17,10 @@ class ODDR extends ExtModule(Map(
     val R = IO(Input(Bool())) // reset
     val S = IO(Input(Bool())) // set
 }
+
+// Xilinx differential output buffer: drives one signal onto a wire pair for HDMI
+class OBUFDS extends ExtModule {
+    val I = IO(Input(Bool())) // signal in
+    val O = IO(Output(Bool())) // + wire
+    val OB = IO(Output(Bool())) // - wire
+}
