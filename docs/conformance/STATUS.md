@@ -1,4 +1,4 @@
-# Vulkan 1.0 conformance status (2026-10-20)
+# Vulkan 1.0 conformance status (2026-10-22)
 
 What borgvk and Borg pass in the Khronos CTS today, what fails, and what the numbers do not say.
 This is **not** a Khronos conformance submission.
@@ -231,7 +231,26 @@ missing-extension check, so the result matches tier 1.
   | `render_to_image` | 1,325 | 414 | 850 | 43, 18 Timeout (`huge` targets, see below) |
   | 30 small subgroups | 2,706 | 147 | 2,531 | 12, 16 Timeout |
 
-  Not run yet: `image` (122,912), `stencil` (58,496) and `pipeline_library` (118,915).
+  Not run yet: `image` (122,912) and `pipeline_library` (118,915).
+- **Blend, depth/stencil and multisample in one run (2026-10-22):** `blend`, `blend_operation_advanced`, `depth`,
+  `depth_range_unrestricted`, `stencil`, `multisample` and `multisample_interpolation`, 96,730 cases, 10 workers,
+  157 min: **37,160 Pass, 59,563 NotSupported, 6 NotPresent, 1 Fail.** Raw results:
+  `vk1.0-pipeline-state-direct-sim-results.txt.gz`.
+
+  | Subgroup | Cases | Pass | NotSupp | Fail |
+  |---|---:|---:|---:|---:|
+  | `stencil` | 58,496 | 33,419 | 25,077 | 0 |
+  | `blend` | 12,210 | 1,002 | 11,208 | 0 |
+  | `multisample` | 10,576 | 43 | 10,531 | 0 (2 NotPresent) |
+  | `depth` | 8,521 | 2,695 | 5,822 | 0 (4 NotPresent) |
+  | `blend_operation_advanced` | 4,652 | 0 | 4,652 | 0 |
+  | `depth_range_unrestricted` | 2,028 | 0 | 2,028 | 0 |
+  | `multisample_interpolation` | 247 | 1 | 245 | 1 |
+
+  The Fail is `centroid_qualifier_inside_primitive.137_191_1.samples_4`: since exact interpolation the compiler's
+  centroid barycentrics take a bare reciprocal, so 1 - l1 - l2 dips below 0 inside the triangle. NotPresent: the four
+  `depth.depth_only.*add_view_index` cases, `multisample.3d.64x64x8_1.r8g8b8a8_unorm.samples_4` and
+  `multisample.sample_rate_a2c.static_a2c`, which deqp-vk does not create on this device.
 - **`vertex_input` (2026-10-14):** the CTS vertex shaders overflowed the six window words of a vertex shader (one TEX
   control word per attribute location, plus float tolerances), used `b2i32` and `ineg`, were longer than the vertex slot
   (128 words; it silently refused them) and wrote `gl_Position` in nested branches, of which the last store won. Now: a
@@ -275,6 +294,35 @@ missing-extension check, so the result matches tier 1.
   before and after): +559 LUT4 (47,990 to 48,549), -3 carry cells, +2 flip-flops, about 0.7 points of the device.
   Not measured on the wafer.space flow.
 - The older rows in the tables above (sampler, depth, the first 121,750 cases in tree order) and the 150-case samples.
+
+## Mustpass `vk-default`, fraction 0 of 16 (tier 1, 2026-10-22)
+
+The CTS 1.4.6.2 mustpass in the form a submission runs it: `vk-default.txt`, split into 16 fractions with
+`--deqp-fraction=0,16` and the 21 mandatory cases, images and shader sources not logged. It covers every Vulkan
+version and extension, so most cases need features borgvk does not offer.
+`FRACTION=0,16 JOBS=16 DIRECT=1 scripts/cts_par.sh fraction0of16`, 10 workers, 7 h 28 min.
+
+**200,198 cases: 12,838 Pass, 2 QualityWarning, 186,255 NotSupported, 885 Fail, 178 Timeout, 40 NotPresent.**
+Raw results: `vk-default-fraction0of16-direct-sim-results.txt.gz`. Fractions 1 to 15 are not run.
+
+| Fail | Cases |
+|---|---:|
+| `binding_model.shader_access` | 281 |
+| `texture.filtering` | 136 |
+| `glsl.texture_functions` | 96 |
+| `glsl.indexing` | 71 |
+| `binding_model.descriptor_copy` | 53 |
+| `synchronization.op` | 36 |
+| `texture.shadow` | 34 |
+| `renderpasses.renderpass1` | 32 |
+| `glsl.builtin` | 24 |
+| `compute.pipeline` | 21 |
+| `ubo` arrays and structs | 47 |
+| 12 other groups | 54 |
+
+The 178 Timeouts are mostly long shaders (`glsl.operator` 62, `glsl.matrix` 61, `glsl.indexing` 19, `glsl.loops` 15).
+89 chunks of 50 hit the 900 s chunk limit; the 2,884 cases without a result (from those and crashed chunks) were run one by one with 120 s each, and
+the cases that ran out of it are the Timeouts. NotPresent: 36 `renderpasses.renderpass1` and 4 `pipeline.monolithic` cases.
 
 ## The compiler corpora (tier 1, 2026-10-20)
 
