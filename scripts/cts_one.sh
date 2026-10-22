@@ -14,6 +14,7 @@
 #   NO_FW_BUILD  set to reuse $SIM_FW without rebuilding it
 #   DIRECT       set to use simulation/direct/direct_sim (Borg alone, no firmware) -- seconds, not minutes
 #   DIRECT_BIN   that simulator (default simulation/direct/direct_sim; direct_sim_v for BORG_TRACE)
+#   DEQP_ARGS    extra deqp-vk options
 #
 # The firmware is built exactly like the simulators' Makefiles do (CLOCK_MHZ=25, UART at the
 # sim baud) and copied away, so software/borg/kernel.bin is not reused for the board.
@@ -74,7 +75,7 @@ if [[ "$1" == "--list" ]]; then
 else
   sel=(--deqp-case="$1")      # a name, or a pattern such as 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'
 fi
-./deqp-vk "${sel[@]}" --deqp-log-filename="$OUT/result.qpa" \
+./deqp-vk "${sel[@]}" ${DEQP_ARGS:-} --deqp-log-filename="$OUT/result.qpa" \
   > "$OUT/deqp.log" 2>&1 || true
 elapsed=$(( $(date +%s) - start ))
 
