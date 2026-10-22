@@ -64,7 +64,6 @@ LOADER="$(pkg-config --variable=libdir vulkan)"
 export LD_LIBRARY_PATH="$LOADER:${LD_LIBRARY_PATH:-}"
 export VK_DRIVER_FILES="$ICD"
 export VK_LOADER_LAYERS_DISABLE="~implicit~"
-export LD_PRELOAD="$SHIM${LD_PRELOAD:+:$LD_PRELOAD}"
 export BORGVK_SIM="$SIM_BIN"
 export BORGVK_SIM_FW="$SIM_FW"
 
@@ -75,7 +74,7 @@ if [[ "$1" == "--list" ]]; then
 else
   sel=(--deqp-case="$1")      # a name, or a pattern such as 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'
 fi
-./deqp-vk "${sel[@]}" ${DEQP_ARGS:-} --deqp-log-filename="$OUT/result.qpa" \
+LD_PRELOAD="$SHIM${LD_PRELOAD:+:$LD_PRELOAD}" ./deqp-vk "${sel[@]}" ${DEQP_ARGS:-} --deqp-log-filename="$OUT/result.qpa" \
   > "$OUT/deqp.log" 2>&1 || true
 elapsed=$(( $(date +%s) - start ))
 
