@@ -8,7 +8,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 NEW="$(realpath -m "${1:-$ROOT/out/borgvk_corpus}")"
 rm -rf "$NEW" "$NEW.run"; mkdir -p "$NEW"
 LIST=cases; [[ -n "${QUICK:-}" ]] && LIST=quick
-BORGVK_CORPUS_DIR="$NEW" BORGVK_SERVE_PARTS=1 BORGVK_CS_PARTS=1 SIM_BUDGET=10 JOBS=10 CHUNK=8 \
+BORGVK_CORPUS_DIR="$NEW" BORGVK_SERVE_PARTS=1 BORGVK_CS_PARTS=1 SIM_BUDGET=10 JOBS=10 CHUNK=8 TMO=1800 \
   MESA_ROOT="${MESA_ROOT:-$ROOT/mesa}" DIRECT=1 CASELIST="$HERE/$LIST.txt" OUT="$NEW.run" \
   "$ROOT/scripts/cts_par.sh" corpus > "$NEW.log" 2>&1 || true
 cat "$NEW"/*.log | sort -u | grep -vf "$HERE/ref/unstable.txt" > "$NEW.lines" || true
