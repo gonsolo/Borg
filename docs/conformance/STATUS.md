@@ -324,6 +324,25 @@ The 178 Timeouts are mostly long shaders (`glsl.operator` 62, `glsl.matrix` 61, 
 89 chunks of 50 hit the 900 s chunk limit; the 2,884 cases without a result (from those and crashed chunks) were run one by one with 120 s each, and
 the cases that ran out of it are the Timeouts. NotPresent: 36 `renderpasses.renderpass1` and 4 `pipeline.monolithic` cases.
 
+## `binding_model` in full (tier 1 on GitHub Actions, 2026-10-22)
+
+All of `dEQP-VK.binding_model` after the descriptor fixes (Borg `304e6e35`, mesa `d7061c6f`), run as 16 shards on
+GitHub-hosted runners from a pack built here (`scripts/cts_pack.sh`, `.github/workflows/cts-pack.yaml`), about 3 h.
+Every case that also ran locally (69,325, an earlier partial run of the same build) has the same result, except 16
+local Passes that timed out on the slower runners.
+
+**146,888 cases: 6,611 Pass, 139,612 NotSupported, 620 Fail, 45 Timeout.**
+Raw results: `vk1.0-binding-model-direct-sim-results.txt.gz`.
+
+| Fail / Timeout | Cases |
+|---|---:|
+| `shader_access`, compute: samplers and combined image samplers (188), storage images (126, 84 of them refused at pipeline creation), texel buffers (48) | 362 |
+| `shader_access`, graphics: uniform buffers, plain and dynamic, in the vertex stage (72) and the fragment stage (12) | 84 |
+| `shader_access`, graphics: samplers, Timeout | 43 |
+| `descriptorset_random.sets4`, `ubolimitlow` | 158 |
+| `descriptor_copy.compute` (lane 0 right, lanes 1 to 3 wrong) | 16 |
+| `descriptor_update.random`, Timeout | 2 |
+
 ## The compiler corpora (tier 1, 2026-10-20)
 
 After loops in graphics shaders, PC-relative branches and the unified instruction selection, both corpora were
