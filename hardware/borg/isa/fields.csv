@@ -14,6 +14,7 @@ imm12,31..20,
 imm20,31..12,
 shamtw,24..20,
 csr,31..20,
+simm,31..25=11..5 11..7=4..0,imm12hi imm12lo
 opcode,6..0,const
 funct7,31..25,const
 funct2,26..25,const

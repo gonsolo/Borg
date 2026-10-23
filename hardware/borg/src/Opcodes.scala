@@ -272,6 +272,24 @@ object Opcodes {
   val MASK_AND = 0xfe00707fL
   val OPCODE_AND = 0x33
   val FUNCT7_AND = 0x00
+  val MATCH_LB = 0x00000003L
+  val MASK_LB = 0x0000707fL
+  val OPCODE_LB = 0x03
+  val MATCH_LH = 0x00001003L
+  val MASK_LH = 0x0000707fL
+  val OPCODE_LH = 0x03
+  val MATCH_LW = 0x00002003L
+  val MASK_LW = 0x0000707fL
+  val OPCODE_LW = 0x03
+  val MATCH_LBU = 0x00004003L
+  val MASK_LBU = 0x0000707fL
+  val OPCODE_LBU = 0x03
+  val MATCH_LHU = 0x00005003L
+  val MASK_LHU = 0x0000707fL
+  val OPCODE_LHU = 0x03
+  val MATCH_SW = 0x00002023L
+  val MASK_SW = 0x0000707fL
+  val OPCODE_SW = 0x23
   val MATCH_CSRRW = 0x00001073L
   val MASK_CSRRW = 0x0000707fL
   val OPCODE_CSRRW = 0x73
@@ -346,6 +364,12 @@ object Opcodes {
   def SRA(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SRA | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def OR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_OR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def AND(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_AND | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def LB(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_LB | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def LH(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_LH | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def LW(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_LW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def LBU(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_LBU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def LHU(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_LHU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def SW(simm: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SW | (((simm.toLong >> 5) & 0x7fL) << 25) | ((simm.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
   def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }

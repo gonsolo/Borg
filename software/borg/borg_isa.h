@@ -203,6 +203,24 @@
 #define BORG_MATCH_AND 0x00007033U
 #define BORG_MASK_AND 0xfe00707fU
 #define BORG_INSTR_AND(rd, rs1, rs2) (BORG_MATCH_AND | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_LB 0x00000003U
+#define BORG_MASK_LB 0x0000707fU
+#define BORG_INSTR_LB(rd, rs1, imm12) (BORG_MATCH_LB | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_LH 0x00001003U
+#define BORG_MASK_LH 0x0000707fU
+#define BORG_INSTR_LH(rd, rs1, imm12) (BORG_MATCH_LH | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_LW 0x00002003U
+#define BORG_MASK_LW 0x0000707fU
+#define BORG_INSTR_LW(rd, rs1, imm12) (BORG_MATCH_LW | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_LBU 0x00004003U
+#define BORG_MASK_LBU 0x0000707fU
+#define BORG_INSTR_LBU(rd, rs1, imm12) (BORG_MATCH_LBU | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_LHU 0x00005003U
+#define BORG_MASK_LHU 0x0000707fU
+#define BORG_INSTR_LHU(rd, rs1, imm12) (BORG_MATCH_LHU | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_SW 0x00002023U
+#define BORG_MASK_SW 0x0000707fU
+#define BORG_INSTR_SW(simm, rs1, rs2) (BORG_MATCH_SW | ((((uint32_t)(simm) >> 5) & 0x7fU) << 25) | (((uint32_t)(simm) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
 #define BORG_MATCH_CSRRW 0x00001073U
 #define BORG_MASK_CSRRW 0x0000707fU
 #define BORG_INSTR_CSRRW(rd, rs1, csr) (BORG_MATCH_CSRRW | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(csr) & 0xfffU) << 20))
@@ -213,4 +231,4 @@
 #define BORG_INSTR_HALT 0x00000000U
 
 /* X(NAME) for every instruction. */
-#define BORG_OPCODES(X) X(FMADD) X(TEX) X(TEXA) X(FADD) X(FMUL) X(FNEG) X(FMOV) X(FSTEP) X(FRCP) X(IADD) X(ISHL) X(ISHR) X(IMUL) X(ISUB) X(IAND) X(IOR) X(IXOR) X(ISLT) X(ISEQ) X(I2F) X(F2I) X(F2H) X(H2F) X(FRSQ) X(FSRGB) X(DDX) X(DDY) X(LOAD) X(STORE) X(BRZ) X(BRNZ) X(EXPUSH) X(EXELSE) X(EXPOP) X(BARRIER) X(EXANY) X(ZTEST) X(SOUT) X(FATTR) X(SMASK) X(ATTIDX) X(ISRL) X(ISLTU) X(TLD) X(JMP) X(LUI) X(AUIPC) X(ADDI) X(SLTI) X(SLTIU) X(XORI) X(ORI) X(ANDI) X(SLLI) X(SRLI) X(SRAI) X(ADD) X(SUB) X(SLL) X(SLT) X(SLTU) X(XOR) X(SRL) X(SRA) X(OR) X(AND) X(CSRRW) X(CSRRS)
+#define BORG_OPCODES(X) X(FMADD) X(TEX) X(TEXA) X(FADD) X(FMUL) X(FNEG) X(FMOV) X(FSTEP) X(FRCP) X(IADD) X(ISHL) X(ISHR) X(IMUL) X(ISUB) X(IAND) X(IOR) X(IXOR) X(ISLT) X(ISEQ) X(I2F) X(F2I) X(F2H) X(H2F) X(FRSQ) X(FSRGB) X(DDX) X(DDY) X(LOAD) X(STORE) X(BRZ) X(BRNZ) X(EXPUSH) X(EXELSE) X(EXPOP) X(BARRIER) X(EXANY) X(ZTEST) X(SOUT) X(FATTR) X(SMASK) X(ATTIDX) X(ISRL) X(ISLTU) X(TLD) X(JMP) X(LUI) X(AUIPC) X(ADDI) X(SLTI) X(SLTIU) X(XORI) X(ORI) X(ANDI) X(SLLI) X(SRLI) X(SRAI) X(ADD) X(SUB) X(SLL) X(SLT) X(SLTU) X(XOR) X(SRL) X(SRA) X(OR) X(AND) X(LB) X(LH) X(LW) X(LBU) X(LHU) X(SW) X(CSRRW) X(CSRRS)

@@ -21,3 +21,10 @@ srl     rd rs1 rs2 31..25=0  14..12=5 6..2=0x0C 1..0=3
 sra     rd rs1 rs2 31..25=32 14..12=5 6..2=0x0C 1..0=3
 or      rd rs1 rs2 31..25=0  14..12=6 6..2=0x0C 1..0=3
 and     rd rs1 rs2 31..25=0  14..12=7 6..2=0x0C 1..0=3
+# Loads and stores at rs1 + immediate, byte addresses (B8 step 10). SB and SH are prepared, not built.
+lb      rd rs1       imm12 14..12=0 6..2=0x00 1..0=3
+lh      rd rs1       imm12 14..12=1 6..2=0x00 1..0=3
+lw      rd rs1       imm12 14..12=2 6..2=0x00 1..0=3
+lbu     rd rs1       imm12 14..12=4 6..2=0x00 1..0=3
+lhu     rd rs1       imm12 14..12=5 6..2=0x00 1..0=3
+sw     imm12hi rs1 rs2 imm12lo 14..12=2 6..2=0x08 1..0=3
