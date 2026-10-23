@@ -922,6 +922,18 @@ reg ls_base_reg_t {
     } base_addr[32] = 0;
 };
 
+// --- ISA v2 root table (docs/B8_isa_v2.md) ---
+reg root_reg_t {
+    name = "Root Table Address";
+    desc = "Byte address of the draw's or dispatch's root table: the bound
+            sets, push constants and constant buffer. Shaders read it as CSR
+            root (CSRRS rd, root, x0). Reset 0.";
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 31:0: GPU byte address.";
+    } addr[32] = 0;
+};
+
 // --- Sampler configuration (Step 50) ---
 reg sampler_cfg_reg_t {
     name = "Sampler Configuration";
@@ -1814,4 +1826,6 @@ addrmap borg_gpu {
     //      single draw in the registers. ----
     draw_word_reg_t render_list;
     render_list->nogen = true;
+
+    root_reg_t root;
 };
