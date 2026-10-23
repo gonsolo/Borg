@@ -94,3 +94,7 @@ amomax.w  rd rs1 rs2 aq rl 31..27=0x14 14..12=2 6..2=0x0B 1..0=3
 amominu.w rd rs1 rs2 aq rl 31..27=0x18 14..12=2 6..2=0x0B 1..0=3
 amomaxu.w rd rs1 rs2 aq rl 31..27=0x1C 14..12=2 6..2=0x0B 1..0=3
 amocas.w  rd rs1 rs2 aq rl 31..27=0x05 14..12=2 6..2=0x0B 1..0=3
+# Custom-1, texture by descriptor address (B8 step 11); named texd/texad until v1's tex/texa go.
+texd    rd rs1 rs2 rs3 26..25=0 14..12=0 6..2=0x0A 1..0=3
+texad   rs1 rs2 rs3 26..25=1 14..12=0 11..7=0 6..2=0x0A 1..0=3
+texs    rs1 rs2 31..25=0 14..12=1 11..7=0 6..2=0x0A 1..0=3
