@@ -464,11 +464,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U else false.B)
     flags.fattr  := (if (draw) v1 && f7op === Opcodes.FUNCT7_FATTR.U else false.B)
     val smp = cfg.samplerEnabled
-    flags.tex    := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEX.U else false.B)
+    flags.tex    := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEX.U || rv.texd else false.B)
+    flags.texd   := (if (smp) rv.texd else false.B)
+    flags.texs   := (if (smp) rv.texs else false.B)
     flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
     flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
     flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
-    flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
+    flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U || rv.texad else false.B)
     flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, 0.U))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
@@ -783,16 +785,18 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                           memWrites: Seq[MemWritePort]): Unit = {
     val N = cfg.fragLanes
     val sampler = Module(new BorgSampler(cfg))
-    sampler.io.texBase    := io.texDescBase.get
-    sampler.io.sampBase   := io.sampDescBase.get
     sampler.io.invalidate := io.descWritten.get
 
     val auxW = Reg(Vec(N, UInt(32.W))); val auxLod = Reg(Vec(N, UInt(32.W))); val auxRef = Reg(Vec(N, UInt(32.W)))
     val is_tex_reg  = RegInit(false.B)
     val is_texa_reg = RegInit(false.B)
+    val is_texd_reg = RegInit(false.B); val is_texs_reg = RegInit(false.B)
+    // TEXS: the sampler descriptor address and the control word for the TEX after it.
+    val sAddrReg = RegInit(0.U(GpuMemIO.AddrBits.W)); val sCtlReg = RegInit(0.U(32.W))
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
       is_tex_reg  := opFlags.tex
       is_texa_reg := opFlags.texa
+      is_texd_reg := opFlags.texd; is_texs_reg := opFlags.texs
     }
     val sIdle :: sWait :: sWB :: sAck :: Nil = Enum(4)
     val st = RegInit(sIdle)
@@ -803,14 +807,20 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     def finish(): Unit = {
       st := sIdle
-      is_tex_reg := false.B; is_texa_reg := false.B
+      is_tex_reg := false.B; is_texa_reg := false.B; is_texd_reg := false.B; is_texs_reg := false.B
       busy_counter := 0.U
       programCounter := programCounter + 1.U
       texResumeDelay := true.B
     }
 
     sampler.io.req.valid := false.B
-    sampler.io.req.bits.ctl := PriorityMux(execMask.asBools, cOps)
+    val lead = (ops: Seq[UInt]) => PriorityMux(execMask.asBools, ops)
+    val ctlV1 = lead(cOps)
+    sampler.io.req.bits.ctl := Mux(is_texd_reg, sCtlReg, ctlV1)
+    sampler.io.req.bits.texAddr := Mux(is_texd_reg, lead(cOps),
+      io.texDescBase.get + (SamplerCtl.texIdx(ctlV1) << 6))(GpuMemIO.AddrBits - 1, 0)
+    sampler.io.req.bits.sampAddr := Mux(is_texd_reg, sAddrReg,
+      io.sampDescBase.get + (SamplerCtl.sampIdx(ctlV1) << 4))(GpuMemIO.AddrBits - 1, 0)
     for (i <- 0 until N) {
       sampler.io.req.bits.active(i) := execMask(i)
       val a = sampler.io.req.bits.lane(i)
@@ -818,6 +828,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     sampler.io.respReady := st === sAck
 
+    when(is_busy && busy_counter === cfg.cOperands.U && is_texs_reg) {
+      sAddrReg := lead(uOps); sCtlReg := lead(vOps)
+      finish()
+    }
     when(is_busy && busy_counter === cfg.cOperands.U && is_texa_reg) {
       for (i <- 0 until N) { auxW(i) := uOps(i); auxLod(i) := vOps(i); auxRef(i) := cOps(i) }
       finish()

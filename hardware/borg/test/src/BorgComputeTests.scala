@@ -372,6 +372,35 @@ object BorgComputeTests extends TestSuite {
       }
     }
 
+    utest.test("tex_by_descriptor_address_and_texs") {
+      import Opcodes._
+      // Lanes 2-3 sample the texture at 0x3040 (red 255), lanes 0-1 the one at 0x3000 (red 0);
+      // TEXS gives the sampler at 0x3100 and the control word (explicit LOD 0).
+      val (tex, desc, samp) = (0x2000, 0x3000, 0x3100)
+      val prog = Seq(
+        Instructions.TEXA(rs1 = 10, rs2 = 10, rs3 = 10), TEXS(16, 12),
+        SRLI(1, 30, 1), Instructions.EXPUSH(rs1 = 1), ADDI(2, 17, 64), TEXD(20, 14, 14, 2),
+        Instructions.EXELSE(), TEXD(20, 14, 14, 17), Instructions.EXPOP(),
+        Instructions.STORE(rs1 = 30, rs2 = 20))
+      val gprs = Map(10 -> 0, 12 -> (SamplerCtl.LodExplicit << 21), 14 -> java.lang.Float.floatToRawIntBits(0.5f),
+                     16 -> samp, 17 -> desc)
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        def put(dram: HalfwordDram, a: Int, w: Long): Unit = { dram.mem(a) = (w & 0xFFFF).toInt; dram.mem(a + 2) = ((w >> 16) & 0xFFFF).toInt }
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (4, 1, 1), dram => {
+          val fm = TexFormat.byName("R8G8B8A8_UNORM")
+          for (k <- 0 until 2) {
+            put(dram, tex + 16 * k, if (k == 0) 0xFF000000L else 0xFF0000FFL)
+            for ((w, i) <- SamplerCtl.descHeader(tex + 16 * k, 1, 1, 1, 1, fm.code, SamplerCtl.Linear, SamplerCtl.T2D, 4).zipWithIndex)
+              put(dram, desc + 64 * k + 4 * i, w)
+          }
+          put(dram, samp, SamplerCtl.ClampEdge << 3 | SamplerCtl.ClampEdge << 6)
+        })
+        val got = (0 until 4).map(word(dram, _))
+        println(s"  red per lane: ${got.map(_.toString(16)).mkString(" ")}")
+        utest.assert(got == Seq(BigInt(0), BigInt(0), BigInt(0x3f800000), BigInt(0x3f800000)))
+      }
+    }
+
     utest.test("a_build_without_compute_reports_it_absent") {
       simulate(new BorgTestWrapper(scalar.copy(hasCompute = false)), additionalResetCycles = 4) { d =>
         val dram = new HalfwordDram

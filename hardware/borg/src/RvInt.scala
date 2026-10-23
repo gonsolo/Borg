@@ -28,6 +28,11 @@ class RvInt(instr: UInt) {
   val load  = opc === Opcodes.OPCODE_LW.U && (f3 === 0.U || f3 === 1.U || f3 === 2.U || f3 === 4.U || f3 === 5.U)
   val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U
   val width = f3
+  /** Custom-1 (B8 step 11): TEX by descriptor address (rs3), TEXA, and TEXS (sampler address, control word). */
+  val custom1 = opc === Opcodes.OPCODE_TEXD.U
+  val texd  = custom1 && f3 === 0.U && instr(26, 25) === 0.U
+  val texad = custom1 && f3 === 0.U && instr(26, 25) === 1.U
+  val texs  = custom1 && f3 === 1.U && f7 === 0.U
   /** Zaamo AMO*.W and Zacas AMOCAS.W (B8 step 12) at rs1; AMOCAS compares with rd. */
   val amo    = opc === Opcodes.OPCODE_AMOADD_W.U && f3 === 2.U
   val amoOp  = instr(31, 27)

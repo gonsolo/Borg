@@ -79,6 +79,8 @@ class SamplerLaneArgs extends Bundle {
 
 class SamplerReq(val lanes: Int) extends Bundle {
   val ctl    = UInt(32.W)
+  val texAddr  = UInt(GpuMemIO.AddrBits.W)   // the texture descriptor (64 bytes)
+  val sampAddr = UInt(GpuMemIO.AddrBits.W)   // the sampler descriptor (16 bytes)
   val active = Vec(lanes, Bool())
   val lane   = Vec(lanes, new SamplerLaneArgs)
 }
@@ -94,9 +96,7 @@ class BorgSamplerIO(val cfg: BorgConfig) extends Bundle {
   val resp       = Valid(new SamplerResp(cfg.fragLanes))         // held until respReady
   val respReady  = Input(Bool())
   val done       = Output(Bool())                                // pulse after the last lane
-  val texBase    = Input(UInt(GpuMemIO.AddrBits.W))
-  val sampBase   = Input(UInt(GpuMemIO.AddrBits.W))
-  val invalidate = Input(Bool())                                 // a descriptor base was written
+  val invalidate = Input(Bool())                                 // descriptors may have changed
   val gpuMem     = new GpuMemIO
 }
 
@@ -221,10 +221,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // Descriptor caches: 2^texDescCacheLog2 texture descriptors (direct-mapped, td holds
   // the current one) and one sampler, tagged by index; a write to either table's base forgets all.
   private val nTd = 1 << cfg.texDescCacheLog2
-  private val td = Reg(Vec(4, UInt(32.W))); private val tdTag = Reg(Vec(nTd, UInt(8.W)))
+  private val td = Reg(Vec(4, UInt(32.W))); private val tdTag = Reg(Vec(nTd, UInt((GpuMemIO.AddrBits - 6).W)))
   private val tdOk = RegInit(VecInit(Seq.fill(nTd)(false.B)))
   private val tdMem = Option.when(nTd > 1)(Mem(nTd, Vec(4, UInt(32.W))))
-  private val sd = Reg(Vec(4, UInt(32.W))); private val sdTag = Reg(UInt(8.W)); private val sdOk = RegInit(false.B)
+  private val sd = Reg(Vec(4, UInt(32.W))); private val sdTag = Reg(UInt((GpuMemIO.AddrBits - 4).W)); private val sdOk = RegInit(false.B)
+  private val tAddr = Reg(UInt(GpuMemIO.AddrBits.W)); private val sAddr = Reg(UInt(GpuMemIO.AddrBits.W))
   when(io.invalidate) { tdOk.foreach(_ := false.B); sdOk := false.B }
   private val k = RegInit(0.U(4.W))                       // word / step / channel counter
 
@@ -345,6 +346,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     is(sIdle) {
       when(io.req.valid) {
         ctl := io.req.bits.ctl; act := io.req.bits.active; args := io.req.bits.lane
+        tAddr := io.req.bits.texAddr; sAddr := io.req.bits.sampAddr
         k := 0.U
         state := sTexDesc
       }
@@ -352,25 +354,26 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
     // --- Descriptors ---------------------------------------------------
     is(sTexDesc) {
-      val slot = if (nTd > 1) texIdx(ctl)(cfg.texDescCacheLog2 - 1, 0) else 0.U
-      when(tdOk(slot) && tdTag(slot) === texIdx(ctl)) {
+      val tag = tAddr >> 6
+      val slot = if (nTd > 1) tag(cfg.texDescCacheLog2 - 1, 0) else 0.U
+      when(tdOk(slot) && tdTag(slot) === tag) {
         tdMem.foreach(m => td := m(slot)); k := 0.U; state := sSampDesc
       }.otherwise {
-        read(io.texBase + (texIdx(ctl) << 6) + (k << 2)) { d =>
+        read(tAddr + (k << 2)) { d =>
           td(k(1, 0)) := d
           when(k === 3.U) {
             tdMem.foreach(_.write(slot, VecInit(td(0), td(1), td(2), d)))
-            tdOk(slot) := true.B; tdTag(slot) := texIdx(ctl); k := 0.U; state := sSampDesc
+            tdOk(slot) := true.B; tdTag(slot) := tag; k := 0.U; state := sSampDesc
           }.otherwise { k := k + 1.U }
         }
       }
     }
     is(sSampDesc) {
-      when(isFetch || isSize || (sdOk && sdTag === sampIdx(ctl))) { k := 0.U; state := sLod }
+      when(isFetch || isSize || (sdOk && sdTag === (sAddr >> 4))) { k := 0.U; state := sLod }
         .otherwise {
-          read(io.sampBase + (sampIdx(ctl) << 4) + (k << 2)) { d =>
+          read(sAddr + (k << 2)) { d =>
             sd(k(1, 0)) := d
-            when(k === 3.U) { sdOk := true.B; sdTag := sampIdx(ctl); k := 0.U; state := sLod }
+            when(k === 3.U) { sdOk := true.B; sdTag := sAddr >> 4; k := 0.U; state := sLod }
               .otherwise { k := k + 1.U }
           }
         }
@@ -495,7 +498,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val l = lvl(lvIdx)
       when(l === 0.U) { levelOff := 0.U; state := sLevelDims }
         .otherwise {
-          read(io.texBase + (texIdx(ctl) << 6) + ((l +& 3.U) << 2)) { d =>
+          read(tAddr + ((l +& 3.U) << 2)) { d =>
             levelOff := d; state := sLevelDims
           }
         }

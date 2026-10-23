@@ -294,6 +294,8 @@ object BorgSamplerTests extends TestSuite {
   // --- Driving the unit ------------------------------------------------------
   def run(d: BorgSampler, mem: Mem, ctl: Long, lanes: Seq[Lane], active: Seq[Boolean] = Seq.fill(4)(true)): Seq[Seq[Long]] = {
     d.io.req.bits.ctl.poke(ctl.U)
+    d.io.req.bits.texAddr.poke(((texBase + 64 * (ctl & 0xFF)) & 0xFFFFFFFFL).U)
+    d.io.req.bits.sampAddr.poke(((sampBase + 16 * ((ctl >> 8) & 0xFF)) & 0xFFFFFFFFL).U)
     for (i <- 0 until 4) {
       val l = lanes(i); val p = d.io.req.bits.lane(i)
       if (((ctl >> 16) & 3) == OpFetch || ((ctl >> 16) & 3) == OpSize) {
@@ -340,10 +342,12 @@ object BorgSamplerTests extends TestSuite {
     for ((t, i) <- texs.zipWithIndex; (w, k) <- t.desc.zipWithIndex) mem.putWord(TexBase + 64 * i + 4 * k, w)
     for ((s, i) <- samps.zipWithIndex; (w, k) <- s.desc.zipWithIndex) mem.putWord(SampBase + 16 * i + 4 * k, w)
   }
+  // The core forms the descriptor addresses (v1: base + index); the tests keep the bases here.
+  var texBase: BigInt = TexBase; var sampBase: BigInt = SampBase
   def withSampler(body: BorgSampler => Unit): Unit = simulate(new BorgSampler(cfg)) { d =>
     d.io.req.valid.poke(false.B); d.io.respReady.poke(false.B); d.io.invalidate.poke(false.B)
     d.io.gpuMem.ready.poke(false.B); d.io.gpuMem.data.poke(0.U); d.io.gpuMem.waccept.poke(false.B)
-    d.io.texBase.poke(TexBase.U); d.io.sampBase.poke(SampBase.U)
+    texBase = TexBase; sampBase = SampBase
     d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
     body(d)
   }
@@ -465,12 +469,12 @@ object BorgSamplerTests extends TestSuite {
         for ((w, k) <- t.desc.zipWithIndex) mem.putWord(hi + 4 * k, w)
         for ((w, k) <- s.desc.zipWithIndex) mem.putWord(hi + 0x800 + 4 * k, w)
         val texel = fill(mem, t, new scala.util.Random(32))
-        d.io.texBase.poke((hi.toLong & 0xFFFFFFFFL).U); d.io.sampBase.poke(((hi + 0x800).toLong & 0xFFFFFFFFL).U)
+        texBase = hi.toLong & 0xFFFFFFFFL; sampBase = (hi + 0x800).toLong & 0xFFFFFFFFL
         d.io.invalidate.poke(true.B); d.clock.step(1); d.io.invalidate.poke(false.B)
         val ctl = LodExplicit.toLong << 21
         val lanes = Seq(Lane(0.1f, 0.2f), Lane(0.55f, 0.8f), Lane(0.9f, 0.4f), Lane(0.33f, 0.66f))
         check("texture at 3 GiB", run(d, mem, ctl, lanes), reference(t, s, texel, ctl, lanes))
-        d.io.texBase.poke(TexBase.U); d.io.sampBase.poke(SampBase.U)
+        texBase = TexBase; sampBase = SampBase
         println("  descriptors and texels above 2^31 sample correctly")
       }
     }
