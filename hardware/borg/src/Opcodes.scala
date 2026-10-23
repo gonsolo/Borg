@@ -16,6 +16,7 @@ object Opcodes {
   val FIELD_IMM20 = (31, 12)
   val FIELD_SHAMTW = (24, 20)
   val FIELD_CSR = (31, 20)
+  val FIELD_RM = (14, 12)
   val MATCH_FMADD = 0x00000004L
   val MASK_FMADD = 0x0600007fL
   val OPCODE_FMADD = 0x04
@@ -397,6 +398,110 @@ object Opcodes {
   val MATCH_REV8 = 0x69805013L
   val MASK_REV8 = 0xfff0707fL
   val OPCODE_REV8 = 0x13
+  val MATCH_FADD_S = 0x00000053L
+  val MASK_FADD_S = 0xfe00007fL
+  val OPCODE_FADD_S = 0x53
+  val FUNCT7_FADD_S = 0x00
+  val FUNCT2_FADD_S = 0x00
+  val MATCH_FSUB_S = 0x08000053L
+  val MASK_FSUB_S = 0xfe00007fL
+  val OPCODE_FSUB_S = 0x53
+  val FUNCT7_FSUB_S = 0x04
+  val FUNCT2_FSUB_S = 0x00
+  val MATCH_FMUL_S = 0x10000053L
+  val MASK_FMUL_S = 0xfe00007fL
+  val OPCODE_FMUL_S = 0x53
+  val FUNCT7_FMUL_S = 0x08
+  val FUNCT2_FMUL_S = 0x00
+  val MATCH_FSGNJ_S = 0x20000053L
+  val MASK_FSGNJ_S = 0xfe00707fL
+  val OPCODE_FSGNJ_S = 0x53
+  val FUNCT7_FSGNJ_S = 0x10
+  val FUNCT2_FSGNJ_S = 0x00
+  val MATCH_FSGNJN_S = 0x20001053L
+  val MASK_FSGNJN_S = 0xfe00707fL
+  val OPCODE_FSGNJN_S = 0x53
+  val FUNCT7_FSGNJN_S = 0x10
+  val FUNCT2_FSGNJN_S = 0x00
+  val MATCH_FSGNJX_S = 0x20002053L
+  val MASK_FSGNJX_S = 0xfe00707fL
+  val OPCODE_FSGNJX_S = 0x53
+  val FUNCT7_FSGNJX_S = 0x10
+  val FUNCT2_FSGNJX_S = 0x00
+  val MATCH_FMIN_S = 0x28000053L
+  val MASK_FMIN_S = 0xfe00707fL
+  val OPCODE_FMIN_S = 0x53
+  val FUNCT7_FMIN_S = 0x14
+  val FUNCT2_FMIN_S = 0x00
+  val MATCH_FMAX_S = 0x28001053L
+  val MASK_FMAX_S = 0xfe00707fL
+  val OPCODE_FMAX_S = 0x53
+  val FUNCT7_FMAX_S = 0x14
+  val FUNCT2_FMAX_S = 0x00
+  val MATCH_FEQ_S = 0xa0002053L
+  val MASK_FEQ_S = 0xfe00707fL
+  val OPCODE_FEQ_S = 0x53
+  val FUNCT7_FEQ_S = 0x50
+  val FUNCT2_FEQ_S = 0x00
+  val MATCH_FLT_S = 0xa0001053L
+  val MASK_FLT_S = 0xfe00707fL
+  val OPCODE_FLT_S = 0x53
+  val FUNCT7_FLT_S = 0x50
+  val FUNCT2_FLT_S = 0x00
+  val MATCH_FLE_S = 0xa0000053L
+  val MASK_FLE_S = 0xfe00707fL
+  val OPCODE_FLE_S = 0x53
+  val FUNCT7_FLE_S = 0x50
+  val FUNCT2_FLE_S = 0x00
+  val MATCH_FCLASS_S = 0xe0001053L
+  val MASK_FCLASS_S = 0xfff0707fL
+  val OPCODE_FCLASS_S = 0x53
+  val FUNCT7_FCLASS_S = 0x70
+  val FUNCT2_FCLASS_S = 0x00
+  val MATCH_FCVT_W_S = 0xc0000053L
+  val MASK_FCVT_W_S = 0xfff0007fL
+  val OPCODE_FCVT_W_S = 0x53
+  val FUNCT7_FCVT_W_S = 0x60
+  val FUNCT2_FCVT_W_S = 0x00
+  val MATCH_FCVT_WU_S = 0xc0100053L
+  val MASK_FCVT_WU_S = 0xfff0007fL
+  val OPCODE_FCVT_WU_S = 0x53
+  val FUNCT7_FCVT_WU_S = 0x60
+  val FUNCT2_FCVT_WU_S = 0x00
+  val MATCH_FCVT_S_W = 0xd0000053L
+  val MASK_FCVT_S_W = 0xfff0007fL
+  val OPCODE_FCVT_S_W = 0x53
+  val FUNCT7_FCVT_S_W = 0x68
+  val FUNCT2_FCVT_S_W = 0x00
+  val MATCH_FCVT_S_WU = 0xd0100053L
+  val MASK_FCVT_S_WU = 0xfff0007fL
+  val OPCODE_FCVT_S_WU = 0x53
+  val FUNCT7_FCVT_S_WU = 0x68
+  val FUNCT2_FCVT_S_WU = 0x00
+  val MATCH_FCVT_S_H = 0x40200053L
+  val MASK_FCVT_S_H = 0xfff0007fL
+  val OPCODE_FCVT_S_H = 0x53
+  val FUNCT7_FCVT_S_H = 0x20
+  val MATCH_FCVT_H_S = 0x44000053L
+  val MASK_FCVT_H_S = 0xfff0007fL
+  val OPCODE_FCVT_H_S = 0x53
+  val FUNCT7_FCVT_H_S = 0x22
+  val MATCH_FMADD_S = 0x00000043L
+  val MASK_FMADD_S = 0x0600007fL
+  val OPCODE_FMADD_S = 0x43
+  val FUNCT2_FMADD_S = 0x00
+  val MATCH_FMSUB_S = 0x00000047L
+  val MASK_FMSUB_S = 0x0600007fL
+  val OPCODE_FMSUB_S = 0x47
+  val FUNCT2_FMSUB_S = 0x00
+  val MATCH_FNMSUB_S = 0x0000004bL
+  val MASK_FNMSUB_S = 0x0600007fL
+  val OPCODE_FNMSUB_S = 0x4b
+  val FUNCT2_FNMSUB_S = 0x00
+  val MATCH_FNMADD_S = 0x0000004fL
+  val MASK_FNMADD_S = 0x0600007fL
+  val OPCODE_FNMADD_S = 0x4f
+  val FUNCT2_FNMADD_S = 0x00
   val MATCH_CSRRW = 0x00001073L
   val MASK_CSRRW = 0x0000707fL
   val OPCODE_CSRRW = 0x73
@@ -507,6 +612,28 @@ object Opcodes {
   def SEXT_H(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_SEXT_H | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
   def ZEXT_H(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_ZEXT_H | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
   def REV8(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_REV8 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def FADD_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FADD_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rm.toLong & 0x7L) << 12))
+  def FSUB_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FSUB_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rm.toLong & 0x7L) << 12))
+  def FMUL_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FMUL_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rm.toLong & 0x7L) << 12))
+  def FSGNJ_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FSGNJ_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FSGNJN_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FSGNJN_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FSGNJX_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FSGNJX_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FMIN_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FMIN_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FMAX_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FMAX_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FEQ_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FEQ_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FLT_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FLT_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FLE_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_FLE_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FCLASS_S(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FCLASS_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def FCVT_W_S(rd: Int = 0, rs1: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FCVT_W_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rm.toLong & 0x7L) << 12))
+  def FCVT_WU_S(rd: Int = 0, rs1: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FCVT_WU_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rm.toLong & 0x7L) << 12))
+  def FCVT_S_W(rd: Int = 0, rs1: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FCVT_S_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rm.toLong & 0x7L) << 12))
+  def FCVT_S_WU(rd: Int = 0, rs1: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FCVT_S_WU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rm.toLong & 0x7L) << 12))
+  def FCVT_S_H(rd: Int = 0, rs1: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FCVT_S_H | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rm.toLong & 0x7L) << 12))
+  def FCVT_H_S(rd: Int = 0, rs1: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FCVT_H_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rm.toLong & 0x7L) << 12))
+  def FMADD_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FMADD_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
+  def FMSUB_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FMSUB_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
+  def FNMSUB_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FNMSUB_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
+  def FNMADD_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FNMADD_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
   def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
   def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }
