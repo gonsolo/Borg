@@ -374,6 +374,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Pipeline write-back snoop
     rast.io.pipeWrite <> core.io.pipeWrite
+    rast.io.csrWrite <> core.io.csrWrite
 
     // Core state feedback
     rast.io.coreStatus <> core.io.status

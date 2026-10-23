@@ -337,6 +337,29 @@ object BorgDrawTests extends TestSuite {
     rig.fbBase = 0x10000
   }
 
+  /** ISA v2 (B8 step 8): the same colours through CSR writes instead of r26-r28. */
+  def csrOutputs(rig: DrawRig): Unit = {
+    import Instructions._
+    val t = Seq(at(0, 0, 1.0, r = 1), at(8, 0, 4.0, g = 1), at(0, 8, 2.0))
+    rig.draw(t)
+    val a = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
+    val fsCsr = Seq(
+      FATTR(rd = 10, index = 0),
+      MUL(rs1 = 5, rs2 = 10, rd = 13), FMA(rs1 = 6, rs2 = 11, rs3 = 13, rd = 13), FMA(rs1 = 7, rs2 = 12, rs3 = 13, rd = 13),
+      FATTR(rd = 10, index = 1),
+      MUL(rs1 = 5, rs2 = 10, rd = 14), FMA(rs1 = 6, rs2 = 11, rs3 = 14, rd = 14), FMA(rs1 = 7, rs2 = 12, rs3 = 14, rd = 14),
+      MUL(rs1 = 5, rs2 = 20, rd = 15, funct3 = 2),
+      Opcodes.CSRRW(rs1 = 13, csr = Csr.OutC0), Opcodes.CSRRW(rs1 = 14, csr = Csr.OutC1),
+      Opcodes.CSRRW(rs1 = 15, csr = Csr.OutC2),
+      BigInt(0))
+    rig.draw(t, frag = fsCsr)
+    val b = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
+    val diff = a.zip(b).count { case (p, q) => p != q }
+    val lit = a.count(_ != (0, 0, 0))
+    println(s"  CSR outputs: ${Size * Size - diff} of ${Size * Size} pixels identical, $lit lit")
+    utest.assert(diff == 0 && lit > 10)
+  }
+
   /** Shared edges are covered exactly once: every sample of the 8x8
     * screen counted once, not twice, never zero times. */
   def watertight(rig: DrawRig): Unit = {
@@ -887,6 +910,9 @@ object BorgDrawQuadTests extends TestSuite {
     }
     utest.test("raw_colour_formats_and_tld") {
       run("RAW colour formats, 4 lanes", quadCfg)(rawFormats)
+    }
+    utest.test("fragment_outputs_through_csrs") {
+      run("CSR outputs, 4 lanes", quadCfg)(csrOutputs)
     }
     utest.test("d16_depth_is_invariant_across_store_and_reload") {
       run("D16 invariance, 4 lanes", quadCfg)(depthInvariance)

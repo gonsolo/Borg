@@ -86,6 +86,32 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("csrrw_drives_the_csr_port_of_active_lanes") {
+      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+        // r1 = 77; lane 0 masked off (r30 = lane x: 0, 1, 0, 1) for the second write.
+        for ((w, i) <- Seq(ADDI(1, 0, 77), CSRRW(0, 1, Csr.OutC2), Instructions.F2I(30, 5),
+                           Instructions.EXPUSH(rs1 = 5), CSRRW(0, 1, Csr.OutDepth), Instructions.EXPOP(),
+                           BigInt(0)).zipWithIndex) writeImem(core, i, w)
+        core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+        val seen = scala.collection.mutable.ArrayBuffer[(Int, Int, BigInt)]()
+        var n = 0
+        while (n < 400 && (n < 2 || core.io.status.running.peek().litToBoolean)) {
+          for (l <- 0 until 4) {
+            val c = core.io.csrWrite(l)
+            if (c.en.peek().litToBoolean) seen += ((l, c.addr.peek().litValue.toInt, c.data.peek().litValue))
+          }
+          core.clock.step(1); n += 1
+        }
+        println(s"  CSR writes: $seen")
+        val want = (0 until 4).map(l => (l, Csr.OutC2, BigInt(77))) ++ Seq(1, 3).map(l => (l, Csr.OutDepth, BigInt(77)))
+        utest.assert(seen.toSet == want.toSet && seen.size == want.size)
+        utest.assert(readReg(core, 0) != 77)
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)

@@ -80,6 +80,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Outputs ---
   val pipeWrite   = new PipeWriteIO(cfg.totalBits) // write-back snoop
+  val csrWrite    = new CsrWriteIO(cfg.totalBits)
   val regReadData = Output(UInt(cfg.totalBits.W))  // MMIO GPR read (lane 0 consumed)
   val recARaw     = Output(UInt(cfg.totalBits.W))  // operands for the shared FSMs
   val recBRaw     = Output(UInt(cfg.totalBits.W))
@@ -541,6 +542,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeReg(w_addr, w_en, w_data)
+    io.csrWrite.en   := running && is_busy && busy_counter === 1.U && io.opFlags.csrw && io.execActive
+    io.csrWrite.addr := io.opFlags.csr
+    io.csrWrite.data := recA_raw
     io.pipeWrite.en   := pipe_write
     io.pipeWrite.addr := w_addr
     io.pipeWrite.data := w_data

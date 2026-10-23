@@ -70,5 +70,7 @@ class FpuOpFlags extends Bundle {
   val isrl    = Bool()   // logical shift right (RISC-V SRL)
   val isltu   = Bool()   // unsigned compare (RISC-V SLTU)
   val funct3 = UInt(3.W)
-  val rvNoWrite = Bool()  // a RISC-V instruction writing x0
+  val rvNoWrite = Bool()  // a RISC-V instruction writing x0, or a CSR access (no reads yet)
+  val csrw    = Bool()     // CSRRW
+  val csr     = UInt(12.W)
 }

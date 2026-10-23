@@ -62,6 +62,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
 
   // Pipeline write-back snoop, per lane (exposed to rasterizer + sequencer)
   val pipeWrite = Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits))
+  val csrWrite  = Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits))
 
   // Status outputs (exposed to rasterizer and top-level read mux)
   val status = new CoreStatusIO
@@ -323,7 +324,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // Each lane exposes its own write-back snoop; lane 0 drives the MMIO read.
-  lanes.zipWithIndex.foreach { case (lane, i) => io.pipeWrite(i) := lane.io.pipeWrite }
+  lanes.zipWithIndex.foreach { case (lane, i) => io.pipeWrite(i) := lane.io.pipeWrite; io.csrWrite(i) := lane.io.csrWrite }
   io.regReadData := lanes(0).io.regReadData
   io.status.running := running
   io.status.autoRunPending := auto_run_pending
@@ -464,7 +465,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
     flags.texa   := (if (smp) flags.fma && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
     flags.funct3 := Mux(v1 || flags.fma, Instructions.BF_FUNCT3(instr), 0.U)
-    flags.rvNoWrite := rv.any && regs.rd === 0.U
+    flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
+    flags.csrw := rv.csrrw
+    flags.csr  := rv.csr
 
     (regs, flags)
   }

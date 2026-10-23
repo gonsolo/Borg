@@ -30,6 +30,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 
   // Pipeline write-back snoop (from BorgCore), per lane
   val pipeWrite = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
+  val csrWrite  = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
 
   // Core state feedback (needed for stall clearing)
   val coreStatus = Flipped(new CoreStatusIO)
@@ -128,6 +129,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.pixelReady     := iterator.io.pixelReady
   dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex   // per-lane Vec
   dispatcher.io.pipeWrite      <> io.pipeWrite
+  dispatcher.io.csrWrite       <> io.csrWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
   dispatcher.io.depthCompareOp := io.depthCompareOp

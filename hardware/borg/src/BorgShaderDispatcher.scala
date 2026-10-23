@@ -35,6 +35,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Inputs from BorgCore (snooping), per lane ---
   val pipeWrite  = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
+  val csrWrite   = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val coreStatus = Flipped(new CoreStatusIO)
 
   // --- Inputs from MMIO registers ---
@@ -991,6 +992,22 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         frag_z(i) := (if (cfg.tileDepthBits == 32) io.pipeWrite(i).data(31, 0)
                       else fragNarrow(io.pipeWrite(i).data))
       }
+    }
+  }
+
+  // ISA v2: the same outputs through CSR writes (docs/B8_isa_v2.md).
+  for (i <- 0 until N) {
+    val c = io.csrWrite(i)
+    def at(n: Int) = c.en && phase === sFrag && c.addr === n.U
+    frag_a.foreach { a => when(at(Csr.OutC3)) { a(i) := fragNarrow(c.data) } }
+    when(io.sampleCfg.shaderMask && at(Csr.SampleMask)) { fragMask(i) := c.data(cfg.samples - 1, 0) }
+    when(at(Csr.Discard)) { killed(i) := killed(i) || (c.data =/= 0.U) }
+    when(at(Csr.OutC0)) { frag_r(i) := fragNarrow(c.data); frag_raw.foreach(_(i) := c.data.pad(32)(31, 0)) }
+    when(at(Csr.OutC1)) { frag_g(i) := fragNarrow(c.data); frag_raw1.foreach(_(i) := c.data.pad(32)(31, 0)) }
+    when(at(Csr.OutC2)) { frag_b(i) := fragNarrow(c.data) }
+    when(at(Csr.OutDepth)) {
+      zWritten(i) := true.B
+      frag_z(i) := (if (cfg.tileDepthBits == 32) c.data(31, 0) else fragNarrow(c.data))
     }
   }
 
