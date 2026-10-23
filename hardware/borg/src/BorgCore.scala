@@ -419,7 +419,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
     flags.fmov  := v1 && f7op === Opcodes.FUNCT7_FMOV.U
     flags.fstep := v1 && f7op === Opcodes.FUNCT7_FSTEP.U
-    flags.frcp  := v1 && f7op === Opcodes.FUNCT7_FRCP.U
+    flags.frcp  := v1 && f7op === Opcodes.FUNCT7_FRCP.U || rv.frcp
     flags.iadd  := v1 && f7op === Opcodes.FUNCT7_IADD.U || rv.add
     flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U || rv.sll
     flags.ishr  := v1 && f7op === Opcodes.FUNCT7_ISHR.U || rv.sra
@@ -434,10 +434,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.f2i   := v1 && f7op === Opcodes.FUNCT7_F2I.U
     flags.f2h   := v1 && f7op === Opcodes.FUNCT7_F2H.U || rv.fcvtHS
     flags.h2f   := v1 && f7op === Opcodes.FUNCT7_H2F.U || rv.fcvtSH
-    flags.frsq  := v1 && f7op === Opcodes.FUNCT7_FRSQ.U
+    flags.frsq  := v1 && f7op === Opcodes.FUNCT7_FRSQ.U || rv.frsq
     flags.fsrgb := v1 && f7op === Opcodes.FUNCT7_FSRGB.U
-    flags.ddx   := v1 && f7op === Opcodes.FUNCT7_DDX.U
-    flags.ddy   := v1 && f7op === Opcodes.FUNCT7_DDY.U
+    flags.ddx   := v1 && f7op === Opcodes.FUNCT7_DDX.U || rv.ddx
+    flags.ddy   := v1 && f7op === Opcodes.FUNCT7_DDY.U || rv.ddy
     flags.fine  := Instructions.BF_RS2(instr) === 1.U     // DDX/DDY: fine (per row/column)
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
@@ -449,29 +449,29 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.brnz   := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRNZ.U else false.B)
     flags.jmp    := v1 && f7op === Opcodes.FUNCT7_JMP.U
     flags.branch := flags.brz || flags.brnz || flags.jmp || rv.br || rv.jal
-    flags.expush := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPUSH.U else false.B)
-    flags.exelse := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXELSE.U else false.B)
-    flags.expop  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPOP.U else false.B)
+    flags.expush := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPUSH.U || rv.expush else false.B)
+    flags.exelse := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXELSE.U || rv.exelse else false.B)
+    flags.expop  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPOP.U || rv.expop else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
-    flags.barrier := (if (cfg.computeEnabled) v1 && f7op === Opcodes.FUNCT7_BARRIER.U else false.B)
+    flags.barrier := (if (cfg.computeEnabled) v1 && f7op === Opcodes.FUNCT7_BARRIER.U || rv.barrier else false.B)
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
-    flags.exany  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXANY.U else false.B)
+    flags.exany  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXANY.U || rv.exany else false.B)
     flags.isrl   := v1 && f7op === Opcodes.FUNCT7_ISRL.U || rv.srl
     flags.isltu  := v1 && f7op === Opcodes.FUNCT7_ISLTU.U || rv.sltu
-    flags.ztest  := v1 && f7op === Opcodes.FUNCT7_ZTEST.U
+    flags.ztest  := v1 && f7op === Opcodes.FUNCT7_ZTEST.U || rv.ztest
     val draw = cfg.drawEnabled
-    flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U else false.B)
-    flags.fattr  := (if (draw) v1 && f7op === Opcodes.FUNCT7_FATTR.U else false.B)
+    flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U || rv.sout else false.B)
+    flags.fattr  := (if (draw) v1 && f7op === Opcodes.FUNCT7_FATTR.U || rv.fattr else false.B)
     val smp = cfg.samplerEnabled
     flags.tex    := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEX.U || rv.texd else false.B)
     flags.texd   := (if (smp) rv.texd else false.B)
     flags.texs   := (if (smp) rv.texs else false.B)
     flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
     flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
-    flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
+    flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U || rv.tld else false.B)
     flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U || rv.texad else false.B)
-    flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, 0.U))
+    flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U)))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
     flags.rvx  := rv.rvx

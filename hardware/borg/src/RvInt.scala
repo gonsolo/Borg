@@ -33,6 +33,15 @@ class RvInt(instr: UInt) {
   val texd  = custom1 && f3 === 0.U && instr(26, 25) === 0.U
   val texad = custom1 && f3 === 0.U && instr(26, 25) === 1.U
   val texs  = custom1 && f3 === 1.U && f7 === 0.U
+  /** Custom-0..3 (B8 step 15): v1's special, attachment, geometry and control ops, same operand fields. */
+  private def is(m: Long, k: Long) = (instr & k.U(32.W)) === m.U(32.W)
+  val frcp   = is(Opcodes.MATCH_FRCP_V2, Opcodes.MASK_FRCP_V2); val frsq = is(Opcodes.MATCH_FRSQ_V2, Opcodes.MASK_FRSQ_V2)
+  val ddx    = is(Opcodes.MATCH_DDX_V2, Opcodes.MASK_DDX_V2); val ddy = is(Opcodes.MATCH_DDY_V2, Opcodes.MASK_DDY_V2)
+  val tld    = is(Opcodes.MATCH_TLD_V2, Opcodes.MASK_TLD_V2); val ztest = is(Opcodes.MATCH_ZTEST_V2, Opcodes.MASK_ZTEST_V2)
+  val sout   = is(Opcodes.MATCH_SOUT_V2, Opcodes.MASK_SOUT_V2); val fattr = is(Opcodes.MATCH_FATTR_V2, Opcodes.MASK_FATTR_V2)
+  val expush = is(Opcodes.MATCH_EXPUSH_V2, Opcodes.MASK_EXPUSH_V2); val exelse = is(Opcodes.MATCH_EXELSE_V2, Opcodes.MASK_EXELSE_V2)
+  val expop  = is(Opcodes.MATCH_EXPOP_V2, Opcodes.MASK_EXPOP_V2); val exany = is(Opcodes.MATCH_EXANY_V2, Opcodes.MASK_EXANY_V2)
+  val barrier = is(Opcodes.MATCH_BARRIER_V2, Opcodes.MASK_BARRIER_V2)
   /** Zaamo AMO*.W and Zacas AMOCAS.W (B8 step 12) at rs1; AMOCAS compares with rd. */
   val amo    = opc === Opcodes.OPCODE_AMOADD_W.U && f3 === 2.U
   val amoOp  = instr(31, 27)

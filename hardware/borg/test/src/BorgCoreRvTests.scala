@@ -234,6 +234,18 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("custom_forms_match_v1") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        // FRCP and FRSQ of 2 both ways; a masked-off EXPUSH skips the then arm; DDX of a uniform value.
+        val rd = run(core, Seq(Instructions.FRCP(1, 2), FRCP_V2(3, 1), Instructions.FRSQ(1, 4), FRSQ_V2(5, 1),
+                               EXPUSH_V2(10), ADDI(6, 0, 1), EXELSE_V2(), ADDI(7, 0, 1), EXPOP_V2(), EXANY_V2(8),
+                               DDX_V2(9, 1, 1)), Map(1 -> u(0x40000000L), 6 -> 0, 7 -> 0, 9 -> 5, 10 -> 0))
+        println(s"  rcp ${rd(2)} ${rd(3)} rsq ${rd(4)} ${rd(5)} then ${rd(6)} else ${rd(7)} any ${rd(8)} ddx ${rd(9)}")
+        utest.assert(rd(2) == rd(3) && rd(4) == rd(5) && rd(6) == 0 && rd(7) == 1 && rd(8) == 1 && rd(9) == 0)
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
