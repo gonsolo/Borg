@@ -68,8 +68,8 @@ end of a program: RISC-V defines it as illegal, so no valid program loses an enc
 | custom-3 0x7B | Control and quad: `EXPUSH`, `EXELSE`, `EXPOP`, `EXANY`, `BARRIER`, `QBALLOT`, `QSHUF` |
 
 Custom instructions use the R format (funct7, rs2, rs1, funct3, rd) or R4 (rs3 in 31..27,
-funct2 in 26..25), so every register field sits where RISC-V puts it. Proposed values, fixed
-when the opcode file gets them:
+funct2 in 26..25), so every register field sits where RISC-V puts it. The values as the opcode
+file has them (`hardware/borg/isa/rv_i`, named `.v2` until v1's forms go):
 
 | Instruction | Opcode | Format | funct3 | funct7 / funct2 | Operands |
 |---|---|---|---|---|---|
@@ -80,8 +80,8 @@ when the opcode file gets them:
 | `TEXS` | 0x2B | R | 1 | 0x00 | rs1 = sampler descriptor address, rs2 = control word |
 | `TLD` | 0x2B | R | 2 | 0x00 | rd; rs2 field = word |
 | `ZTEST` | 0x2B | R | 3 | 0x00 | — |
-| `SOUT` | 0x5B | R | 0 | 0x00 | rs1 = value; rs2 and rd fields = output component |
-| `FATTR` | 0x5B | R | 1 | 0x00 | rd (group of 3); rs1 and rs2 fields = attribute |
+| `SOUT` | 0x5B | R | 0 | 0x00 | rs2 = value; rs1 and rd fields = output component (as v1) |
+| `FATTR` | 0x5B | R | 1 | 0x00 | rd (group of 3); rs2 and rs1 fields = attribute (as v1) |
 | `EXPUSH`, `EXELSE`, `EXPOP`, `EXANY` | 0x7B | R | 0 | 0x00..0x03 | as v1 |
 | `BARRIER` | 0x7B | R | 1 | 0x00 | — |
 | `QBALLOT`, `QSHUF` | 0x7B | R | 2 | 0x00, 0x01 | see "Subgroups" |
