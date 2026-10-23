@@ -29,7 +29,8 @@ object BorgComputeTests extends TestSuite {
   /** Run `prog` (IMEM 0, HALT appended) over `groups` workgroups of `local`
     * invocations, with the given GPRs preset, and return the DRAM. */
   def dispatch(d: BorgGpuMemWordTests.Dut, prog: Seq[BigInt], gprs: Map[Int, Int],
-               groups: (Int, Int, Int), local: (Int, Int, Int)): HalfwordDram = {
+               groups: (Int, Int, Int), local: (Int, Int, Int),
+               setup: HalfwordDram => Unit = _ => ()): HalfwordDram = {
     val dram = new HalfwordDram
     d.io.data_write_n.poke(3.U)
     d.io.data_read_n.poke(3.U)
@@ -38,6 +39,7 @@ object BorgComputeTests extends TestSuite {
     mmioWrite(d, dram, off(BorgGpuRegs.control_offset), 2)
     mmioWrite(d, dram, off(BorgGpuRegs.ls_base_offset), lsBase)
     for ((r, v) <- gprs) mmioWrite(d, dram, off(BorgGpuRegs.gpr_offset) + 4 * r, v)
+    setup(dram)
     for ((w, i) <- (prog :+ BigInt(0)).zipWithIndex)
       mmioWrite(d, dram, off(BorgGpuRegs.imem_offset) + 4 * i, w)
 
@@ -316,6 +318,40 @@ object BorgComputeTests extends TestSuite {
           if (got != 707) println(s"  output[$i] = $got (expected the stale 707)")
           utest.assert(got == 707)
         }
+      }
+    }
+
+    utest.test("tex_takes_the_control_word_of_the_lowest_active_lane") {
+      // Lane 0 is masked off while lanes 1-3 load texture 1's control word and sample;
+      // lane 0's register still holds texture 0's. Texture 0 is red 0, texture 1 red 255.
+      val (tex, desc, samp) = (0x2000, 0x3000, 0x3100)
+      val ctl = SamplerCtl.LodExplicit << 21
+      val prog = Seq(
+        Instructions.TEXA(rs1 = 10, rs2 = 10, rs3 = 10),
+        Instructions.IADD(rs1 = 12, rs2 = 10, rd = 1),
+        Instructions.ISEQ(rs1 = 30, rs2 = 10, rd = 2), Instructions.EXPUSH(rs1 = 2), Instructions.EXELSE(),
+        Instructions.IADD(rs1 = 13, rs2 = 10, rd = 1),
+        Instructions.TEX(rd = 20, rs1 = 14, rs2 = 14, rs3 = 1),
+        Instructions.EXPOP(),
+        Instructions.STORE(rs1 = 30, rs2 = 20)
+      )
+      val gprs = Map(10 -> 0, 12 -> ctl, 13 -> (ctl | 1), 14 -> java.lang.Float.floatToRawIntBits(0.5f), 20 -> 0x12345)
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        def put(dram: HalfwordDram, a: Int, w: Long): Unit = { dram.mem(a) = (w & 0xFFFF).toInt; dram.mem(a + 2) = ((w >> 16) & 0xFFFF).toInt }
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (4, 1, 1), dram => {
+          val fm = TexFormat.byName("R8G8B8A8_UNORM")
+          for (k <- 0 until 2) {
+            put(dram, tex + 16 * k, if (k == 0) 0xFF000000L else 0xFF0000FFL)
+            for ((w, i) <- SamplerCtl.descHeader(tex + 16 * k, 1, 1, 1, 1, fm.code, SamplerCtl.Linear, SamplerCtl.T2D, 4).zipWithIndex)
+              put(dram, desc + 64 * k + 4 * i, w)
+          }
+          put(dram, samp, SamplerCtl.ClampEdge << 3 | SamplerCtl.ClampEdge << 6)
+          mmioWrite(d, dram, off(BorgGpuRegs.tex_desc_base_offset), desc)
+          mmioWrite(d, dram, off(BorgGpuRegs.sampler_desc_base_offset), samp)
+        })
+        val got = (0 until 4).map(word(dram, _))
+        println(s"  red per lane: ${got.map(_.toString(16)).mkString(" ")}")
+        utest.assert(got == Seq(BigInt(0x12345), BigInt(0x3f800000), BigInt(0x3f800000), BigInt(0x3f800000)))
       }
     }
 

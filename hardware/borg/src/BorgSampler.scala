@@ -25,7 +25,7 @@ import chisel3.util._
   * area stays that of a small state machine plus two datapath units.
   */
 object SamplerCtl {
-  // TEX's ctl operand (lane 0's value of rs3; a compile-time constant).
+  // TEX's ctl operand (the lowest active lane's value of rs3).
   def texIdx(c: UInt)  = c(7, 0)
   def sampIdx(c: UInt) = c(15, 8)
   def op(c: UInt)      = c(17, 16)   // 0 sample, 1 fetch (texelFetch), 2 gather, 3 size (textureSize)

@@ -804,7 +804,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     sampler.io.req.valid := false.B
-    sampler.io.req.bits.ctl := cOps(0)
+    sampler.io.req.bits.ctl := PriorityMux(execMask.asBools, cOps)
     for (i <- 0 until N) {
       sampler.io.req.bits.active(i) := execMask(i)
       val a = sampler.io.req.bits.lane(i)
