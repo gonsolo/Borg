@@ -97,6 +97,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // the SSBO descriptor -- see Opcodes.FUNCT7_LOAD for why the register
   // operand is an index rather than a full address.
   val lsBase  = if (cfg.hasMemoryOps) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
+  val root    = Input(UInt(32.W))                          // CSR root (ISA v2)
 
   // Raw invocation IDs for r30/r31 and the lanes a trigger starts with:
   // compute's (BorgComputeSequencer), or a vertex shader's VertexIndex and
@@ -437,8 +438,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
     // not accidentally an ADD.
-    flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U else false.B)
-    flags.store := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_STORE.U else false.B)
+    flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U || rv.load else false.B)
+    flags.store := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_STORE.U || rv.store else false.B)
     val cf = cfg.hasControlFlow
     flags.brz    := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRZ.U else false.B)
     flags.brnz   := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRNZ.U else false.B)
@@ -574,8 +575,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       v.valid := RegEnable(valid, false.B, op_en); v.bits := RegEnable(bits(w - 1, 0), op_en)
       v
     }
-    (latch(rv.aZero || rv.auipc, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W))),
-     latch(rv.bZero || rv.bImm, Mux(rv.bImm, rv.imm, 0.U(32.W))))
+    val csrValue = Mux(rv.csr === Csr.Root.U, io.root, 0.U)
+    (latch(rv.aZero || rv.auipc || rv.csrrs,
+           Mux(rv.csrrs, csrValue, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W)))),
+     latch(rv.bZero || rv.bImm || rv.csrrs, Mux(rv.bImm, rv.imm, 0.U(32.W))))
   }
 
   /** Shared uniform-RAM read.  Returns (gated read data, delayed funct3) for the
@@ -919,7 +922,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // still write (shaders.adoc: their stores have no effect "except for the
     // Function, Private and Output storage classes").
     val is_private_reg = RegInit(false.B)
+    // ISA v2 LB..LW and SW: byte address rs1 + imm instead of LS_BASE + (index << 2).
+    val rvMem = RegInit(false.B); val rvWidth = Reg(UInt(3.W)); val rvImm = Reg(UInt(32.W))
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
+      val rv = RvInt(fetchedInstruction)
+      rvMem := rv.load || rv.store; rvWidth := rv.width; rvImm := rv.memImm
       is_load_reg  := opFlags.load
       is_store_reg := opFlags.store || opFlags.sout
       is_private_reg := opFlags.store && Instructions.BF_RD(fetchedInstruction) === 1.U
@@ -943,7 +950,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Effective address: LS_BASE + (index << 2). The shift is what makes the
     // index a word index and misalignment unrepresentable; +& keeps the carry
     // so a base near the top of the space does not wrap silently.
-    val lsAddr = (io.lsBase.get +& (curIndex << 2))(GpuMemIO.AddrBits - 1, 0)
+    val rvAddr = (curIndex.pad(32) + rvImm)(31, 0)
+    val lsAddr = Mux(rvMem, Cat(rvAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)),
+                     (io.lsBase.get +& (curIndex << 2))(GpuMemIO.AddrBits - 1, 0))
+    def rvLoadData(w: UInt): UInt = {
+      val sh = (w >> Cat(rvAddr(1, 0), 0.U(3.W)))(31, 0)
+      MuxLookup(rvWidth, w)(Seq(0.U -> sh(7, 0).asSInt.pad(32).asUInt, 1.U -> sh(15, 0).asSInt.pad(32).asUInt,
+                                 4.U -> sh(7, 0).pad(32), 5.U -> sh(15, 0).pad(32)))
+    }
 
     // SOUT/FATTR: a component index from the instruction, not a register.
     // Taken at start (below), since the index is packed into register fields
@@ -1046,7 +1060,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           is_load_reg, memLane, byteAddr,
           Mux(is_load_reg, io.gpuMem.get.data, curData))
         when(is_load_reg) {
-          memDataReg := io.gpuMem.get.data(config.totalBits - 1, 0)
+          memDataReg := Mux(rvMem, rvLoadData(io.gpuMem.get.data.pad(32)), io.gpuMem.get.data)(config.totalBits - 1, 0)
           memState   := sMemWB
         }.otherwise {
           finishLane()                  // a store has nothing to write back
@@ -1057,7 +1071,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(memState === sMemWB) {
       busy_counter := busy_counter
       memWrites.zipWithIndex.foreach { case (mw, i) =>
-        mw.en   := i.U === memLane
+        mw.en   := i.U === memLane && !(rvMem && memRdReg === 0.U)
         mw.addr := memRdReg
         mw.data := memDataReg
       }

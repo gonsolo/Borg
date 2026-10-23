@@ -112,6 +112,24 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("loads_stores_and_csr_root") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        resetCore(core)
+        core.io.root.poke(0xABCD0.U)
+        val mem = scala.collection.mutable.Map[BigInt, BigInt](BigInt(0x100) -> BigInt(0x8081F27FL), BigInt(0xFC) -> BigInt(0x1234))
+        writeReg(core, 0, 5)
+        for ((w, i) <- Seq(ADDI(1, 0, 0x100), LW(2, 1, 0), LB(3, 1, 1), LBU(4, 1, 2), LH(5, 1, 2), LHU(6, 1, 0),
+                           ADDI(7, 0, 0x55), SW(8, 1, 7), LW(8, 1, -4), CSRRS(9, 0, Csr.Root), LW(0, 1, 0),
+                           BigInt(0)).zipWithIndex) writeImem(core, i, w)
+        startAndWaitWithMem(core, mem)
+        val got = (0 to 9).map(readReg(core, _))
+        println(s"  ${got.map(_.toString(16))} mem(0x108)=${mem.get(0x108)}")
+        utest.assert(got == Seq(5, 0x100, 0x8081F27FL, 0xFFFFFFF2L, 0x81, 0xFFFF8081L, 0xF27F, 0x55, 0x1234, 0xABCD0).map(BigInt(_)))
+        utest.assert(mem.get(0x108).contains(BigInt(0x55)))
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)

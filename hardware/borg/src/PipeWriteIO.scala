@@ -27,4 +27,5 @@ class CsrWriteIO(val totalBits: Int) extends Bundle {
 object Csr {
   val OutC0 = 0x800; val OutC1 = 0x801; val OutC2 = 0x802; val OutC3 = 0x803
   val OutDepth = 0x804; val Discard = 0x805; val SampleMask = 0x806
+  val Root = 0xCC0
 }

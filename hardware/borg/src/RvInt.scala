@@ -14,11 +14,17 @@ class RvInt(instr: UInt) {
   val lui   = opc === Opcodes.OPCODE_LUI.U
   val auipc = opc === Opcodes.OPCODE_AUIPC.U
   val csrrw = opc === Opcodes.OPCODE_CSRRW.U && f3 === 1.U
+  val csrrs = opc === Opcodes.OPCODE_CSRRS.U && f3 === 2.U
   val csr   = instr(31, 20)
-  val any   = op || opImm || lui || auipc
+  /** LB, LH, LW, LBU, LHU at rs1 + imm12; SW at rs1 + the S-type immediate. */
+  val load  = opc === Opcodes.OPCODE_LW.U && (f3 === 0.U || f3 === 1.U || f3 === 2.U || f3 === 4.U || f3 === 5.U)
+  val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U
+  val width = f3
+  val memImm = Mux(store, Cat(instr(31, 25), instr(11, 7)), instr(31, 20)).asSInt.pad(32).asUInt
+  val any   = op || opImm || lui || auipc || csrrs || load
   private val base  = op && f7 === 0.U || opImm
   private val shift = (op || opImm) && f7 === 0.U
-  val add  = base && f3 === 0.U || lui || auipc
+  val add  = base && f3 === 0.U || lui || auipc || csrrs
   val sub  = op && f7 === 0x20.U && f3 === 0.U
   val sll  = shift && f3 === 1.U
   val slt  = base && f3 === 2.U
@@ -29,9 +35,9 @@ class RvInt(instr: UInt) {
   val or   = base && f3 === 6.U
   val and  = base && f3 === 7.U
   /** Operand A is x0 (or LUI's zero); AUIPC's is the instruction's byte address. */
-  val aZero = (op || opImm || csrrw) && instr(19, 15) === 0.U || lui
+  val aZero = (op || opImm || csrrw || load || store) && instr(19, 15) === 0.U || lui
   /** Operand B is x0, or the immediate. */
-  val bZero = op && instr(24, 20) === 0.U
+  val bZero = (op || store) && instr(24, 20) === 0.U
   val bImm  = opImm || lui || auipc
   val imm   = Mux(opImm, instr(31, 20).asSInt.pad(32).asUInt, Cat(instr(31, 12), 0.U(12.W)))
 }
