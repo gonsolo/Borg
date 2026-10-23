@@ -546,6 +546,58 @@ object Opcodes {
   val MASK_TEXS = 0xfe007fffL
   val OPCODE_TEXS = 0x2b
   val FUNCT7_TEXS = 0x00
+  val MATCH_FRCP_V2 = 0x0000000bL
+  val MASK_FRCP_V2 = 0xfff0707fL
+  val OPCODE_FRCP_V2 = 0x0b
+  val FUNCT7_FRCP_V2 = 0x00
+  val MATCH_FRSQ_V2 = 0x0200000bL
+  val MASK_FRSQ_V2 = 0xfff0707fL
+  val OPCODE_FRSQ_V2 = 0x0b
+  val FUNCT7_FRSQ_V2 = 0x01
+  val MATCH_DDX_V2 = 0x0000100bL
+  val MASK_DDX_V2 = 0xfe00707fL
+  val OPCODE_DDX_V2 = 0x0b
+  val FUNCT7_DDX_V2 = 0x00
+  val MATCH_DDY_V2 = 0x0200100bL
+  val MASK_DDY_V2 = 0xfe00707fL
+  val OPCODE_DDY_V2 = 0x0b
+  val FUNCT7_DDY_V2 = 0x01
+  val MATCH_TLD_V2 = 0x0000202bL
+  val MASK_TLD_V2 = 0xfe0ff07fL
+  val OPCODE_TLD_V2 = 0x2b
+  val FUNCT7_TLD_V2 = 0x00
+  val MATCH_ZTEST_V2 = 0x0000302bL
+  val MASK_ZTEST_V2 = 0xffffffffL
+  val OPCODE_ZTEST_V2 = 0x2b
+  val FUNCT7_ZTEST_V2 = 0x00
+  val MATCH_SOUT_V2 = 0x0000005bL
+  val MASK_SOUT_V2 = 0xfe00707fL
+  val OPCODE_SOUT_V2 = 0x5b
+  val FUNCT7_SOUT_V2 = 0x00
+  val MATCH_FATTR_V2 = 0x0000105bL
+  val MASK_FATTR_V2 = 0xfe00707fL
+  val OPCODE_FATTR_V2 = 0x5b
+  val FUNCT7_FATTR_V2 = 0x00
+  val MATCH_EXPUSH_V2 = 0x0000007bL
+  val MASK_EXPUSH_V2 = 0xfff07fffL
+  val OPCODE_EXPUSH_V2 = 0x7b
+  val FUNCT7_EXPUSH_V2 = 0x00
+  val MATCH_EXELSE_V2 = 0x0200007bL
+  val MASK_EXELSE_V2 = 0xffffffffL
+  val OPCODE_EXELSE_V2 = 0x7b
+  val FUNCT7_EXELSE_V2 = 0x01
+  val MATCH_EXPOP_V2 = 0x0400007bL
+  val MASK_EXPOP_V2 = 0xffffffffL
+  val OPCODE_EXPOP_V2 = 0x7b
+  val FUNCT7_EXPOP_V2 = 0x02
+  val MATCH_EXANY_V2 = 0x0600007bL
+  val MASK_EXANY_V2 = 0xfffff07fL
+  val OPCODE_EXANY_V2 = 0x7b
+  val FUNCT7_EXANY_V2 = 0x03
+  val MATCH_BARRIER_V2 = 0x0000107bL
+  val MASK_BARRIER_V2 = 0xffffffffL
+  val OPCODE_BARRIER_V2 = 0x7b
+  val FUNCT7_BARRIER_V2 = 0x00
   val MATCH_CSRRW = 0x00001073L
   val MASK_CSRRW = 0x0000707fL
   val OPCODE_CSRRW = 0x73
@@ -691,6 +743,19 @@ object Opcodes {
   def TEXD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0): BigInt = BigInt(MATCH_TEXD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27))
   def TEXAD(rs1: Int = 0, rs2: Int = 0, rs3: Int = 0): BigInt = BigInt(MATCH_TEXAD | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27))
   def TEXS(rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_TEXS | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def FRCP_V2(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FRCP_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def FRSQ_V2(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FRSQ_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def DDX_V2(rd: Int = 0, rs1: Int = 0, fine: Int = 0): BigInt = BigInt(MATCH_DDX_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((fine.toLong & 0x1fL) << 20))
+  def DDY_V2(rd: Int = 0, rs1: Int = 0, fine: Int = 0): BigInt = BigInt(MATCH_DDY_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((fine.toLong & 0x1fL) << 20))
+  def TLD_V2(rd: Int = 0, fine: Int = 0): BigInt = BigInt(MATCH_TLD_V2 | ((rd.toLong & 0x1fL) << 7) | ((fine.toLong & 0x1fL) << 20))
+  def ZTEST_V2(): BigInt = BigInt(MATCH_ZTEST_V2)
+  def SOUT_V2(rs2: Int = 0, index: Int = 0): BigInt = BigInt(MATCH_SOUT_V2 | ((rs2.toLong & 0x1fL) << 20) | (((index.toLong >> 5) & 0x1fL) << 15) | ((index.toLong & 0x1fL) << 7))
+  def FATTR_V2(rd: Int = 0, aindex: Int = 0): BigInt = BigInt(MATCH_FATTR_V2 | ((rd.toLong & 0x1fL) << 7) | (((aindex.toLong >> 5) & 0x1fL) << 20) | ((aindex.toLong & 0x1fL) << 15))
+  def EXPUSH_V2(rs1: Int = 0): BigInt = BigInt(MATCH_EXPUSH_V2 | ((rs1.toLong & 0x1fL) << 15))
+  def EXELSE_V2(): BigInt = BigInt(MATCH_EXELSE_V2)
+  def EXPOP_V2(): BigInt = BigInt(MATCH_EXPOP_V2)
+  def EXANY_V2(rd: Int = 0): BigInt = BigInt(MATCH_EXANY_V2 | ((rd.toLong & 0x1fL) << 7))
+  def BARRIER_V2(): BigInt = BigInt(MATCH_BARRIER_V2)
   def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
   def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }

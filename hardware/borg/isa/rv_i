@@ -98,3 +98,19 @@ amocas.w  rd rs1 rs2 aq rl 31..27=0x05 14..12=2 6..2=0x0B 1..0=3
 texd    rd rs1 rs2 rs3 26..25=0 14..12=0 6..2=0x0A 1..0=3
 texad   rs1 rs2 rs3 26..25=1 14..12=0 11..7=0 6..2=0x0A 1..0=3
 texs    rs1 rs2 31..25=0 14..12=1 11..7=0 6..2=0x0A 1..0=3
+# Custom-0..3 (B8 step 15), v1's special, attachment, geometry and control ops; named .v2 until
+# v1's go. Operand fields stay where v1 has them.
+frcp.v2   rd rs1 31..25=0 24..20=0 14..12=0 6..2=0x02 1..0=3
+frsq.v2   rd rs1 31..25=1 24..20=0 14..12=0 6..2=0x02 1..0=3
+ddx.v2    rd rs1 fine 31..25=0 14..12=1 6..2=0x02 1..0=3
+ddy.v2    rd rs1 fine 31..25=1 14..12=1 6..2=0x02 1..0=3
+# TLD: the word in the rs2 field.
+tld.v2    rd fine 31..25=0 19..15=0 14..12=2 6..2=0x0A 1..0=3
+ztest.v2  31..25=0 24..15=0 14..12=3 11..7=0 6..2=0x0A 1..0=3
+sout.v2   rs2 index 31..25=0 14..12=0 6..2=0x16 1..0=3
+fattr.v2  rd aindex 31..25=0 14..12=1 6..2=0x16 1..0=3
+expush.v2 rs1 31..25=0 24..20=0 14..12=0 11..7=0 6..2=0x1E 1..0=3
+exelse.v2 31..25=1 24..15=0 14..12=0 11..7=0 6..2=0x1E 1..0=3
+expop.v2  31..25=2 24..15=0 14..12=0 11..7=0 6..2=0x1E 1..0=3
+exany.v2  rd 31..25=3 24..15=0 14..12=0 6..2=0x1E 1..0=3
+barrier.v2 31..25=0 24..15=0 14..12=1 11..7=0 6..2=0x1E 1..0=3
