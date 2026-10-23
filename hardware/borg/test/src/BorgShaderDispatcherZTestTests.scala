@@ -34,10 +34,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     d.io.occSamples.peek().litValue.toInt)
 
   def writeReg(d: BorgShaderDispatcher, reg: Int, value: Int): Unit = {
-    d.io.pipeWrite(0).en.poke(true.B)
-    d.io.pipeWrite(0).addr.poke(reg.U)
-    d.io.pipeWrite(0).data.poke(value.U)
-    d.clock.step(1)
+    pokeWrite(d, reg, value)
     d.io.pipeWrite(0).en.poke(false.B)
   }
 
@@ -348,15 +345,13 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
         val one = java.lang.Float.floatToRawIntBits(1.0f).toLong & 0xFFFFFFFFL
         for ((reg, v) <- Seq((0, one), (1, one), (2, one))) {
-          d.io.pipeWrite(0).en.poke(true.B); d.io.pipeWrite(0).addr.poke(reg.U)
-          d.io.pipeWrite(0).data.poke(v.U); d.clock.step(1)
+          pokeWrite(d, reg, v)
         }
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B); d.clock.step(1)
         d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
         d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
-        d.io.pipeWrite(0).en.poke(true.B); d.io.pipeWrite(0).addr.poke(29.U)
-        d.io.pipeWrite(0).data.poke(frag.U); d.clock.step(1)
+        pokeWrite(d, 29, frag)
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B); d.clock.step(1)
         stepThroughDepthTest(d)

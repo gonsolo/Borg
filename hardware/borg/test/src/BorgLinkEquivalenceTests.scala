@@ -208,10 +208,9 @@ object BorgLinkEquivalenceTests extends TestSuite {
     rw(6 * 4, 0) // word indices, raw integers
     rw(7 * 4, 1)
     rw(8 * 4, 2)
-    rw(128 + 4 * 4, Instructions.LOAD(rs1 = 6, rd = 26))
-    rw(128 + 5 * 4, Instructions.LOAD(rs1 = 7, rd = 27))
-    rw(128 + 6 * 4, Instructions.LOAD(rs1 = 8, rd = 28))
-    rw(128 + 7 * 4, 0) // halt
+    val frag = CsrOutputs(Seq(Instructions.LOAD(rs1 = 6, rd = 26), Instructions.LOAD(rs1 = 7, rd = 27),
+                              Instructions.LOAD(rs1 = 8, rd = 28), BigInt(0)))
+    for ((w, i) <- frag.zipWithIndex) rw(128 + (4 + i) * 4, w)
     rw(BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)
 
     // Enqueue tile (tx=0, ty=0).

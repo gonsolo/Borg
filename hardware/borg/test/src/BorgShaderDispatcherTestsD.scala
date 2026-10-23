@@ -42,10 +42,7 @@ object BorgShaderDispatcherTestsD extends TestSuite {
         d.io.coreStatus.autoRunPending.poke(false.B)
         d.io.coreStatus.running.poke(true.B)
         for ((reg, value) <- Seq((25, 1), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x3000))) {
-          d.io.pipeWrite(0).en.poke(true.B)
-          d.io.pipeWrite(0).addr.poke(reg.U)
-          d.io.pipeWrite(0).data.poke(value.U)
-          d.clock.step(1)
+          pokeWrite(d, reg, value)
         }
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)

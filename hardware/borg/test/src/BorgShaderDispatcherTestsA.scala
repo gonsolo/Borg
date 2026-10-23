@@ -107,10 +107,7 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         d.io.coreStatus.running.poke(true.B)
         // Write fragment outputs (r26=R, r27=G, r28=B, r29=Z)
         for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
-          d.io.pipeWrite(0).en.poke(true.B)
-          d.io.pipeWrite(0).addr.poke(reg.U)
-          d.io.pipeWrite(0).data.poke(value.U)
-          d.clock.step(1)
+          pokeWrite(d, reg, value)
         }
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)

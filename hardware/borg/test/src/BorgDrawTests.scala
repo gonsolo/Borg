@@ -133,7 +133,7 @@ object BorgDrawTests extends TestSuite {
       MUL(rs1 = 5, rs2 = 20, rd = 28, funct3 = 2),
       BigInt(0))
     rom ++= vs.zipWithIndex.map { case (w, i) => (vsAddr + 4 * i) -> w }
-    rom ++= fs.zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
+    rom ++= CsrOutputs(fs).zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
     rom ++= Seq(vsConst -> BigInt(vb / 4), (vsConst + 4) -> BigInt(6), (vsConst + 8) -> BigInt(1))
     rom ++= Seq(fsConst -> BigInt(0))
 
@@ -144,7 +144,8 @@ object BorgDrawTests extends TestSuite {
              instances: Int = 1, count: Int = -1, frag: Seq[BigInt] = fs, keep: Boolean = false,
              sampleMaskCfg: Int = 0xF, depthCfg: Int = 7 | (1 << 3), occ: (Int, Int) = (0, 0xFFFF),
              extra: Seq[(UInt, BigInt)] = Nil, recordShift: Int = 8): BigInt = {
-      rom ++= frag.zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
+      val fragW = CsrOutputs(frag)
+      rom ++= fragW.zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
       borg.reset.poke(true.B)
       borg.io.data_write_n.poke(3.U); borg.io.data_read_n.poke(3.U)
       borg.io.gpuMem.ready.poke(false.B); borg.io.gpuMem.data.poke(0.U)
@@ -159,7 +160,7 @@ object BorgDrawTests extends TestSuite {
       def reg(r: UInt, v: BigInt): Unit = rawWrite(borg, r.litValue.toInt, v)
       rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
       reg(BorgGpuRegs.seq_vert_addr_offset, vsAddr); reg(BorgGpuRegs.seq_vert_len_offset, vs.size)
-      reg(BorgGpuRegs.seq_frag_addr_offset, fsAddr); reg(BorgGpuRegs.seq_frag_len_offset, math.min(frag.size, 60))
+      reg(BorgGpuRegs.seq_frag_addr_offset, fsAddr); reg(BorgGpuRegs.seq_frag_len_offset, math.min(fragW.size, 60))
       reg(BorgGpuRegs.seq_bin_base_offset, binBase); reg(BorgGpuRegs.seq_bin_row_bytes_offset, 32)
       reg(BorgGpuRegs.seq_setup_base_offset, setupBase)
       reg(BorgGpuRegs.seq_fb_base_offset, fbBase); reg(BorgGpuRegs.seq_tiles_per_row_offset, window._3)
@@ -539,7 +540,7 @@ object BorgDrawTests extends TestSuite {
     Predef.assert(ref.distinct.size > 8, "the reference image is degenerate")
 
     // The same four draws as one render list. Vertices 0..11 in one buffer.
-    rig.rom ++= fsB.zipWithIndex.map { case (w, i) => (fsAddrB + 4 * i) -> w }
+    rig.rom ++= CsrOutputs(fsB).zipWithIndex.map { case (w, i) => (fsAddrB + 4 * i) -> w }
     val list = 0xD000; val blocks = 0xD100
     def block(a: Int, regs: Seq[(UInt, BigInt)]): Unit = {
       rig.rom(a) = BigInt(regs.size)
@@ -547,10 +548,10 @@ object BorgDrawTests extends TestSuite {
     }
     val stateAddr = Seq(blocks, blocks + 0x100)
     block(stateAddr(0), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(rig.fsAddr),
-                            BorgGpuRegs.seq_frag_len_offset -> BigInt(rig.fs.size),
+                            BorgGpuRegs.seq_frag_len_offset -> BigInt(CsrOutputs(rig.fs).size),
                             BorgGpuRegs.draw_fs_const_offset -> BigInt(rig.fsConst)))
     block(stateAddr(1), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(fsAddrB),
-                            BorgGpuRegs.seq_frag_len_offset -> BigInt(fsB.size),
+                            BorgGpuRegs.seq_frag_len_offset -> BigInt(CsrOutputs(fsB).size),
                             BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB)))
     for (i <- tris.indices) {
       val params = blocks + 0x200 + 0x40 * i

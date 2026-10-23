@@ -39,10 +39,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         // Write r25 (kill, nonzero) then RGBZ as usual — discard doesn't stop
         // the rest of the shader from running (matches GLSL semantics).
         for ((reg, value) <- Seq((25, 0x3C00), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
-          d.io.pipeWrite(0).en.poke(true.B)
-          d.io.pipeWrite(0).addr.poke(reg.U)
-          d.io.pipeWrite(0).data.poke(value.U)
-          d.clock.step(1)
+          pokeWrite(d, reg, value)
         }
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)
@@ -80,10 +77,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         d.io.coreStatus.autoRunPending.poke(false.B)
         d.io.coreStatus.running.poke(true.B)
         for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
-          d.io.pipeWrite(0).en.poke(true.B)
-          d.io.pipeWrite(0).addr.poke(reg.U)
-          d.io.pipeWrite(0).data.poke(value.U)
-          d.clock.step(1)
+          pokeWrite(d, reg, value)
         }
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)
@@ -120,10 +114,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         d.io.coreStatus.autoRunPending.poke(false.B)
         d.io.coreStatus.running.poke(true.B)
         for ((reg, value) <- Seq((25, 0x0000), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
-          d.io.pipeWrite(0).en.poke(true.B)
-          d.io.pipeWrite(0).addr.poke(reg.U)
-          d.io.pipeWrite(0).data.poke(value.U)
-          d.clock.step(1)
+          pokeWrite(d, reg, value)
         }
         d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)

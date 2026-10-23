@@ -960,42 +960,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
   // @doc:end
 
-  // Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29).
-  // R/G/B/Z feed the FP16-native tile buffer (frag_r/g/b/z below are 16-bit
-  // registers, unchanged regardless of cfg.fp -- tile-buffer color/Z storage
-  // is a deliberate FP16-native boundary, see the branch's plan doc). At
-  // FP32, io.pipeWrite(i).data is a genuine 32-bit fragment-shader ALU
-  // result -- narrow() rounds it to the nearest FP16 value; a raw (15,0)
-  // slice (the pre-fix code) kept the wrong bits entirely, same class of
-  // bug as clipRegs/setupRegs before commit 505bc139.
+  // R/G/B/Z feed the FP16-native tile buffer (frag_r/g/b/z are 16-bit registers, whatever
+  // cfg.fp): narrow() rounds an FP32 output to the nearest FP16 value.
   def fragNarrow(d: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.narrow(d) else d(15, 0)
-  for (i <- 0 until N) {
-    when(io.pipeWrite(i).en && phase === sFrag) {
-      frag_a.foreach { a =>
-        when(io.pipeWrite(i).addr === 24.U) { a(i) := fragNarrow(io.pipeWrite(i).data) }
-      }
-      when(io.sampleCfg.shaderMask && io.pipeWrite(i).addr === 19.U) {
-        fragMask(i) := io.pipeWrite(i).data(cfg.samples - 1, 0)
-      }
-      when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
-      when(io.pipeWrite(i).addr === 26.U) {
-        frag_r(i) := fragNarrow(io.pipeWrite(i).data)
-        frag_raw.foreach(_(i) := io.pipeWrite(i).data.pad(32)(31, 0))
-      }
-      when(io.pipeWrite(i).addr === 27.U) {
-        frag_g(i) := fragNarrow(io.pipeWrite(i).data)
-        frag_raw1.foreach(_(i) := io.pipeWrite(i).data.pad(32)(31, 0))
-      }
-      when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := fragNarrow(io.pipeWrite(i).data) }
-      when(io.pipeWrite(i).addr === 29.U) {
-        zWritten(i) := true.B
-        frag_z(i) := (if (cfg.tileDepthBits == 32) io.pipeWrite(i).data(31, 0)
-                      else fragNarrow(io.pipeWrite(i).data))
-      }
-    }
-  }
 
-  // ISA v2: the same outputs through CSR writes (docs/B8_isa_v2.md).
+  // Fragment outputs: CSR writes (docs/B8_isa_v2.md).
   for (i <- 0 until N) {
     val c = io.csrWrite(i)
     def at(n: Int) = c.en && phase === sFrag && c.addr === n.U
