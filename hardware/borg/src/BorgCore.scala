@@ -419,7 +419,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.iadd  := v1 && f7op === Opcodes.FUNCT7_IADD.U || rv.add
     flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U || rv.sll
     flags.ishr  := v1 && f7op === Opcodes.FUNCT7_ISHR.U || rv.sra
-    flags.imul  := v1 && f7op === Opcodes.FUNCT7_IMUL.U
+    flags.imul  := v1 && f7op === Opcodes.FUNCT7_IMUL.U || rv.mul
     flags.isub  := v1 && f7op === Opcodes.FUNCT7_ISUB.U || rv.sub
     flags.iand  := v1 && f7op === Opcodes.FUNCT7_IAND.U || rv.and
     flags.ior   := v1 && f7op === Opcodes.FUNCT7_IOR.U || rv.or
@@ -468,6 +468,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.funct3 := Mux(v1 || flags.fma, Instructions.BF_FUNCT3(instr), 0.U)
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
+    flags.rvx  := rv.rvx
+    flags.rvxOp := rv.rvxOp
     flags.csr  := rv.csr
 
     (regs, flags)

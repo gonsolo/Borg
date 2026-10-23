@@ -408,7 +408,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_tld_reg = RegInit(false.B)
     val tld_sel_reg = RegInit(false.B)            // TLD's word: funct3 bit 0
     val is_isrl_reg = RegInit(false.B); val is_isltu_reg = RegInit(false.B)
+    val is_rvx_reg = RegInit(false.B); val rvx_op_reg = RegInit(0.U(5.W))
     when(start) {
+      is_rvx_reg := opFlags.rvx; rvx_op_reg := opFlags.rvxOp
       is_isrl_reg := opFlags.isrl; is_isltu_reg := opFlags.isltu
       is_smask_reg := opFlags.smask
       is_attidx_reg := opFlags.attidx
@@ -477,7 +479,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val f2h = if (w > 16) Fp16Fp32.narrow(recA_raw).pad(w) else recA_raw
     val h2f = if (w > 16) Fp16Fp32.widen(recA_raw(15, 0)) else recA_raw
 
-    val result = Mux(is_iadd_reg, iadd,
+    val result = Mux(is_rvx_reg, RvInt.exec(rvx_op_reg, recA_raw, recB_raw, w),
+                 Mux(is_iadd_reg, iadd,
                  Mux(is_ishl_reg, ishl,
                  Mux(is_ishr_reg, ishr,
                  Mux(is_imul_reg, imul,
@@ -495,8 +498,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_f2h_reg,  f2h,
                  Mux(is_h2f_reg,  h2f,
-                 Mux(is_i2f_reg,  i2f, f2i)))))))))))))))))))
-    val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
+                 Mux(is_i2f_reg,  i2f, f2i))))))))))))))))))))
+    val is_int = is_rvx_reg || is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
                  is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_tld_reg || is_i2f_reg || is_f2i_reg || is_f2h_reg || is_h2f_reg
     (result, is_int)

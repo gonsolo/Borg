@@ -147,6 +147,43 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("zmmul_zicond_zbb_match_riscv") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        def sx(x: BigInt) = BigInt(s(x)); def p(x: BigInt) = x & M
+        def clz(x: BigInt) = if (x == 0) 32 else 31 - (x.bitLength - 1)
+        def ctz(x: BigInt) = if (x == 0) 32 else x.lowestSetBit
+        def rol(x: BigInt, n: Int) = p((x << n) | (x >> (32 - n)))
+        val two = Seq[(String, (Int, Int, Int) => BigInt, (BigInt, BigInt) => BigInt)](
+          ("mul", MUL(_, _, _), (x, y) => p(x * y)), ("mulh", MULH(_, _, _), (x, y) => p((sx(x) * sx(y)) >> 32)),
+          ("mulhsu", MULHSU(_, _, _), (x, y) => p((sx(x) * y) >> 32)), ("mulhu", MULHU(_, _, _), (x, y) => p((x * y) >> 32)),
+          ("czero.eqz", CZERO_EQZ(_, _, _), (x, y) => if (y == 0) 0 else x), ("czero.nez", CZERO_NEZ(_, _, _), (x, y) => if (y != 0) 0 else x),
+          ("andn", ANDN(_, _, _), (x, y) => x & p(~y)), ("orn", ORN(_, _, _), (x, y) => p(x | p(~y))),
+          ("xnor", XNOR(_, _, _), (x, y) => p(~(x ^ y))),
+          ("min", MIN(_, _, _), (x, y) => if (s(x) < s(y)) x else y), ("minu", MINU(_, _, _), (x, y) => x.min(y)),
+          ("max", MAX(_, _, _), (x, y) => if (s(x) < s(y)) y else x), ("maxu", MAXU(_, _, _), (x, y) => x.max(y)),
+          ("rol", ROL(_, _, _), (x, y) => rol(x, (y & 31).toInt)), ("ror", ROR(_, _, _), (x, y) => rol(x, (32 - (y & 31).toInt) % 32)))
+        val zero = BigInt(0)
+        for ((name, op, f) <- two) {
+          val rd = run(core, Seq(op(10, 1, 2), op(11, 3, 2), op(12, 2, 1), op(13, 1, 4)), Map(1 -> a, 2 -> b, 3 -> c, 4 -> zero))
+          val got = (10 to 13).map(rd); val want = Seq(f(a, b), f(c, b), f(b, a), f(a, zero))
+          if (got != want) println(s"  $name: ${got.map(_.toString(16))} want ${want.map(_.toString(16))}")
+          utest.assert(got == want)
+        }
+        val one = Seq[(String, (Int, Int) => BigInt, BigInt => BigInt)](
+          ("clz", CLZ(_, _), x => clz(x)), ("ctz", CTZ(_, _), x => ctz(x)), ("cpop", CPOP(_, _), x => x.bitCount),
+          ("sext.b", SEXT_B(_, _), x => p(BigInt((x & 0xFF).toByte.toInt))), ("sext.h", SEXT_H(_, _), x => p(BigInt((x & 0xFFFF).toShort.toInt))),
+          ("zext.h", ZEXT_H(_, _), x => x & 0xFFFF), ("rev8", REV8(_, _), x => BigInt(Integer.reverseBytes(x.toInt)) & M),
+          ("rori", RORI(_, _, 12), x => rol(x, 20)))
+        for ((name, op, f) <- one) {
+          val rd = run(core, Seq(op(10, 1), op(11, 3), op(12, 4)), Map(1 -> a, 3 -> c, 4 -> zero))
+          val got = Seq(10, 11, 12).map(rd); val want = Seq(f(a), f(c), f(zero))
+          if (got != want) println(s"  $name: ${got.map(_.toString(16))} want ${want.map(_.toString(16))}")
+          utest.assert(got == want)
+        }
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
