@@ -140,8 +140,71 @@
 #define BORG_MATCH_JMP 0xa0000000U
 #define BORG_MASK_JMP 0xfe00007fU
 #define BORG_INSTR_JMP(joffset) (BORG_MATCH_JMP | ((((uint32_t)(joffset) >> 15) & 0x7U) << 12) | ((((uint32_t)(joffset) >> 10) & 0x1fU) << 20) | ((((uint32_t)(joffset) >> 5) & 0x1fU) << 15) | (((uint32_t)(joffset) & 0x1fU) << 7))
+#define BORG_MATCH_LUI 0x00000037U
+#define BORG_MASK_LUI 0x0000007fU
+#define BORG_INSTR_LUI(rd, imm20) (BORG_MATCH_LUI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(imm20) & 0xfffffU) << 12))
+#define BORG_MATCH_AUIPC 0x00000017U
+#define BORG_MASK_AUIPC 0x0000007fU
+#define BORG_INSTR_AUIPC(rd, imm20) (BORG_MATCH_AUIPC | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(imm20) & 0xfffffU) << 12))
+#define BORG_MATCH_ADDI 0x00000013U
+#define BORG_MASK_ADDI 0x0000707fU
+#define BORG_INSTR_ADDI(rd, rs1, imm12) (BORG_MATCH_ADDI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_SLTI 0x00002013U
+#define BORG_MASK_SLTI 0x0000707fU
+#define BORG_INSTR_SLTI(rd, rs1, imm12) (BORG_MATCH_SLTI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_SLTIU 0x00003013U
+#define BORG_MASK_SLTIU 0x0000707fU
+#define BORG_INSTR_SLTIU(rd, rs1, imm12) (BORG_MATCH_SLTIU | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_XORI 0x00004013U
+#define BORG_MASK_XORI 0x0000707fU
+#define BORG_INSTR_XORI(rd, rs1, imm12) (BORG_MATCH_XORI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_ORI 0x00006013U
+#define BORG_MASK_ORI 0x0000707fU
+#define BORG_INSTR_ORI(rd, rs1, imm12) (BORG_MATCH_ORI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_ANDI 0x00007013U
+#define BORG_MASK_ANDI 0x0000707fU
+#define BORG_INSTR_ANDI(rd, rs1, imm12) (BORG_MATCH_ANDI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(imm12) & 0xfffU) << 20))
+#define BORG_MATCH_SLLI 0x00001013U
+#define BORG_MASK_SLLI 0xfe00707fU
+#define BORG_INSTR_SLLI(rd, rs1, shamtw) (BORG_MATCH_SLLI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(shamtw) & 0x1fU) << 20))
+#define BORG_MATCH_SRLI 0x00005013U
+#define BORG_MASK_SRLI 0xfe00707fU
+#define BORG_INSTR_SRLI(rd, rs1, shamtw) (BORG_MATCH_SRLI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(shamtw) & 0x1fU) << 20))
+#define BORG_MATCH_SRAI 0x40005013U
+#define BORG_MASK_SRAI 0xfe00707fU
+#define BORG_INSTR_SRAI(rd, rs1, shamtw) (BORG_MATCH_SRAI | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(shamtw) & 0x1fU) << 20))
+#define BORG_MATCH_ADD 0x00000033U
+#define BORG_MASK_ADD 0xfe00707fU
+#define BORG_INSTR_ADD(rd, rs1, rs2) (BORG_MATCH_ADD | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_SUB 0x40000033U
+#define BORG_MASK_SUB 0xfe00707fU
+#define BORG_INSTR_SUB(rd, rs1, rs2) (BORG_MATCH_SUB | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_SLL 0x00001033U
+#define BORG_MASK_SLL 0xfe00707fU
+#define BORG_INSTR_SLL(rd, rs1, rs2) (BORG_MATCH_SLL | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_SLT 0x00002033U
+#define BORG_MASK_SLT 0xfe00707fU
+#define BORG_INSTR_SLT(rd, rs1, rs2) (BORG_MATCH_SLT | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_SLTU 0x00003033U
+#define BORG_MASK_SLTU 0xfe00707fU
+#define BORG_INSTR_SLTU(rd, rs1, rs2) (BORG_MATCH_SLTU | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_XOR 0x00004033U
+#define BORG_MASK_XOR 0xfe00707fU
+#define BORG_INSTR_XOR(rd, rs1, rs2) (BORG_MATCH_XOR | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_SRL 0x00005033U
+#define BORG_MASK_SRL 0xfe00707fU
+#define BORG_INSTR_SRL(rd, rs1, rs2) (BORG_MATCH_SRL | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_SRA 0x40005033U
+#define BORG_MASK_SRA 0xfe00707fU
+#define BORG_INSTR_SRA(rd, rs1, rs2) (BORG_MATCH_SRA | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_OR 0x00006033U
+#define BORG_MASK_OR 0xfe00707fU
+#define BORG_INSTR_OR(rd, rs1, rs2) (BORG_MATCH_OR | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
+#define BORG_MATCH_AND 0x00007033U
+#define BORG_MASK_AND 0xfe00707fU
+#define BORG_INSTR_AND(rd, rs1, rs2) (BORG_MATCH_AND | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20))
 
 #define BORG_INSTR_HALT 0x00000000U
 
 /* X(NAME) for every instruction. */
-#define BORG_OPCODES(X) X(FMADD) X(TEX) X(TEXA) X(FADD) X(FMUL) X(FNEG) X(FMOV) X(FSTEP) X(FRCP) X(IADD) X(ISHL) X(ISHR) X(IMUL) X(ISUB) X(IAND) X(IOR) X(IXOR) X(ISLT) X(ISEQ) X(I2F) X(F2I) X(F2H) X(H2F) X(FRSQ) X(FSRGB) X(DDX) X(DDY) X(LOAD) X(STORE) X(BRZ) X(BRNZ) X(EXPUSH) X(EXELSE) X(EXPOP) X(BARRIER) X(EXANY) X(ZTEST) X(SOUT) X(FATTR) X(SMASK) X(ATTIDX) X(ISRL) X(ISLTU) X(TLD) X(JMP)
+#define BORG_OPCODES(X) X(FMADD) X(TEX) X(TEXA) X(FADD) X(FMUL) X(FNEG) X(FMOV) X(FSTEP) X(FRCP) X(IADD) X(ISHL) X(ISHR) X(IMUL) X(ISUB) X(IAND) X(IOR) X(IXOR) X(ISLT) X(ISEQ) X(I2F) X(F2I) X(F2H) X(H2F) X(FRSQ) X(FSRGB) X(DDX) X(DDY) X(LOAD) X(STORE) X(BRZ) X(BRNZ) X(EXPUSH) X(EXELSE) X(EXPOP) X(BARRIER) X(EXANY) X(ZTEST) X(SOUT) X(FATTR) X(SMASK) X(ATTIDX) X(ISRL) X(ISLTU) X(TLD) X(JMP) X(LUI) X(AUIPC) X(ADDI) X(SLTI) X(SLTIU) X(XORI) X(ORI) X(ANDI) X(SLLI) X(SRLI) X(SRAI) X(ADD) X(SUB) X(SLL) X(SLT) X(SLTU) X(XOR) X(SRL) X(SRA) X(OR) X(AND)

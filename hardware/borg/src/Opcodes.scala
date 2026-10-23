@@ -12,6 +12,9 @@ object Opcodes {
   val FIELD_F3 = (14, 12)
   val FIELD_FINE = (24, 20)
   val FIELD_PRIVATE = (11, 7)
+  val FIELD_IMM12 = (31, 20)
+  val FIELD_IMM20 = (31, 12)
+  val FIELD_SHAMTW = (24, 20)
   val MATCH_FMADD = 0x00000004L
   val MASK_FMADD = 0x0600007fL
   val OPCODE_FMADD = 0x04
@@ -192,6 +195,82 @@ object Opcodes {
   val MASK_JMP = 0xfe00007fL
   val OPCODE_JMP = 0x00
   val FUNCT7_JMP = 0x50
+  val MATCH_LUI = 0x00000037L
+  val MASK_LUI = 0x0000007fL
+  val OPCODE_LUI = 0x37
+  val MATCH_AUIPC = 0x00000017L
+  val MASK_AUIPC = 0x0000007fL
+  val OPCODE_AUIPC = 0x17
+  val MATCH_ADDI = 0x00000013L
+  val MASK_ADDI = 0x0000707fL
+  val OPCODE_ADDI = 0x13
+  val MATCH_SLTI = 0x00002013L
+  val MASK_SLTI = 0x0000707fL
+  val OPCODE_SLTI = 0x13
+  val MATCH_SLTIU = 0x00003013L
+  val MASK_SLTIU = 0x0000707fL
+  val OPCODE_SLTIU = 0x13
+  val MATCH_XORI = 0x00004013L
+  val MASK_XORI = 0x0000707fL
+  val OPCODE_XORI = 0x13
+  val MATCH_ORI = 0x00006013L
+  val MASK_ORI = 0x0000707fL
+  val OPCODE_ORI = 0x13
+  val MATCH_ANDI = 0x00007013L
+  val MASK_ANDI = 0x0000707fL
+  val OPCODE_ANDI = 0x13
+  val MATCH_SLLI = 0x00001013L
+  val MASK_SLLI = 0xfe00707fL
+  val OPCODE_SLLI = 0x13
+  val FUNCT7_SLLI = 0x00
+  val MATCH_SRLI = 0x00005013L
+  val MASK_SRLI = 0xfe00707fL
+  val OPCODE_SRLI = 0x13
+  val FUNCT7_SRLI = 0x00
+  val MATCH_SRAI = 0x40005013L
+  val MASK_SRAI = 0xfe00707fL
+  val OPCODE_SRAI = 0x13
+  val FUNCT7_SRAI = 0x20
+  val MATCH_ADD = 0x00000033L
+  val MASK_ADD = 0xfe00707fL
+  val OPCODE_ADD = 0x33
+  val FUNCT7_ADD = 0x00
+  val MATCH_SUB = 0x40000033L
+  val MASK_SUB = 0xfe00707fL
+  val OPCODE_SUB = 0x33
+  val FUNCT7_SUB = 0x20
+  val MATCH_SLL = 0x00001033L
+  val MASK_SLL = 0xfe00707fL
+  val OPCODE_SLL = 0x33
+  val FUNCT7_SLL = 0x00
+  val MATCH_SLT = 0x00002033L
+  val MASK_SLT = 0xfe00707fL
+  val OPCODE_SLT = 0x33
+  val FUNCT7_SLT = 0x00
+  val MATCH_SLTU = 0x00003033L
+  val MASK_SLTU = 0xfe00707fL
+  val OPCODE_SLTU = 0x33
+  val FUNCT7_SLTU = 0x00
+  val MATCH_XOR = 0x00004033L
+  val MASK_XOR = 0xfe00707fL
+  val OPCODE_XOR = 0x33
+  val FUNCT7_XOR = 0x00
+  val MATCH_SRL = 0x00005033L
+  val MASK_SRL = 0xfe00707fL
+  val OPCODE_SRL = 0x33
+  val FUNCT7_SRL = 0x00
+  val MATCH_SRA = 0x40005033L
+  val MASK_SRA = 0xfe00707fL
+  val OPCODE_SRA = 0x33
+  val FUNCT7_SRA = 0x20
+  val MATCH_OR = 0x00006033L
+  val MASK_OR = 0xfe00707fL
+  val OPCODE_OR = 0x33
+  val FUNCT7_OR = 0x00
+  val MATCH_AND = 0x00007033L
+  val MASK_AND = 0xfe00707fL
+  val OPCODE_AND = 0x33
+  val FUNCT7_AND = 0x00
   val HALT = 0x00000000L
 
   def FMADD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FMADD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((f3.toLong & 0x7L) << 12))
@@ -239,4 +318,25 @@ object Opcodes {
   def ISLTU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISLTU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
   def TLD(rd: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_TLD | ((rd.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
   def JMP(joffset: Int = 0): BigInt = BigInt(MATCH_JMP | (((joffset.toLong >> 15) & 0x7L) << 12) | (((joffset.toLong >> 10) & 0x1fL) << 20) | (((joffset.toLong >> 5) & 0x1fL) << 15) | ((joffset.toLong & 0x1fL) << 7))
+  def LUI(rd: Int = 0, imm20: Int = 0): BigInt = BigInt(MATCH_LUI | ((rd.toLong & 0x1fL) << 7) | ((imm20.toLong & 0xfffffL) << 12))
+  def AUIPC(rd: Int = 0, imm20: Int = 0): BigInt = BigInt(MATCH_AUIPC | ((rd.toLong & 0x1fL) << 7) | ((imm20.toLong & 0xfffffL) << 12))
+  def ADDI(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_ADDI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def SLTI(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_SLTI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def SLTIU(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_SLTIU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def XORI(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_XORI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def ORI(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_ORI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def ANDI(rd: Int = 0, rs1: Int = 0, imm12: Int = 0): BigInt = BigInt(MATCH_ANDI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((imm12.toLong & 0xfffL) << 20))
+  def SLLI(rd: Int = 0, rs1: Int = 0, shamtw: Int = 0): BigInt = BigInt(MATCH_SLLI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((shamtw.toLong & 0x1fL) << 20))
+  def SRLI(rd: Int = 0, rs1: Int = 0, shamtw: Int = 0): BigInt = BigInt(MATCH_SRLI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((shamtw.toLong & 0x1fL) << 20))
+  def SRAI(rd: Int = 0, rs1: Int = 0, shamtw: Int = 0): BigInt = BigInt(MATCH_SRAI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((shamtw.toLong & 0x1fL) << 20))
+  def ADD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_ADD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def SUB(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SUB | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def SLL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SLL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def SLT(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SLT | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def SLTU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SLTU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def XOR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_XOR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def SRL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SRL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def SRA(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SRA | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def OR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_OR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def AND(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_AND | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
 }
