@@ -63,6 +63,8 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // --- Shared uniform-RAM read (done once in BorgCore) ---
   val uniformData = Input(UInt(cfg.totalBits.W)) // op_en_del-gated read result
   val funct3Del   = Input(UInt(3.W))             // delayed funct3 selecting uniform operand
+  val ovA         = Input(Valid(UInt(cfg.totalBits.W))) // x0, LUI's zero, AUIPC's address
+  val ovB         = Input(Valid(UInt(cfg.totalBits.W))) // x0 or an immediate
 
   // --- Cross-lane quad-derivative operands (broadcast by BorgCore for DDX/DDY) ---
   // crossA = neighbour lane's rs1 (lane1 for ddx, lane2 for ddy); crossC = -lane0's
@@ -149,8 +151,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Register reads + uniform operand mux ---
   val (recA, recB, recC, mmioD) = wireGprReads()
-  private val recA_raw = Mux(io.funct3Del === 1.U, io.uniformData, recA)
-  private val recB_raw = Mux(io.funct3Del === 2.U, io.uniformData, recB)
+  private val recA_raw = Mux(io.ovA.valid, io.ovA.bits, Mux(io.funct3Del === 1.U, io.uniformData, recA))
+  private val recB_raw = Mux(io.ovB.valid, io.ovB.bits, Mux(io.funct3Del === 2.U, io.uniformData, recB))
   private val recC_raw = Mux(io.funct3Del === 3.U, io.uniformData, recC)
   io.recARaw := recA_raw
   io.recBRaw := recB_raw
@@ -521,7 +523,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // would freeze lane 0's copy the moment lane 0 itself masks off, and the
     // loop could never observe every OTHER lane finishing after that.
     val pipe_write = running && is_busy && busy_counter === 1.U &&
-                     !io.opFlags.branch && !io.opFlags.execOp &&
+                     !io.opFlags.branch && !io.opFlags.execOp && !io.opFlags.rvNoWrite &&
                      (io.opFlags.exany || io.execActive)
     val w_en = mmio_write || pipe_write
     // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:

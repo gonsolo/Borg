@@ -70,4 +70,5 @@ class FpuOpFlags extends Bundle {
   val isrl    = Bool()   // logical shift right (RISC-V SRL)
   val isltu   = Bool()   // unsigned compare (RISC-V SLTU)
   val funct3 = UInt(3.W)
+  val rvNoWrite = Bool()  // a RISC-V instruction writing x0
 }

@@ -272,6 +272,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Shared uniform-RAM read (broadcast to every lane) ---
   val (uniform_data, funct3_del) = wireUniformRead()
+  val rv_ov = wireRvOperands()
 
   // --- Per-lane datapath ---
   val lanes = Seq.fill(cfg.fragLanes)(Module(new BorgLane(cfg)))
@@ -285,6 +286,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.seqBusy     := io.seqBusy
     lane.io.uniformData := uniform_data
     lane.io.funct3Del   := funct3_del
+    lane.io.ovA         := rv_ov._1
+    lane.io.ovB         := rv_ov._2
     // MMIO bus is broadcast (all lanes are slaves seeing the same transaction).
     lane.io.bus.address    := io.bus.address
     lane.io.bus.data_in    := io.bus.data_in
@@ -398,6 +401,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val opc     = Instructions.BF_OP(instr)
     val v1      = opc === 0.U
     flags.fma   := opc === 4.U
+    // ISA v2 (B8): RISC-V OP, OP-IMM, LUI and AUIPC run on the v1 integer ALU.
+    val rv = RvInt(instr)
     val f7op    = Instructions.BF_F7_OP(instr)
     // R4-type sub-opcode (only meaningful when flags.fma is set): FMADD is
     // funct2=0; TEX/TEXA are funct2=2/3 (decoded below, gated on
@@ -409,15 +414,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.fmov  := v1 && f7op === Opcodes.FUNCT7_FMOV.U
     flags.fstep := v1 && f7op === Opcodes.FUNCT7_FSTEP.U
     flags.frcp  := v1 && f7op === Opcodes.FUNCT7_FRCP.U
-    flags.iadd  := v1 && f7op === Opcodes.FUNCT7_IADD.U
-    flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U
-    flags.ishr  := v1 && f7op === Opcodes.FUNCT7_ISHR.U
+    flags.iadd  := v1 && f7op === Opcodes.FUNCT7_IADD.U || rv.add
+    flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U || rv.sll
+    flags.ishr  := v1 && f7op === Opcodes.FUNCT7_ISHR.U || rv.sra
     flags.imul  := v1 && f7op === Opcodes.FUNCT7_IMUL.U
-    flags.isub  := v1 && f7op === Opcodes.FUNCT7_ISUB.U
-    flags.iand  := v1 && f7op === Opcodes.FUNCT7_IAND.U
-    flags.ior   := v1 && f7op === Opcodes.FUNCT7_IOR.U
-    flags.ixor  := v1 && f7op === Opcodes.FUNCT7_IXOR.U
-    flags.islt  := v1 && f7op === Opcodes.FUNCT7_ISLT.U
+    flags.isub  := v1 && f7op === Opcodes.FUNCT7_ISUB.U || rv.sub
+    flags.iand  := v1 && f7op === Opcodes.FUNCT7_IAND.U || rv.and
+    flags.ior   := v1 && f7op === Opcodes.FUNCT7_IOR.U || rv.or
+    flags.ixor  := v1 && f7op === Opcodes.FUNCT7_IXOR.U || rv.xor
+    flags.islt  := v1 && f7op === Opcodes.FUNCT7_ISLT.U || rv.slt
     flags.iseq  := v1 && f7op === Opcodes.FUNCT7_ISEQ.U
     flags.i2f   := v1 && f7op === Opcodes.FUNCT7_I2F.U
     flags.f2i   := v1 && f7op === Opcodes.FUNCT7_F2I.U
@@ -446,8 +451,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
     flags.exany  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXANY.U else false.B)
-    flags.isrl   := v1 && f7op === Opcodes.FUNCT7_ISRL.U
-    flags.isltu  := v1 && f7op === Opcodes.FUNCT7_ISLTU.U
+    flags.isrl   := v1 && f7op === Opcodes.FUNCT7_ISRL.U || rv.srl
+    flags.isltu  := v1 && f7op === Opcodes.FUNCT7_ISLTU.U || rv.sltu
     flags.ztest  := v1 && f7op === Opcodes.FUNCT7_ZTEST.U
     val draw = cfg.drawEnabled
     flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U else false.B)
@@ -458,7 +463,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
     flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
     flags.texa   := (if (smp) flags.fma && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
-    flags.funct3 := Instructions.BF_FUNCT3(instr)
+    flags.funct3 := Mux(v1 || flags.fma, Instructions.BF_FUNCT3(instr), 0.U)
+    flags.rvNoWrite := rv.any && regs.rd === 0.U
 
     (regs, flags)
   }
@@ -552,6 +558,21 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(unifWen) {
       uniformMem.write(unifAddr, unifData)
     }
+  }
+
+  /** ISA v2 operands that are no register: x0, LUI's zero, AUIPC's address, immediates. Latched
+    * with the uniform read. */
+  private def wireRvOperands(): (Valid[UInt], Valid[UInt]) = {
+    val op_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val rv = RvInt(fetchedInstruction)
+    val w = cfg.totalBits
+    def latch(valid: Bool, bits: UInt) = {
+      val v = Wire(Valid(UInt(w.W)))
+      v.valid := RegEnable(valid, false.B, op_en); v.bits := RegEnable(bits(w - 1, 0), op_en)
+      v
+    }
+    (latch(rv.aZero || rv.auipc, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W))),
+     latch(rv.bZero || rv.bImm, Mux(rv.bImm, rv.imm, 0.U(32.W))))
   }
 
   /** Shared uniform-RAM read.  Returns (gated read data, delayed funct3) for the
