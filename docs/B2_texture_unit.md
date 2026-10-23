@@ -27,7 +27,8 @@ that motivated the new unit:
 
 **`TEX rd, rs1, rs2, rs3`** (R4-type, funct2 2): sample with `u = rs1`,
 `v = rs2`; `rs3` names the register holding the **control word** (usually a
-uniform, `funct3 = 3`, from the fragment shader's constant window). The
+uniform, `funct3 = 3`, from the fragment shader's constant window), read from
+the lowest active lane. The
 result's R, G, B, A go to `rd .. rd+3` (FP32; raw integers for integer
 formats), in every active lane. All four lanes are sampled together, so the
 unit takes an implicit LOD from the quad's coordinates.
