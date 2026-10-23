@@ -22,6 +22,13 @@ class RvInt(instr: UInt) {
   val width = f3
   val memImm = Mux(store, Cat(instr(31, 25), instr(11, 7)), instr(31, 20)).asSInt.pad(32).asUInt
   val any   = op || opImm || lui || auipc || csrrs || load
+  /** BEQ..BGEU and JAL (rd = x0: no return address yet); offsets in words. */
+  val br    = opc === Opcodes.OPCODE_BEQ.U && f3 =/= 2.U && f3 =/= 3.U
+  val jal   = opc === Opcodes.OPCODE_JAL.U
+  val brOff  = (Cat(instr(31), instr(7), instr(30, 25), instr(11, 8), 0.U(1.W)).asSInt >> 2).pad(20)
+  val jalOff = (Cat(instr(31), instr(19, 12), instr(20), instr(30, 21), 0.U(1.W)).asSInt >> 2).pad(20)
+  def cond(a: UInt, b: UInt): Bool = MuxLookup(f3, false.B)(Seq(0.U -> (a === b), 1.U -> (a =/= b),
+    4.U -> (a.asSInt < b.asSInt), 5.U -> (a.asSInt >= b.asSInt), 6.U -> (a < b), 7.U -> (a >= b)))
   private val base  = op && f7 === 0.U || opImm
   private val shift = (op || opImm) && f7 === 0.U
   val add  = base && f3 === 0.U || lui || auipc || csrrs
@@ -35,9 +42,9 @@ class RvInt(instr: UInt) {
   val or   = base && f3 === 6.U
   val and  = base && f3 === 7.U
   /** Operand A is x0 (or LUI's zero); AUIPC's is the instruction's byte address. */
-  val aZero = (op || opImm || csrrw || load || store) && instr(19, 15) === 0.U || lui
+  val aZero = (op || opImm || csrrw || load || store || br) && instr(19, 15) === 0.U || lui
   /** Operand B is x0, or the immediate. */
-  val bZero = (op || store) && instr(24, 20) === 0.U
+  val bZero = (op || store || br) && instr(24, 20) === 0.U
   val bImm  = opImm || lui || auipc
   val imm   = Mux(opImm, instr(31, 20).asSInt.pad(32).asUInt, Cat(instr(31, 12), 0.U(12.W)))
 }

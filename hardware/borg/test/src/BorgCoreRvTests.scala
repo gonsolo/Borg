@@ -130,6 +130,23 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("branches_and_jal") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        val skip = 8   // bytes: over one instruction
+        val rd = run(core, Seq(
+          ADDI(1, 0, 0), ADDI(2, 0, 5), ADDI(1, 1, 1), BNE(-4, 1, 2),       // count x1 to 5
+          ADDI(3, 0, -1), BLT(skip, 3, 0), ADDI(4, 0, 99),                  // -1 < 0: taken
+          BLTU(skip, 3, 0), ADDI(5, 0, 7),                                  // 0xffffffff < 0: not taken
+          BGEU(skip, 3, 2), ADDI(6, 0, 99), JAL(0, skip), ADDI(7, 0, 99),
+          BEQ(skip, 0, 0), ADDI(8, 0, 99), BGE(skip, 2, 1), ADDI(9, 0, 99)),
+          (4 to 9).map(_ -> BigInt(0)).toMap)
+        val got = (1 to 9).map(rd)
+        println(s"  x1..x9 = ${got.map(_.toString(16))}")
+        utest.assert(got == Seq(5, 5, 0xFFFFFFFFL, 0, 7, 0, 0, 0, 0).map(BigInt(_)))
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)

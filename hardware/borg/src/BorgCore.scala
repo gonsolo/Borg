@@ -359,7 +359,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Branch evaluation and execution mask ---
   if (cfg.hasControlFlow) {
-    wireBranch(lanes.map(_.io.recARaw))
+    wireBranch(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw))
     wireExecMask(lanes.map(_.io.recARaw))
   }
 
@@ -444,7 +444,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.brz    := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRZ.U else false.B)
     flags.brnz   := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRNZ.U else false.B)
     flags.jmp    := v1 && f7op === Opcodes.FUNCT7_JMP.U
-    flags.branch := flags.brz || flags.brnz || flags.jmp
+    flags.branch := flags.brz || flags.brnz || flags.jmp || rv.br || rv.jal
     flags.expush := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPUSH.U else false.B)
     flags.exelse := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXELSE.U else false.B)
     flags.expop  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPOP.U else false.B)
@@ -1219,20 +1219,26 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * comparison is against an empty set and the bit can never set, so a
     * scalar build pays nothing for it.
     */
-  private def wireBranch(condOperands: Seq[UInt]): Unit = {
+  private def wireBranch(condOperands: Seq[UInt], condOperandsB: Seq[UInt]): Unit = {
     // Raw-bits comparison: FP16 -0.0 is 0x8000 and therefore non-zero, the
     // same convention the discard register already uses.
     val isZero = condOperands.map(_ === 0.U)
-    val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head) || opFlags.jmp
+    // ISA v2: BEQ..BGEU decide on the lowest active lane, JAL always jumps.
+    val rv = RvInt(fetchedInstruction)
+    val rvConds = condOperands.zip(condOperandsB).map { case (a, b) => rv.cond(a, b) }
+    val rvLead  = PriorityMux(execMask.asBools, rvConds)
+    val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head) || opFlags.jmp ||
+                 (rv.br && rvLead) || rv.jal
     // PC-relative: BRZ/BRNZ by a signed 10-bit offset, JMP by a signed 18-bit one.
     val brOffset  = Cat(regs.rs2, regs.rd).asSInt
     val jmpOffset = Cat(opFlags.funct3, regs.rs2, regs.rs1, regs.rd).asSInt
-    val offset    = Mux(opFlags.jmp, jmpOffset, brOffset.pad(18))
+    val offset    = Mux(rv.jal, rv.jalOff, Mux(rv.br, rv.brOff, Mux(opFlags.jmp, jmpOffset.pad(20), brOffset.pad(20))))
 
     when(is_busy && busy_counter === cfg.cOperands.U) {
       brTakenReg  := opFlags.branch && takeIt
       brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
-      when((opFlags.brz || opFlags.brnz) && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _)) {
+      val rvSplit = rvConds.zip(execMask.asBools).map { case (c, on) => on && c =/= rvLead }.reduce(_ || _)
+      when((opFlags.brz || opFlags.brnz) && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _) || rv.br && rvSplit) {
         branchDivergent := true.B
         if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
       }
