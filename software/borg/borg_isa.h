@@ -377,6 +377,36 @@
 #define BORG_MATCH_FNMADD_S 0x0000004fU
 #define BORG_MASK_FNMADD_S 0x0600007fU
 #define BORG_INSTR_FNMADD_S(rd, rs1, rs2, rs3, rm) (BORG_MATCH_FNMADD_S | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(rs3) & 0x1fU) << 27) | (((uint32_t)(rm) & 0x7U) << 12))
+#define BORG_MATCH_AMOADD_W 0x0000202fU
+#define BORG_MASK_AMOADD_W 0xf800707fU
+#define BORG_INSTR_AMOADD_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOADD_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOSWAP_W 0x0800202fU
+#define BORG_MASK_AMOSWAP_W 0xf800707fU
+#define BORG_INSTR_AMOSWAP_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOSWAP_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOXOR_W 0x2000202fU
+#define BORG_MASK_AMOXOR_W 0xf800707fU
+#define BORG_INSTR_AMOXOR_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOXOR_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOAND_W 0x6000202fU
+#define BORG_MASK_AMOAND_W 0xf800707fU
+#define BORG_INSTR_AMOAND_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOAND_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOOR_W 0x4000202fU
+#define BORG_MASK_AMOOR_W 0xf800707fU
+#define BORG_INSTR_AMOOR_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOOR_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOMIN_W 0x8000202fU
+#define BORG_MASK_AMOMIN_W 0xf800707fU
+#define BORG_INSTR_AMOMIN_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOMIN_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOMAX_W 0xa000202fU
+#define BORG_MASK_AMOMAX_W 0xf800707fU
+#define BORG_INSTR_AMOMAX_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOMAX_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOMINU_W 0xc000202fU
+#define BORG_MASK_AMOMINU_W 0xf800707fU
+#define BORG_INSTR_AMOMINU_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOMINU_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOMAXU_W 0xe000202fU
+#define BORG_MASK_AMOMAXU_W 0xf800707fU
+#define BORG_INSTR_AMOMAXU_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOMAXU_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
+#define BORG_MATCH_AMOCAS_W 0x2800202fU
+#define BORG_MASK_AMOCAS_W 0xf800707fU
+#define BORG_INSTR_AMOCAS_W(rd, rs1, rs2, aq, rl) (BORG_MATCH_AMOCAS_W | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(aq) & 0x1U) << 26) | (((uint32_t)(rl) & 0x1U) << 25))
 #define BORG_MATCH_CSRRW 0x00001073U
 #define BORG_MASK_CSRRW 0x0000707fU
 #define BORG_INSTR_CSRRW(rd, rs1, csr) (BORG_MATCH_CSRRW | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(csr) & 0xfffU) << 20))
@@ -387,4 +417,4 @@
 #define BORG_INSTR_HALT 0x00000000U
 
 /* X(NAME) for every instruction. */
-#define BORG_OPCODES(X) X(FMADD) X(TEX) X(TEXA) X(FADD) X(FMUL) X(FNEG) X(FMOV) X(FSTEP) X(FRCP) X(IADD) X(ISHL) X(ISHR) X(IMUL) X(ISUB) X(IAND) X(IOR) X(IXOR) X(ISLT) X(ISEQ) X(I2F) X(F2I) X(F2H) X(H2F) X(FRSQ) X(FSRGB) X(DDX) X(DDY) X(LOAD) X(STORE) X(BRZ) X(BRNZ) X(EXPUSH) X(EXELSE) X(EXPOP) X(BARRIER) X(EXANY) X(ZTEST) X(SOUT) X(FATTR) X(SMASK) X(ATTIDX) X(ISRL) X(ISLTU) X(TLD) X(JMP) X(LUI) X(AUIPC) X(ADDI) X(SLTI) X(SLTIU) X(XORI) X(ORI) X(ANDI) X(SLLI) X(SRLI) X(SRAI) X(ADD) X(SUB) X(SLL) X(SLT) X(SLTU) X(XOR) X(SRL) X(SRA) X(OR) X(AND) X(LB) X(LH) X(LW) X(LBU) X(LHU) X(SW) X(JAL) X(BEQ) X(BNE) X(BLT) X(BGE) X(BLTU) X(BGEU) X(MUL) X(MULH) X(MULHSU) X(MULHU) X(CZERO_EQZ) X(CZERO_NEZ) X(ANDN) X(ORN) X(XNOR) X(MIN) X(MINU) X(MAX) X(MAXU) X(ROL) X(ROR) X(RORI) X(CLZ) X(CTZ) X(CPOP) X(SEXT_B) X(SEXT_H) X(ZEXT_H) X(REV8) X(FADD_S) X(FSUB_S) X(FMUL_S) X(FSGNJ_S) X(FSGNJN_S) X(FSGNJX_S) X(FMIN_S) X(FMAX_S) X(FEQ_S) X(FLT_S) X(FLE_S) X(FCLASS_S) X(FCVT_W_S) X(FCVT_WU_S) X(FCVT_S_W) X(FCVT_S_WU) X(FCVT_S_H) X(FCVT_H_S) X(FMADD_S) X(FMSUB_S) X(FNMSUB_S) X(FNMADD_S) X(CSRRW) X(CSRRS)
+#define BORG_OPCODES(X) X(FMADD) X(TEX) X(TEXA) X(FADD) X(FMUL) X(FNEG) X(FMOV) X(FSTEP) X(FRCP) X(IADD) X(ISHL) X(ISHR) X(IMUL) X(ISUB) X(IAND) X(IOR) X(IXOR) X(ISLT) X(ISEQ) X(I2F) X(F2I) X(F2H) X(H2F) X(FRSQ) X(FSRGB) X(DDX) X(DDY) X(LOAD) X(STORE) X(BRZ) X(BRNZ) X(EXPUSH) X(EXELSE) X(EXPOP) X(BARRIER) X(EXANY) X(ZTEST) X(SOUT) X(FATTR) X(SMASK) X(ATTIDX) X(ISRL) X(ISLTU) X(TLD) X(JMP) X(LUI) X(AUIPC) X(ADDI) X(SLTI) X(SLTIU) X(XORI) X(ORI) X(ANDI) X(SLLI) X(SRLI) X(SRAI) X(ADD) X(SUB) X(SLL) X(SLT) X(SLTU) X(XOR) X(SRL) X(SRA) X(OR) X(AND) X(LB) X(LH) X(LW) X(LBU) X(LHU) X(SW) X(JAL) X(BEQ) X(BNE) X(BLT) X(BGE) X(BLTU) X(BGEU) X(MUL) X(MULH) X(MULHSU) X(MULHU) X(CZERO_EQZ) X(CZERO_NEZ) X(ANDN) X(ORN) X(XNOR) X(MIN) X(MINU) X(MAX) X(MAXU) X(ROL) X(ROR) X(RORI) X(CLZ) X(CTZ) X(CPOP) X(SEXT_B) X(SEXT_H) X(ZEXT_H) X(REV8) X(FADD_S) X(FSUB_S) X(FMUL_S) X(FSGNJ_S) X(FSGNJN_S) X(FSGNJX_S) X(FMIN_S) X(FMAX_S) X(FEQ_S) X(FLT_S) X(FLE_S) X(FCLASS_S) X(FCVT_W_S) X(FCVT_WU_S) X(FCVT_S_W) X(FCVT_S_WU) X(FCVT_S_H) X(FCVT_H_S) X(FMADD_S) X(FMSUB_S) X(FNMSUB_S) X(FNMADD_S) X(AMOADD_W) X(AMOSWAP_W) X(AMOXOR_W) X(AMOAND_W) X(AMOOR_W) X(AMOMIN_W) X(AMOMAX_W) X(AMOMINU_W) X(AMOMAXU_W) X(AMOCAS_W) X(CSRRW) X(CSRRS)

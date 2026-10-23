@@ -83,3 +83,14 @@ fmadd.s   rd rs1 rs2 rs3 rm 26..25=0 6..2=0x10 1..0=3
 fmsub.s   rd rs1 rs2 rs3 rm 26..25=0 6..2=0x11 1..0=3
 fnmsub.s  rd rs1 rs2 rs3 rm 26..25=0 6..2=0x12 1..0=3
 fnmadd.s  rd rs1 rs2 rs3 rm 26..25=0 6..2=0x13 1..0=3
+# Zaamo and Zacas, word only (B8 step 12): one read-modify-write per lane at the memory port.
+amoadd.w  rd rs1 rs2 aq rl 31..27=0x00 14..12=2 6..2=0x0B 1..0=3
+amoswap.w rd rs1 rs2 aq rl 31..27=0x01 14..12=2 6..2=0x0B 1..0=3
+amoxor.w  rd rs1 rs2 aq rl 31..27=0x04 14..12=2 6..2=0x0B 1..0=3
+amoand.w  rd rs1 rs2 aq rl 31..27=0x0C 14..12=2 6..2=0x0B 1..0=3
+amoor.w   rd rs1 rs2 aq rl 31..27=0x08 14..12=2 6..2=0x0B 1..0=3
+amomin.w  rd rs1 rs2 aq rl 31..27=0x10 14..12=2 6..2=0x0B 1..0=3
+amomax.w  rd rs1 rs2 aq rl 31..27=0x14 14..12=2 6..2=0x0B 1..0=3
+amominu.w rd rs1 rs2 aq rl 31..27=0x18 14..12=2 6..2=0x0B 1..0=3
+amomaxu.w rd rs1 rs2 aq rl 31..27=0x1C 14..12=2 6..2=0x0B 1..0=3
+amocas.w  rd rs1 rs2 aq rl 31..27=0x05 14..12=2 6..2=0x0B 1..0=3

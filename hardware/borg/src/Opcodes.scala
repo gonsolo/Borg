@@ -17,6 +17,8 @@ object Opcodes {
   val FIELD_SHAMTW = (24, 20)
   val FIELD_CSR = (31, 20)
   val FIELD_RM = (14, 12)
+  val FIELD_AQ = (26, 26)
+  val FIELD_RL = (25, 25)
   val MATCH_FMADD = 0x00000004L
   val MASK_FMADD = 0x0600007fL
   val OPCODE_FMADD = 0x04
@@ -502,6 +504,36 @@ object Opcodes {
   val MASK_FNMADD_S = 0x0600007fL
   val OPCODE_FNMADD_S = 0x4f
   val FUNCT2_FNMADD_S = 0x00
+  val MATCH_AMOADD_W = 0x0000202fL
+  val MASK_AMOADD_W = 0xf800707fL
+  val OPCODE_AMOADD_W = 0x2f
+  val MATCH_AMOSWAP_W = 0x0800202fL
+  val MASK_AMOSWAP_W = 0xf800707fL
+  val OPCODE_AMOSWAP_W = 0x2f
+  val MATCH_AMOXOR_W = 0x2000202fL
+  val MASK_AMOXOR_W = 0xf800707fL
+  val OPCODE_AMOXOR_W = 0x2f
+  val MATCH_AMOAND_W = 0x6000202fL
+  val MASK_AMOAND_W = 0xf800707fL
+  val OPCODE_AMOAND_W = 0x2f
+  val MATCH_AMOOR_W = 0x4000202fL
+  val MASK_AMOOR_W = 0xf800707fL
+  val OPCODE_AMOOR_W = 0x2f
+  val MATCH_AMOMIN_W = 0x8000202fL
+  val MASK_AMOMIN_W = 0xf800707fL
+  val OPCODE_AMOMIN_W = 0x2f
+  val MATCH_AMOMAX_W = 0xa000202fL
+  val MASK_AMOMAX_W = 0xf800707fL
+  val OPCODE_AMOMAX_W = 0x2f
+  val MATCH_AMOMINU_W = 0xc000202fL
+  val MASK_AMOMINU_W = 0xf800707fL
+  val OPCODE_AMOMINU_W = 0x2f
+  val MATCH_AMOMAXU_W = 0xe000202fL
+  val MASK_AMOMAXU_W = 0xf800707fL
+  val OPCODE_AMOMAXU_W = 0x2f
+  val MATCH_AMOCAS_W = 0x2800202fL
+  val MASK_AMOCAS_W = 0xf800707fL
+  val OPCODE_AMOCAS_W = 0x2f
   val MATCH_CSRRW = 0x00001073L
   val MASK_CSRRW = 0x0000707fL
   val OPCODE_CSRRW = 0x73
@@ -634,6 +666,16 @@ object Opcodes {
   def FMSUB_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FMSUB_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
   def FNMSUB_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FNMSUB_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
   def FNMADD_S(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, rm: Int = 0): BigInt = BigInt(MATCH_FNMADD_S | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((rm.toLong & 0x7L) << 12))
+  def AMOADD_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOADD_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOSWAP_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOSWAP_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOXOR_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOXOR_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOAND_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOAND_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOOR_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOOR_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOMIN_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOMIN_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOMAX_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOMAX_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOMINU_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOMINU_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOMAXU_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOMAXU_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
+  def AMOCAS_W(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, aq: Int = 0, rl: Int = 0): BigInt = BigInt(MATCH_AMOCAS_W | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((aq.toLong & 0x1L) << 26) | ((rl.toLong & 0x1L) << 25))
   def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
   def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }
