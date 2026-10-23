@@ -355,6 +355,23 @@ object BorgComputeTests extends TestSuite {
       }
     }
 
+    utest.test("amoadd_and_amocas_serialize_the_lanes") {
+      import Opcodes._
+      // r14 counter (0x2000, starts 0), r19 a second word (0x2010, starts 100); old values to 0x3000 / 0x3010 + 4 * lane.
+      val prog = Seq(
+        AMOADD_W(5, 14, 16), SLLI(6, 30, 2), ADD(8, 6, 15), SW(0, 8, 5),
+        AMOCAS_W(7, 19, 18), ADDI(8, 8, 16), SW(0, 8, 7))
+      val gprs = Map(14 -> 0x2000, 15 -> 0x3000, 16 -> 1, 18 -> 200, 19 -> 0x2010, 7 -> 100)
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        def put(dram: HalfwordDram, a: Int, w: Long): Unit = { dram.mem(a) = (w & 0xFFFF).toInt; dram.mem(a + 2) = ((w >> 16) & 0xFFFF).toInt }
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (4, 1, 1), dram => put(dram, 0x2010, 100))
+        val (counter, cas) = (dram.word(0x2000), dram.word(0x2010))
+        val olds = (0 until 4).map(l => dram.word(0x3000 + 4 * l)); val casOlds = (0 until 4).map(l => dram.word(0x3010 + 4 * l))
+        println(s"  counter $counter olds $olds; cas word $cas olds $casOlds")
+        utest.assert(counter == 4 && olds == Seq(0L, 1L, 2L, 3L) && cas == 200 && casOlds == Seq(100L, 200L, 200L, 200L))
+      }
+    }
+
     utest.test("a_build_without_compute_reports_it_absent") {
       simulate(new BorgTestWrapper(scalar.copy(hasCompute = false)), additionalResetCycles = 4) { d =>
         val dram = new HalfwordDram

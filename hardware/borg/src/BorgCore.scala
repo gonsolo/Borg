@@ -349,7 +349,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
   if (cfg.hasMemoryOps)
-    wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
+    wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
   else
     io.memBusy := false.B
   if (cfg.shaderICacheEnabled) wireICache()
@@ -397,7 +397,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val sys = RvInt(instr)
     regs.rs1 := Mux(sys.csrReg, sys.sysReg, Mux(sys.csrWin, sys.sysWin, Instructions.BF_RS1(instr)))
     regs.rs2 := Instructions.BF_RS2(instr)
-    regs.rs3 := Instructions.BF_RS3(instr)
+    regs.rs3 := Mux(sys.amocas, Instructions.BF_RD(instr), Instructions.BF_RS3(instr))
     regs.rd  := Instructions.BF_RD(instr)
 
     val flags = Wire(new FpuOpFlags())
@@ -442,7 +442,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
     // not accidentally an ADD.
-    flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U || rv.load else false.B)
+    flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U || rv.load || rv.amo else false.B)
     flags.store := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_STORE.U || rv.store else false.B)
     val cf = cfg.hasControlFlow
     flags.brz    := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRZ.U else false.B)
@@ -914,7 +914,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * program order because the core is stalled for each one, which is
     * stronger than Vulkan requires but only within a single invocation.
     */
-  private def wireMemStall(addrOperands: Seq[UInt], dataOperands: Seq[UInt],
+  private def wireMemStall(addrOperands: Seq[UInt], dataOperands: Seq[UInt], cmpOperands: Seq[UInt],
                            memWrites: Seq[MemWritePort]): Unit = {
     val N = cfg.fragLanes
 
@@ -930,9 +930,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_private_reg = RegInit(false.B)
     // ISA v2 LB..LW and SW: byte address rs1 + imm instead of LS_BASE + (index << 2).
     val rvMem = RegInit(false.B); val rvWidth = Reg(UInt(3.W)); val rvImm = Reg(UInt(32.W))
+    val isAmo = RegInit(false.B); val amoOp = Reg(UInt(5.W)); val amoNew = Reg(UInt(32.W))
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
       val rv = RvInt(fetchedInstruction)
-      rvMem := rv.load || rv.store; rvWidth := rv.width; rvImm := rv.memImm
+      rvMem := rv.load || rv.store || rv.amo; rvWidth := Mux(rv.amo, 2.U, rv.width); rvImm := rv.memImm
+      isAmo := rv.amo; amoOp := rv.amoOp
       is_load_reg  := opFlags.load
       is_store_reg := opFlags.store || opFlags.sout
       is_private_reg := opFlags.store && Instructions.BF_RD(fetchedInstruction) === 1.U
@@ -940,7 +942,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_fattr_reg := opFlags.fattr
     }
 
-    val sMemIdle :: sMemReq :: sMemWB :: sAttrReq :: sAttrLook :: sAttrMem :: sAttrWB :: Nil = Enum(7)
+    val sMemIdle :: sMemReq :: sMemWB :: sAttrReq :: sAttrLook :: sAttrMem :: sAttrWB :: sAmoWr :: Nil = Enum(8)
     val memState = RegInit(sMemIdle)
     // log2Up, and a separate 0-width index at N==1, for the same two reasons
     // spelled out on wireSampler's respLane.
@@ -952,6 +954,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     val curIndex = VecInit(addrOperands)(memLaneIdx)
     val curData  = VecInit(dataOperands)(memLaneIdx)
+    val curCmp   = VecInit(cmpOperands)(memLaneIdx)
 
     // Effective address: LS_BASE + (index << 2). The shift is what makes the
     // index a word index and misalignment unrepresentable; +& keeps the carry
@@ -1048,7 +1051,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // applies to a sequencer-run program: a vertex shader's or the setup
     // ROM's SOUT must not inherit it.
     val laneActive = VecInit(execMask.asBools)(memLaneIdx) && soutLaneOk &&
-                     !(is_store_reg && !is_private_reg && !io.seqBusy && io.laneHelper.get(memLaneIdx))
+                     !((is_store_reg || isAmo) && !is_private_reg && !io.seqBusy && io.laneHelper.get(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
       busy_counter := busy_counter
@@ -1067,11 +1070,21 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           Mux(is_load_reg, io.gpuMem.get.data, curData))
         when(is_load_reg) {
           memDataReg := Mux(rvMem, rvLoadData(io.gpuMem.get.data.pad(32)), io.gpuMem.get.data)(config.totalBits - 1, 0)
-          memState   := sMemWB
+          memState   := Mux(isAmo, sAmoWr, sMemWB)
+          amoNew     := RvInt.amoResult(amoOp, io.gpuMem.get.data.pad(32)(31, 0), curData.pad(32), curCmp.pad(32))
         }.otherwise {
           finishLane()                  // a store has nothing to write back
         }
       }
+    }
+
+    // AMO: the new value goes to the same word, then rd gets the old one.
+    when(memState === sAmoWr) {
+      busy_counter := busy_counter
+      io.gpuMem.get.addr  := byteAddr
+      io.gpuMem.get.wr    := true.B
+      io.gpuMem.get.wdata := amoNew
+      when(io.gpuMem.get.ready) { memState := sMemWB }
     }
 
     when(memState === sMemWB) {

@@ -28,7 +28,11 @@ class RvInt(instr: UInt) {
   val load  = opc === Opcodes.OPCODE_LW.U && (f3 === 0.U || f3 === 1.U || f3 === 2.U || f3 === 4.U || f3 === 5.U)
   val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U
   val width = f3
-  val memImm = Mux(store, Cat(instr(31, 25), instr(11, 7)), instr(31, 20)).asSInt.pad(32).asUInt
+  /** Zaamo AMO*.W and Zacas AMOCAS.W (B8 step 12) at rs1; AMOCAS compares with rd. */
+  val amo    = opc === Opcodes.OPCODE_AMOADD_W.U && f3 === 2.U
+  val amoOp  = instr(31, 27)
+  val amocas = amo && amoOp === 5.U
+  val memImm = Mux(amo, 0.U(32.W), Mux(store, Cat(instr(31, 25), instr(11, 7)), instr(31, 20)).asSInt.pad(32).asUInt)
   /** Zmmul, Zicond and the Zbb subset (B8 step 3): MUL runs as IMUL, the rest by rvxOp. */
   val mul = op && f7 === 1.U && f3 === 0.U
   private val rs2f = instr(24, 20)
@@ -75,7 +79,7 @@ class RvInt(instr: UInt) {
   val fp    = fadd || fsub || fmul || r4 || fpx || fcvtSH || fcvtHS
   val rvx   = rvxTable.map(_._1).reduce(_ || _) || fpx
   val rvxOp = Mux1H((rvxTable ++ fpTable).map { case (c, k) => c -> k.U(6.W) })
-  val any   = op || opImm || lui || auipc || csrrs || load || fp
+  val any   = op || opImm || lui || auipc || csrrs || load || fp || amo
   /** BEQ..BGEU and JAL (rd = x0: no return address yet); offsets in words. */
   val br    = opc === Opcodes.OPCODE_BEQ.U && f3 =/= 2.U && f3 =/= 3.U
   val jal   = opc === Opcodes.OPCODE_JAL.U
@@ -96,15 +100,21 @@ class RvInt(instr: UInt) {
   val or   = base && f3 === 6.U
   val and  = base && f3 === 7.U
   /** Operand A is x0 (or LUI's zero); AUIPC's is the instruction's byte address. */
-  val aZero = (op || opImm || csrrw || load || store || br || fp) && instr(19, 15) === 0.U || lui
+  val aZero = (op || opImm || csrrw || load || store || br || fp || amo) && instr(19, 15) === 0.U || lui
   /** Operand B is x0, or the immediate. */
-  val bZero = (op || store || br || fadd || fsub || fmul || r4 || fpx) && instr(24, 20) === 0.U
+  val bZero = (op || store || br || fadd || fsub || fmul || r4 || fpx || amo) && instr(24, 20) === 0.U
   val bImm  = opImm || lui || auipc
   val imm   = Mux(opImm, instr(31, 20).asSInt.pad(32).asUInt, Cat(instr(31, 12), 0.U(12.W)))
 }
 
 object RvInt {
   def apply(instr: UInt): RvInt = new RvInt(instr)
+
+  /** The value an AMO writes, from the old word, rs2 and (AMOCAS) the compare value. */
+  def amoResult(op: UInt, old: UInt, x: UInt, cmp: UInt): UInt = MuxLookup(op, x)(Seq(
+    0x00.U -> (old + x), 0x04.U -> (old ^ x), 0x0C.U -> (old & x), 0x08.U -> (old | x),
+    0x10.U -> Mux(old.asSInt < x.asSInt, old, x), 0x14.U -> Mux(old.asSInt < x.asSInt, x, old),
+    0x18.U -> Mux(old < x, old, x), 0x1C.U -> Mux(old < x, x, old), 0x05.U -> Mux(old === cmp, x, old)))
   val Mulh = 1; val Mulhsu = 2; val Mulhu = 3; val CzeroEqz = 4; val CzeroNez = 5; val Andn = 6; val Orn = 7
   val Xnor = 8; val Min = 9; val Minu = 10; val Max = 11; val Maxu = 12; val SextB = 13; val SextH = 14
   val ZextH = 15; val Clz = 16; val Ctz = 17; val Cpop = 18; val Rol = 19; val Ror = 20; val Rev8 = 21
