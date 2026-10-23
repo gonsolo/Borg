@@ -74,9 +74,9 @@ when the opcode file gets them:
 |---|---|---|---|---|---|
 | `FRCP`, `FRSQ`, `FEXP2`, `FLOG2` | 0x0B | R | 0 | 0x00..0x03 | rd, rs1 |
 | `DDX`, `DDY` | 0x0B | R | 1 | 0x00, 0x01 | rd, rs1; rs2 field: 0 coarse, 1 fine |
-| `TEX` | 0x2B | R4 | operation | 0 | rd (group of 4), rs1 = u, rs2 = v, rs3 = texture descriptor address |
+| `TEX` | 0x2B | R4 | 0 | 0 | rd (group of 4), rs1 = u, rs2 = v, rs3 = texture descriptor address |
 | `TEXA` | 0x2B | R4 | 0 | 1 | rs1 = w or layer, rs2 = lod or bias, rs3 = dref |
-| `TEXS` | 0x2B | R | 1 | 0x00 | rs1 = sampler descriptor address, rs2 = offsets and gather component |
+| `TEXS` | 0x2B | R | 1 | 0x00 | rs1 = sampler descriptor address, rs2 = control word |
 | `TLD` | 0x2B | R | 2 | 0x00 | rd; rs2 field = word |
 | `ZTEST` | 0x2B | R | 3 | 0x00 | — |
 | `SOUT` | 0x5B | R | 0 | 0x00 | rs1 = value; rs2 and rd fields = output component |
@@ -85,8 +85,12 @@ when the opcode file gets them:
 | `BARRIER` | 0x7B | R | 1 | 0x00 | — |
 | `QBALLOT`, `QSHUF` | 0x7B | R | 2 | 0x00, 0x01 | see "Subgroups" |
 
-`TEX`'s funct3 carries the operation (sample, fetch, gather, size, compare), which v1 carried in
-control-word bits 17:16 and 21; an explicit LOD or bias comes with a `TEXA` before it.
+`TEXS` sets the sampler descriptor and the control word for the `TEX`s after it: v1's word
+without the descriptor indices (operation, gather component, compare, LOD mode, offsets), since
+funct3 is too small for every combination. An explicit LOD, a bias, a layer or a depth reference
+comes with a `TEXA` before the `TEX`. The texture unit reads the descriptors at the addresses and
+keeps them in a cache tagged by address; v1's `TEX` forms its addresses from `TEX_DESC_BASE` and
+`SAMPLER_DESC_BASE` until it goes.
 
 ## Base instructions
 
