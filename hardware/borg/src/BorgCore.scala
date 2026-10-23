@@ -395,66 +395,68 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     regs.rd  := Instructions.BF_RD(instr)
 
     val flags = Wire(new FpuOpFlags())
-    flags.fma   := instr(Instructions.BITS_OPCODE_FMA_BIT)
+    val opc     = Instructions.BF_OP(instr)
+    val v1      = opc === 0.U
+    flags.fma   := opc === 4.U
     val f7op    = Instructions.BF_F7_OP(instr)
     // R4-type sub-opcode (only meaningful when flags.fma is set): FMADD is
     // funct2=0; TEX/TEXA are funct2=2/3 (decoded below, gated on
     // cfg.samplerEnabled) -- see Opcodes.FUNCT2_TEX/FUNCT2_TEXA.
     // funct2=1 (the retired FTEX) is never reused -- see Instructions.scala.
     val funct2  = instr(26, 25)
-    flags.mul   := !flags.fma && f7op === Opcodes.FUNCT7_FMUL.U
-    flags.fneg  := !flags.fma && f7op === Opcodes.FUNCT7_FNEG.U
-    flags.fmov  := !flags.fma && f7op === Opcodes.FUNCT7_FMOV.U
-    flags.fstep := !flags.fma && f7op === Opcodes.FUNCT7_FSTEP.U
-    flags.frcp  := !flags.fma && f7op === Opcodes.FUNCT7_FRCP.U
-    flags.iadd  := !flags.fma && f7op === Opcodes.FUNCT7_IADD.U
-    flags.ishl  := !flags.fma && f7op === Opcodes.FUNCT7_ISHL.U
-    flags.ishr  := !flags.fma && f7op === Opcodes.FUNCT7_ISHR.U
-    flags.imul  := !flags.fma && f7op === Opcodes.FUNCT7_IMUL.U
-    flags.isub  := !flags.fma && f7op === Opcodes.FUNCT7_ISUB.U
-    flags.iand  := !flags.fma && f7op === Opcodes.FUNCT7_IAND.U
-    flags.ior   := !flags.fma && f7op === Opcodes.FUNCT7_IOR.U
-    flags.ixor  := !flags.fma && f7op === Opcodes.FUNCT7_IXOR.U
-    flags.islt  := !flags.fma && f7op === Opcodes.FUNCT7_ISLT.U
-    flags.iseq  := !flags.fma && f7op === Opcodes.FUNCT7_ISEQ.U
-    flags.i2f   := !flags.fma && f7op === Opcodes.FUNCT7_I2F.U
-    flags.f2i   := !flags.fma && f7op === Opcodes.FUNCT7_F2I.U
-    flags.f2h   := !flags.fma && f7op === Opcodes.FUNCT7_F2H.U
-    flags.h2f   := !flags.fma && f7op === Opcodes.FUNCT7_H2F.U
-    flags.frsq  := !flags.fma && f7op === Opcodes.FUNCT7_FRSQ.U
-    flags.fsrgb := !flags.fma && f7op === Opcodes.FUNCT7_FSRGB.U
-    flags.ddx   := !flags.fma && f7op === Opcodes.FUNCT7_DDX.U
-    flags.ddy   := !flags.fma && f7op === Opcodes.FUNCT7_DDY.U
+    flags.mul   := v1 && f7op === Opcodes.FUNCT7_FMUL.U
+    flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
+    flags.fmov  := v1 && f7op === Opcodes.FUNCT7_FMOV.U
+    flags.fstep := v1 && f7op === Opcodes.FUNCT7_FSTEP.U
+    flags.frcp  := v1 && f7op === Opcodes.FUNCT7_FRCP.U
+    flags.iadd  := v1 && f7op === Opcodes.FUNCT7_IADD.U
+    flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U
+    flags.ishr  := v1 && f7op === Opcodes.FUNCT7_ISHR.U
+    flags.imul  := v1 && f7op === Opcodes.FUNCT7_IMUL.U
+    flags.isub  := v1 && f7op === Opcodes.FUNCT7_ISUB.U
+    flags.iand  := v1 && f7op === Opcodes.FUNCT7_IAND.U
+    flags.ior   := v1 && f7op === Opcodes.FUNCT7_IOR.U
+    flags.ixor  := v1 && f7op === Opcodes.FUNCT7_IXOR.U
+    flags.islt  := v1 && f7op === Opcodes.FUNCT7_ISLT.U
+    flags.iseq  := v1 && f7op === Opcodes.FUNCT7_ISEQ.U
+    flags.i2f   := v1 && f7op === Opcodes.FUNCT7_I2F.U
+    flags.f2i   := v1 && f7op === Opcodes.FUNCT7_F2I.U
+    flags.f2h   := v1 && f7op === Opcodes.FUNCT7_F2H.U
+    flags.h2f   := v1 && f7op === Opcodes.FUNCT7_H2F.U
+    flags.frsq  := v1 && f7op === Opcodes.FUNCT7_FRSQ.U
+    flags.fsrgb := v1 && f7op === Opcodes.FUNCT7_FSRGB.U
+    flags.ddx   := v1 && f7op === Opcodes.FUNCT7_DDX.U
+    flags.ddy   := v1 && f7op === Opcodes.FUNCT7_DDY.U
     flags.fine  := Instructions.BF_RS2(instr) === 1.U     // DDX/DDY: fine (per row/column)
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
     // not accidentally an ADD.
-    flags.load  := (if (cfg.hasMemoryOps) !flags.fma && f7op === Opcodes.FUNCT7_LOAD.U else false.B)
-    flags.store := (if (cfg.hasMemoryOps) !flags.fma && f7op === Opcodes.FUNCT7_STORE.U else false.B)
+    flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U else false.B)
+    flags.store := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_STORE.U else false.B)
     val cf = cfg.hasControlFlow
-    flags.brz    := (if (cf) !flags.fma && f7op === Opcodes.FUNCT7_BRZ.U else false.B)
-    flags.brnz   := (if (cf) !flags.fma && f7op === Opcodes.FUNCT7_BRNZ.U else false.B)
-    flags.jmp    := !flags.fma && f7op === Opcodes.FUNCT7_JMP.U
+    flags.brz    := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRZ.U else false.B)
+    flags.brnz   := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRNZ.U else false.B)
+    flags.jmp    := v1 && f7op === Opcodes.FUNCT7_JMP.U
     flags.branch := flags.brz || flags.brnz || flags.jmp
-    flags.expush := (if (cf) !flags.fma && f7op === Opcodes.FUNCT7_EXPUSH.U else false.B)
-    flags.exelse := (if (cf) !flags.fma && f7op === Opcodes.FUNCT7_EXELSE.U else false.B)
-    flags.expop  := (if (cf) !flags.fma && f7op === Opcodes.FUNCT7_EXPOP.U else false.B)
+    flags.expush := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPUSH.U else false.B)
+    flags.exelse := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXELSE.U else false.B)
+    flags.expop  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPOP.U else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
-    flags.barrier := (if (cfg.computeEnabled) !flags.fma && f7op === Opcodes.FUNCT7_BARRIER.U else false.B)
+    flags.barrier := (if (cfg.computeEnabled) v1 && f7op === Opcodes.FUNCT7_BARRIER.U else false.B)
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
-    flags.exany  := (if (cf) !flags.fma && f7op === Opcodes.FUNCT7_EXANY.U else false.B)
-    flags.isrl   := !flags.fma && f7op === Opcodes.FUNCT7_ISRL.U
-    flags.isltu  := !flags.fma && f7op === Opcodes.FUNCT7_ISLTU.U
-    flags.ztest  := !flags.fma && f7op === Opcodes.FUNCT7_ZTEST.U
+    flags.exany  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXANY.U else false.B)
+    flags.isrl   := v1 && f7op === Opcodes.FUNCT7_ISRL.U
+    flags.isltu  := v1 && f7op === Opcodes.FUNCT7_ISLTU.U
+    flags.ztest  := v1 && f7op === Opcodes.FUNCT7_ZTEST.U
     val draw = cfg.drawEnabled
-    flags.sout   := (if (draw) !flags.fma && f7op === Opcodes.FUNCT7_SOUT.U else false.B)
-    flags.fattr  := (if (draw) !flags.fma && f7op === Opcodes.FUNCT7_FATTR.U else false.B)
+    flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U else false.B)
+    flags.fattr  := (if (draw) v1 && f7op === Opcodes.FUNCT7_FATTR.U else false.B)
     val smp = cfg.samplerEnabled
     flags.tex    := (if (smp) flags.fma && funct2 === Opcodes.FUNCT2_TEX.U else false.B)
-    flags.smask  := (if (draw) !flags.fma && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
-    flags.attidx := (if (draw) !flags.fma && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
-    flags.tld    := (if (draw) !flags.fma && f7op === Opcodes.FUNCT7_TLD.U else false.B)
+    flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
+    flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
+    flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
     flags.texa   := (if (smp) flags.fma && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
