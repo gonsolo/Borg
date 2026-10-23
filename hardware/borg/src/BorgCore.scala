@@ -394,7 +394,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Decode a 32-bit RISC-V instruction into register indices and op flags. */
   private def decode(instr: UInt) = {
     val regs = Wire(new RegIndices())
-    regs.rs1 := Instructions.BF_RS1(instr)
+    val sys = RvInt(instr)
+    regs.rs1 := Mux(sys.csrReg, sys.sysReg, Mux(sys.csrWin, sys.sysWin, Instructions.BF_RS1(instr)))
     regs.rs2 := Instructions.BF_RS2(instr)
     regs.rs3 := Instructions.BF_RS3(instr)
     regs.rd  := Instructions.BF_RD(instr)
@@ -468,7 +469,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
     flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
     flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
-    flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), 0.U)
+    flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, 0.U))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
     flags.rvx  := rv.rvx
@@ -581,7 +582,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       v
     }
     val csrValue = Mux(rv.csr === Csr.Root.U, io.root, 0.U)
-    (latch(rv.aZero || rv.auipc || rv.csrrs,
+    (latch(rv.aZero || rv.auipc || rv.csrrs && !rv.csrReg && !rv.csrWin,
            Mux(rv.csrrs, csrValue, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W)))),
      latch(rv.bZero || rv.bImm || rv.csrrs, Mux(rv.bImm, rv.imm, 0.U(32.W))))
   }

@@ -218,6 +218,22 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("system_value_csrs") {
+      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+        def f(x: Float) = BigInt(java.lang.Float.floatToRawIntBits(x)) & M
+        writeReg(core, 5, f(0.25f)); writeReg(core, 29, f(0.75f)); writeUniform(core, 29, 0x1234)
+        for ((w, i) <- Seq(CSRRS(1, 0, Csr.FragX), CSRRS(2, 0, Csr.FragY), CSRRS(3, 0, Csr.Bary0), CSRRS(4, 0, Csr.FragZ),
+                           CSRRS(6, 0, Csr.GroupIdX), BigInt(0)).zipWithIndex) writeImem(core, i, w)
+        startAndWait(core)
+        val got = Seq(1, 2, 3, 4, 6).map(readReg(core, _))
+        println(s"  ${got.map(_.toString(16))}")
+        utest.assert(got == Seq(f(0.5f), f(0.5f), f(0.25f), f(0.75f), BigInt(0x1234)))
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)

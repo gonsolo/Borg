@@ -28,4 +28,9 @@ object Csr {
   val OutC0 = 0x800; val OutC1 = 0x801; val OutC2 = 0x802; val OutC3 = 0x803
   val OutDepth = 0x804; val Discard = 0x805; val SampleMask = 0x806
   val Root = 0xCC0
+  // System values (B8 step 7), read-only.
+  val FragX = 0xCC1; val FragY = 0xCC2; val FragZ = 0xCC3; val InvW = 0xCC4
+  val Bary0 = 0xCC5; val Bary1 = 0xCC6; val Bary2 = 0xCC7
+  val VertexIndex = 0xCC8; val InstanceIndex = 0xCC9; val LocalIndex = 0xCCA; val LocalId = 0xCCB
+  val GroupIdX = 0xCCC; val GroupIdY = 0xCCD; val GroupIdZ = 0xCCE
 }
