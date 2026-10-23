@@ -15,6 +15,7 @@ object Opcodes {
   val FIELD_IMM12 = (31, 20)
   val FIELD_IMM20 = (31, 12)
   val FIELD_SHAMTW = (24, 20)
+  val FIELD_CSR = (31, 20)
   val MATCH_FMADD = 0x00000004L
   val MASK_FMADD = 0x0600007fL
   val OPCODE_FMADD = 0x04
@@ -271,6 +272,12 @@ object Opcodes {
   val MASK_AND = 0xfe00707fL
   val OPCODE_AND = 0x33
   val FUNCT7_AND = 0x00
+  val MATCH_CSRRW = 0x00001073L
+  val MASK_CSRRW = 0x0000707fL
+  val OPCODE_CSRRW = 0x73
+  val MATCH_CSRRS = 0x00002073L
+  val MASK_CSRRS = 0x0000707fL
+  val OPCODE_CSRRS = 0x73
   val HALT = 0x00000000L
 
   def FMADD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FMADD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((f3.toLong & 0x7L) << 12))
@@ -339,4 +346,6 @@ object Opcodes {
   def SRA(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_SRA | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def OR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_OR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def AND(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_AND | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
+  def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }
