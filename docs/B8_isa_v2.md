@@ -1,6 +1,7 @@
 # ISA v2
 
-Status: specification, agreed 2026-10-22, not implemented. The current ISA (v1) is
+Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-4, 7, 8, 10,
+12 and the first half of 11 done; 7c moved to B9). The current ISA (v1) is
 `hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `fe1c9897`. The
 pipeline that follows it is B9.
 
