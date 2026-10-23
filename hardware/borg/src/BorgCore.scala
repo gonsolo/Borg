@@ -402,7 +402,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val flags = Wire(new FpuOpFlags())
     val opc     = Instructions.BF_OP(instr)
     val v1      = opc === 0.U
-    flags.fma   := opc === 4.U
+    val r4      = opc === 4.U
     // ISA v2 (B8): RISC-V OP, OP-IMM, LUI and AUIPC run on the v1 integer ALU.
     val rv = RvInt(instr)
     val f7op    = Instructions.BF_F7_OP(instr)
@@ -411,7 +411,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // cfg.samplerEnabled) -- see Opcodes.FUNCT2_TEX/FUNCT2_TEXA.
     // funct2=1 (the retired FTEX) is never reused -- see Instructions.scala.
     val funct2  = instr(26, 25)
-    flags.mul   := v1 && f7op === Opcodes.FUNCT7_FMUL.U
+    flags.mul   := v1 && f7op === Opcodes.FUNCT7_FMUL.U || rv.fmul
+    flags.fma   := r4 || rv.r4
+    flags.negC  := rv.fsub || rv.fmsub || rv.fnmadd
+    flags.negProd := rv.fnmadd || rv.fnmsub
     flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
     flags.fmov  := v1 && f7op === Opcodes.FUNCT7_FMOV.U
     flags.fstep := v1 && f7op === Opcodes.FUNCT7_FSTEP.U
@@ -428,8 +431,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.iseq  := v1 && f7op === Opcodes.FUNCT7_ISEQ.U
     flags.i2f   := v1 && f7op === Opcodes.FUNCT7_I2F.U
     flags.f2i   := v1 && f7op === Opcodes.FUNCT7_F2I.U
-    flags.f2h   := v1 && f7op === Opcodes.FUNCT7_F2H.U
-    flags.h2f   := v1 && f7op === Opcodes.FUNCT7_H2F.U
+    flags.f2h   := v1 && f7op === Opcodes.FUNCT7_F2H.U || rv.fcvtHS
+    flags.h2f   := v1 && f7op === Opcodes.FUNCT7_H2F.U || rv.fcvtSH
     flags.frsq  := v1 && f7op === Opcodes.FUNCT7_FRSQ.U
     flags.fsrgb := v1 && f7op === Opcodes.FUNCT7_FSRGB.U
     flags.ddx   := v1 && f7op === Opcodes.FUNCT7_DDX.U
@@ -460,12 +463,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U else false.B)
     flags.fattr  := (if (draw) v1 && f7op === Opcodes.FUNCT7_FATTR.U else false.B)
     val smp = cfg.samplerEnabled
-    flags.tex    := (if (smp) flags.fma && funct2 === Opcodes.FUNCT2_TEX.U else false.B)
+    flags.tex    := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEX.U else false.B)
     flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
     flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
     flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U else false.B)
-    flags.texa   := (if (smp) flags.fma && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
-    flags.funct3 := Mux(v1 || flags.fma, Instructions.BF_FUNCT3(instr), 0.U)
+    flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U else false.B)
+    flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), 0.U)
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
     flags.rvx  := rv.rvx

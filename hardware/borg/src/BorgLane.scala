@@ -254,7 +254,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_frsq_reg = RegInit(false.B)
     val is_fsrgb_reg = RegInit(false.B)
     val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
+    val negC_reg = RegInit(false.B); val negProd_reg = RegInit(false.B)
     when(start) {
+      negC_reg := opFlags.negC; negProd_reg := opFlags.negProd
       is_mul_reg := opFlags.mul
       // opFlags.fma is the raw R4-type opcode bit, which TEX/TEXA also set --
       // this lane runs its real multiply-add datapath on their U/V/ctl
@@ -276,10 +278,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val fma = Module(new BorgFma(cfg))
         fma.io.a := Mux(is_deriv_reg, io.crossA, Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn))
         fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
-        fma.io.c := Mux(is_deriv_reg, io.crossC,
+        val c = Mux(is_deriv_reg, io.crossC,
                         Mux(is_fma_reg, recC_raw,
                         Mux(is_mul_reg || is_fneg_reg || is_fmov_reg, 0.U(config.totalBits.W), recB_raw)))
-        fma.io.negate := is_fneg_reg
+        fma.io.c := c ^ Cat(negC_reg, 0.U((config.totalBits - 1).W))
+        fma.io.negate := is_fneg_reg || negProd_reg
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
         // Registered result ready for write-back/snoop at counter==1.
@@ -408,7 +411,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_tld_reg = RegInit(false.B)
     val tld_sel_reg = RegInit(false.B)            // TLD's word: funct3 bit 0
     val is_isrl_reg = RegInit(false.B); val is_isltu_reg = RegInit(false.B)
-    val is_rvx_reg = RegInit(false.B); val rvx_op_reg = RegInit(0.U(5.W))
+    val is_rvx_reg = RegInit(false.B); val rvx_op_reg = RegInit(0.U(6.W))
     when(start) {
       is_rvx_reg := opFlags.rvx; rvx_op_reg := opFlags.rvxOp
       is_isrl_reg := opFlags.isrl; is_isltu_reg := opFlags.isltu

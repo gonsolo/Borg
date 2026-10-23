@@ -184,6 +184,40 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("zfinx_and_zhinxmin_match_riscv") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        def f(x: Float) = BigInt(java.lang.Float.floatToRawIntBits(x)) & M
+        def fb(x: Boolean) = if (x) BigInt(1) else BigInt(0)
+        val (pa, pb, pc) = (1.5f, -2.25f, 0.375f)
+        val nan = BigInt(0x7fc00000L); val neg0 = BigInt(0x80000000L)
+        val regs = Map(1 -> f(pa), 2 -> f(pb), 3 -> f(pc), 4 -> nan, 5 -> neg0, 6 -> BigInt(0), 7 -> f(Float.PositiveInfinity),
+                       8 -> BigInt(16777217), 9 -> u(-7), 10 -> f(-3.75f), 11 -> f(3e9f))
+        def check(name: String, prog: Seq[BigInt], want: Seq[BigInt]) = {
+          val rd = run(core, prog, regs)
+          val got = want.indices.map(i => rd(20 + i))
+          if (got != want) println(s"  $name: ${got.map(_.toString(16))} want ${want.map(_.toString(16))}")
+          utest.assert(got == want)
+        }
+        check("arith", Seq(FADD_S(20, 1, 2), FSUB_S(21, 1, 2), FMUL_S(22, 1, 2), FMADD_S(23, 1, 2, 3),
+                           FMSUB_S(24, 1, 2, 3), FNMADD_S(25, 1, 2, 3), FNMSUB_S(26, 1, 2, 3)),
+              Seq(f(pa + pb), f(pa - pb), f(pa * pb), f(pa * pb + pc), f(pa * pb - pc), f(-(pa * pb) - pc), f(-(pa * pb) + pc)))
+        check("sign", Seq(FSGNJ_S(20, 1, 2), FSGNJN_S(21, 1, 2), FSGNJX_S(22, 2, 2), FSGNJ_S(23, 4, 5)),
+              Seq(f(-pa), f(pa), f(-pb), nan | neg0))
+        check("minmax", Seq(FMIN_S(20, 1, 2), FMAX_S(21, 1, 2), FMIN_S(22, 4, 1), FMIN_S(23, 5, 6), FMAX_S(24, 5, 6), FMAX_S(25, 4, 4)),
+              Seq(f(pb), f(pa), f(pa), neg0, BigInt(0), nan))
+        check("compare", Seq(FEQ_S(20, 1, 1), FLT_S(21, 2, 1), FLE_S(22, 1, 2), FEQ_S(23, 5, 6), FLT_S(24, 5, 6), FEQ_S(25, 4, 4),
+                             FLE_S(26, 4, 1)),
+              Seq(1, 1, 0, 1, 0, 0, 0).map(BigInt(_)))
+        check("class", Seq(FCLASS_S(20, 2), FCLASS_S(21, 5), FCLASS_S(22, 6), FCLASS_S(23, 1), FCLASS_S(24, 7), FCLASS_S(25, 4)),
+              Seq(1 << 1, 1 << 3, 1 << 4, 1 << 6, 1 << 7, 1 << 9).map(BigInt(_)))
+        check("convert", Seq(FCVT_W_S(20, 10, 1), FCVT_WU_S(21, 10, 1), FCVT_WU_S(22, 11, 1), FCVT_S_W(23, 9), FCVT_S_W(24, 8),
+                             FCVT_S_WU(25, 9), FCVT_W_S(26, 4, 1), FCVT_W_S(27, 11, 1)),
+              Seq(u(-3), BigInt(0), BigInt(3000000000L), f(-7f), f(16777216f), f(4294967289f), BigInt(0x7fffffff), BigInt(0x7fffffff)))
+        check("half", Seq(FCVT_H_S(20, 1), FCVT_S_H(21, 20)), Seq(BigInt(0x3e00), f(pa)))
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)

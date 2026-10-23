@@ -40,9 +40,34 @@ class RvInt(instr: UInt) {
     (opImm && f7 === 0x30.U && f3 === 1.U && rs2f === 2.U) -> RvInt.Cpop,
     (op && f7 === 0x30.U && f3 === 1.U) -> RvInt.Rol, ((op || opImm) && f7 === 0x30.U && f3 === 5.U) -> RvInt.Ror,
     (opImm && instr(31, 20) === 0x698.U && f3 === 5.U) -> RvInt.Rev8)
-  val rvx   = rvxTable.map(_._1).reduce(_ || _)
-  val rvxOp = Mux1H(rvxTable.map { case (c, k) => c -> k.U(5.W) })
-  val any   = op || opImm || lui || auipc || csrrs || load
+  /** Zfinx and Zhinxmin (B8 step 4): FP32 in the x registers, RNE (other rounding modes are not built). */
+  val opFp  = opc === Opcodes.OPCODE_FADD_S.U && instr(26, 25) === 0.U
+  private val f5 = instr(31, 27)
+  val fadd  = opFp && f5 === 0.U
+  val fsub  = opFp && f5 === 1.U
+  val fmul  = opFp && f5 === 2.U
+  val fcvtSH = opc === Opcodes.OPCODE_FADD_S.U && instr(31, 25) === 0x20.U && rs2f === 2.U
+  val fcvtHS = opc === Opcodes.OPCODE_FADD_S.U && instr(31, 25) === 0x22.U && rs2f === 0.U
+  private val r4fmt = instr(26, 25) === 0.U
+  val fmadd  = opc === Opcodes.OPCODE_FMADD_S.U && r4fmt
+  val fmsub  = opc === Opcodes.OPCODE_FMSUB_S.U && r4fmt
+  val fnmsub = opc === Opcodes.OPCODE_FNMSUB_S.U && r4fmt
+  val fnmadd = opc === Opcodes.OPCODE_FNMADD_S.U && r4fmt
+  val r4    = fmadd || fmsub || fnmsub || fnmadd
+  private val fpTable = Seq[(Bool, Int)](
+    (opFp && f5 === 4.U && f3 === 0.U) -> RvInt.Fsgnj, (opFp && f5 === 4.U && f3 === 1.U) -> RvInt.Fsgnjn,
+    (opFp && f5 === 4.U && f3 === 2.U) -> RvInt.Fsgnjx,
+    (opFp && f5 === 5.U && f3 === 0.U) -> RvInt.Fmin, (opFp && f5 === 5.U && f3 === 1.U) -> RvInt.Fmax,
+    (opFp && f5 === 0x14.U && f3 === 2.U) -> RvInt.Feq, (opFp && f5 === 0x14.U && f3 === 1.U) -> RvInt.Flt,
+    (opFp && f5 === 0x14.U && f3 === 0.U) -> RvInt.Fle,
+    (opFp && f5 === 0x1C.U && f3 === 1.U && rs2f === 0.U) -> RvInt.Fclass,
+    (opFp && f5 === 0x18.U && rs2f === 0.U) -> RvInt.FcvtWS, (opFp && f5 === 0x18.U && rs2f === 1.U) -> RvInt.FcvtWUS,
+    (opFp && f5 === 0x1A.U && rs2f === 0.U) -> RvInt.FcvtSW, (opFp && f5 === 0x1A.U && rs2f === 1.U) -> RvInt.FcvtSWU)
+  val fpx   = fpTable.map(_._1).reduce(_ || _)
+  val fp    = fadd || fsub || fmul || r4 || fpx || fcvtSH || fcvtHS
+  val rvx   = rvxTable.map(_._1).reduce(_ || _) || fpx
+  val rvxOp = Mux1H((rvxTable ++ fpTable).map { case (c, k) => c -> k.U(6.W) })
+  val any   = op || opImm || lui || auipc || csrrs || load || fp
   /** BEQ..BGEU and JAL (rd = x0: no return address yet); offsets in words. */
   val br    = opc === Opcodes.OPCODE_BEQ.U && f3 =/= 2.U && f3 =/= 3.U
   val jal   = opc === Opcodes.OPCODE_JAL.U
@@ -63,9 +88,9 @@ class RvInt(instr: UInt) {
   val or   = base && f3 === 6.U
   val and  = base && f3 === 7.U
   /** Operand A is x0 (or LUI's zero); AUIPC's is the instruction's byte address. */
-  val aZero = (op || opImm || csrrw || load || store || br) && instr(19, 15) === 0.U || lui
+  val aZero = (op || opImm || csrrw || load || store || br || fp) && instr(19, 15) === 0.U || lui
   /** Operand B is x0, or the immediate. */
-  val bZero = (op || store || br) && instr(24, 20) === 0.U
+  val bZero = (op || store || br || fadd || fsub || fmul || r4 || fpx) && instr(24, 20) === 0.U
   val bImm  = opImm || lui || auipc
   val imm   = Mux(opImm, instr(31, 20).asSInt.pad(32).asUInt, Cat(instr(31, 12), 0.U(12.W)))
 }
@@ -75,6 +100,62 @@ object RvInt {
   val Mulh = 1; val Mulhsu = 2; val Mulhu = 3; val CzeroEqz = 4; val CzeroNez = 5; val Andn = 6; val Orn = 7
   val Xnor = 8; val Min = 9; val Minu = 10; val Max = 11; val Maxu = 12; val SextB = 13; val SextH = 14
   val ZextH = 15; val Clz = 16; val Ctz = 17; val Cpop = 18; val Rol = 19; val Ror = 20; val Rev8 = 21
+  val Fsgnj = 22; val Fsgnjn = 23; val Fsgnjx = 24; val Fmin = 25; val Fmax = 26; val Feq = 27; val Flt = 28
+  val Fle = 29; val Fclass = 30; val FcvtWS = 31; val FcvtWUS = 32; val FcvtSW = 33; val FcvtSWU = 34
+
+  /** IEEE binary32 (w = 32) or binary16 helpers on raw bits. */
+  private class Fp(x: UInt, w: Int) {
+    val e = if (w == 32) 8 else 5; val m = w - 1 - e
+    val sign = x(w - 1); val exp = x(w - 2, m); val man = x(m - 1, 0)
+    val nan = exp.andR && man.orR; val snan = nan && !man(m - 1); val inf = exp.andR && !man.orR
+    val zero = !exp.orR && !man.orR; val sub = !exp.orR && man.orR
+    val key = Mux(sign, ~x, x | (BigInt(1) << (w - 1)).U)   // orders like the value, -0 below +0
+  }
+
+  /** Round the unsigned magnitude u (nonzero) to a float of width w, sign s: RNE. */
+  private def fromUnsigned(u: UInt, s: Bool, w: Int): UInt = {
+    val e = if (w == 32) 8 else 5; val m = w - 1 - e; val bias = (1 << (e - 1)) - 1
+    val msb = Log2(u)
+    val norm = (u << ((w - 1).U - msb))(w - 1, 0)            // msb at bit w-1
+    val mant = norm(w - 2, w - 1 - m); val guard = norm(w - 2 - m); val sticky = norm(w - 3 - m, 0).orR
+    val up = guard && (sticky || mant(0))
+    val sum = Cat(msb +& bias.U, mant) +& up                   // a carry out of mant bumps the exponent
+    Mux(u === 0.U, 0.U(w.W), Cat(s, sum(w - 2, 0)))
+  }
+
+  /** Truncate to an integer, saturating; NaN gives the largest value (RISC-V). */
+  private def toInt(f: Fp, w: Int, signed: Boolean): UInt = {
+    val bias = (1 << (f.e - 1)) - 1
+    val ue = f.exp.zext - bias.S
+    val sig = Cat(1.U(1.W), f.man)
+    val mag = Mux(ue < 0.S, 0.U, Mux(ue >= f.m.S, (sig << (ue - f.m.S).asUInt(4, 0))(w, 0), sig >> (f.m.S - ue).asUInt))
+    val big = ue >= (if (signed) w - 1 else w).S
+    if (signed) {
+      val max = ((BigInt(1) << (w - 1)) - 1).U(w.W); val min = (BigInt(1) << (w - 1)).U(w.W)
+      Mux(f.nan, max, Mux(big, Mux(f.sign, min, max), Mux(f.sign, (0.U - mag)(w - 1, 0), mag(w - 1, 0))))
+    } else {
+      Mux(f.nan || (!f.sign && big), ((BigInt(1) << w) - 1).U(w.W), Mux(f.sign, 0.U(w.W), mag(w - 1, 0)))
+    }
+  }
+
+  private def fpOps(a: UInt, b: UInt, w: Int): Seq[(UInt, UInt)] = {
+    val (fa, fb) = (new Fp(a, w), new Fp(b, w))
+    val qnan = if (w == 32) "h7fc00000".U(w.W) else "h7e00".U(w.W)
+    val bothZero = fa.zero && fb.zero; val unord = fa.nan || fb.nan
+    val lt = fa.key < fb.key
+    def pick(takeA: Bool) = Mux(fa.nan && fb.nan, qnan, Mux(fa.nan, b, Mux(fb.nan, a, Mux(takeA, a, b))))
+    val cls = Cat(fa.nan && !fa.snan, fa.snan, !fa.sign && fa.inf, !fa.sign && !fa.exp.andR && fa.exp.orR,
+                  !fa.sign && fa.sub, !fa.sign && fa.zero, fa.sign && fa.zero, fa.sign && fa.sub,
+                  fa.sign && !fa.exp.andR && fa.exp.orR, fa.sign && fa.inf)
+    Seq(Fsgnj.U -> Cat(b(w - 1), a(w - 2, 0)), Fsgnjn.U -> Cat(~b(w - 1), a(w - 2, 0)),
+        Fsgnjx.U -> Cat(a(w - 1) ^ b(w - 1), a(w - 2, 0)),
+        Fmin.U -> pick(lt), Fmax.U -> pick(!lt),
+        Feq.U -> (!unord && (a === b || bothZero)), Flt.U -> (!unord && lt && !bothZero),
+        Fle.U -> (!unord && (lt || a === b || bothZero)), Fclass.U -> cls,
+        FcvtWS.U -> toInt(fa, w, true), FcvtWUS.U -> toInt(fa, w, false),
+        FcvtSW.U -> fromUnsigned(Mux(a(w - 1), 0.U - a, a)(w - 1, 0), a(w - 1), w), FcvtSWU.U -> fromUnsigned(a, false.B, w))
+      .map { case (k, v) => k -> v.asUInt.zext.asUInt.pad(w)(w - 1, 0) }
+  }
 
   /** The result of a Zmmul/Zicond/Zbb op on a w-bit word. */
   def exec(op: UInt, a: UInt, b: UInt, w: Int): UInt = {
@@ -90,7 +171,7 @@ object RvInt {
       Clz.U -> Mux(a === 0.U, w.U, (w - 1).U - Log2(a)), Ctz.U -> Mux(a === 0.U, w.U, PriorityEncoder(a)),
       Cpop.U -> PopCount(a), Rol.U -> ((a << sh) | (a >> ((w.U - sh)(log2Ceil(w) - 1, 0))))(w - 1, 0),
       Ror.U -> ((a >> sh) | (a << ((w.U - sh)(log2Ceil(w) - 1, 0))))(w - 1, 0),
-      Rev8.U -> Cat((0 until w / 8).map(i => a(8 * i + 7, 8 * i))))
+      Rev8.U -> Cat((0 until w / 8).map(i => a(8 * i + 7, 8 * i)))) ++ fpOps(a, b, w)
     ).asUInt.pad(w)(w - 1, 0)
   }
 }
