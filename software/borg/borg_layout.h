@@ -244,3 +244,7 @@
 // SEQ_FRAG_SHADER_ADDR slot is 64 words, and a half-float or RAW colour pack is longer.
 #define DRAW_FRAG_SHADER_SPI        (DRAW_VERT_SHADER_SPI + DRAW_VERT_SHADER_MAX_WORDS * 4)
 #define DRAW_FRAG_SHADER_MAX_WORDS  4092  // the host's blob limit (SPIRB_MAX_INSTRS)
+
+// ISA v2 root table for the register-driven draw paths (a list's draws allocate their own):
+// LW/SW base, texture and sampler descriptor tables, buffer table (docs/B8_isa_v2.md).
+#define DRAW_ROOT_SPI               (DRAW_FRAG_SHADER_SPI + DRAW_FRAG_SHADER_MAX_WORDS * 4)

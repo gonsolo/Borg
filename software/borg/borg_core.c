@@ -275,6 +275,13 @@ static uint32_t draw_ls_base(int stage) {
 }
 #endif
 
+// ISA v2 root table at `at` (docs/B8_isa_v2.md): the base of a shader's LW and SW, its texture and
+// sampler descriptor tables.
+static uint32_t root_table(uint32_t at, uint32_t ls, uint32_t tex, uint32_t samp) {
+  BDRAM_W(at, ls); BDRAM_W(at + 4, tex); BDRAM_W(at + 8, samp); BDRAM_W(at + 12, 0);
+  return at;
+}
+
 // Push constants: stage the range and point LS_BASE at it (LOAD/STORE already exist). LS_BASE is
 // rewritten on every call because it is also the base for ordinary SSBO-style LOAD/STORE.
 void borg_set_push_constants(const uint32_t *words, uint32_t off_words, uint32_t nwords) {
@@ -283,7 +290,7 @@ void borg_set_push_constants(const uint32_t *words, uint32_t off_words, uint32_t
   if (nwords > BORG_PUSH_CONST_MAX_WORDS - off_words) nwords = BORG_PUSH_CONST_MAX_WORDS - off_words;
   for (uint32_t i = 0; i < nwords; i++) BDRAM_W(BORG_PUSH_CONST_SPI + (off_words + i) * 4, words[i]);
   BREG_W(ls_base, BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
-  BREG_W(root, BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm);   // ISA v2: LW at root + offset
+  BREG_W(root, root_table(DRAW_ROOT_SPI, BORG_PUSH_CONST_SPI, TEX_DESC_TABLE_ADDR, SAMPLER_DESC_TABLE_ADDR));
   g_push_used = 1;
 }
 
@@ -396,7 +403,7 @@ void borg_core_render(int frame) {
   BREG_W(depth_scale, BORG_FLOAT_ONE); BREG_W(depth_offset, BORG_FLOAT_ZERO);
 
   BREG_W(ls_base, DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
-  BREG_W(root, DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
+  BREG_W(root, root_table(DRAW_ROOT_SPI, DRAW_UBO_SPI, TEX_DESC_TABLE_ADDR, SAMPLER_DESC_TABLE_ADDR));
   // The shaders' constant windows, from their blobs' draw extensions (range-checked in borg_stage_shader).
   for (int i = 0; i < g_draw_vert.num_window; i++)
     BDRAM_W(DRAW_VS_CONST_SPI + (uint32_t)(g_draw_vert.window_regs[i] - DRAW_VS_CONST_U0) * 4,
@@ -540,7 +547,8 @@ void borg_core_list_draw(void) {
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
   LREG(st, n, ls_base, draw_ls_base(1));
-  LREG(st, n, root, draw_ls_base(1));
+  int root_i = n;
+  LREG(st, n, root, draw_ls_base(1));   // the table's address replaces it once the block is new
   LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
   if (g_st.raster_valid) {
     LREG(st, n, stencil_cfg, g_st.stencil_cfg); LREG(st, n, stencil_front, g_st.stencil_front);
@@ -561,9 +569,10 @@ void borg_core_list_draw(void) {
   LREG(st, n, draw_cfg, 1u | (g_dp.topology << 1) | (g_dp.index_type << 3) | (g_dp.restart << 5) |
                         ((uint32_t)shift << 6));
   if (!g_list.state_addr || n != g_list.state_n || memcmp(st, g_list.state, (size_t)n * 8) != 0) {
-    g_list.state_addr = list_block(st, n);
     memcpy(g_list.state, st, (size_t)n * 8);
     g_list.state_n = n;
+    st[root_i][1] = root_table(list_alloc(16), draw_ls_base(1), TEX_DESC_TABLE_ADDR, SAMPLER_DESC_TABLE_ADDR);
+    g_list.state_addr = list_block(st, n);
   }
 
   uint32_t pr[9][2]; int m = 0;
@@ -574,7 +583,8 @@ void borg_core_list_draw(void) {
   // state block's table is the fragment shader's, which Pass 2 writes back.
   LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
   LREG(pr, m, ls_base, draw_ls_base(0));   // the vertex shader's LOADs
-  LREG(pr, m, root, draw_ls_base(0));
+  LREG(pr, m, root, root_table(list_alloc(16), draw_ls_base(0), g_list.vtab_addr - BORG_VATTR_SLOT0 * 64,
+                               SAMPLER_DESC_TABLE_ADDR));
   uint32_t params = list_block(pr, m);
 
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8, g_list.state_addr);
