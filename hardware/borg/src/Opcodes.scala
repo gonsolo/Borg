@@ -311,6 +311,92 @@ object Opcodes {
   val MATCH_BGEU = 0x00007063L
   val MASK_BGEU = 0x0000707fL
   val OPCODE_BGEU = 0x63
+  val MATCH_MUL = 0x02000033L
+  val MASK_MUL = 0xfe00707fL
+  val OPCODE_MUL = 0x33
+  val FUNCT7_MUL = 0x01
+  val MATCH_MULH = 0x02001033L
+  val MASK_MULH = 0xfe00707fL
+  val OPCODE_MULH = 0x33
+  val FUNCT7_MULH = 0x01
+  val MATCH_MULHSU = 0x02002033L
+  val MASK_MULHSU = 0xfe00707fL
+  val OPCODE_MULHSU = 0x33
+  val FUNCT7_MULHSU = 0x01
+  val MATCH_MULHU = 0x02003033L
+  val MASK_MULHU = 0xfe00707fL
+  val OPCODE_MULHU = 0x33
+  val FUNCT7_MULHU = 0x01
+  val MATCH_CZERO_EQZ = 0x0e005033L
+  val MASK_CZERO_EQZ = 0xfe00707fL
+  val OPCODE_CZERO_EQZ = 0x33
+  val FUNCT7_CZERO_EQZ = 0x07
+  val MATCH_CZERO_NEZ = 0x0e007033L
+  val MASK_CZERO_NEZ = 0xfe00707fL
+  val OPCODE_CZERO_NEZ = 0x33
+  val FUNCT7_CZERO_NEZ = 0x07
+  val MATCH_ANDN = 0x40007033L
+  val MASK_ANDN = 0xfe00707fL
+  val OPCODE_ANDN = 0x33
+  val FUNCT7_ANDN = 0x20
+  val MATCH_ORN = 0x40006033L
+  val MASK_ORN = 0xfe00707fL
+  val OPCODE_ORN = 0x33
+  val FUNCT7_ORN = 0x20
+  val MATCH_XNOR = 0x40004033L
+  val MASK_XNOR = 0xfe00707fL
+  val OPCODE_XNOR = 0x33
+  val FUNCT7_XNOR = 0x20
+  val MATCH_MIN = 0x0a004033L
+  val MASK_MIN = 0xfe00707fL
+  val OPCODE_MIN = 0x33
+  val FUNCT7_MIN = 0x05
+  val MATCH_MINU = 0x0a005033L
+  val MASK_MINU = 0xfe00707fL
+  val OPCODE_MINU = 0x33
+  val FUNCT7_MINU = 0x05
+  val MATCH_MAX = 0x0a006033L
+  val MASK_MAX = 0xfe00707fL
+  val OPCODE_MAX = 0x33
+  val FUNCT7_MAX = 0x05
+  val MATCH_MAXU = 0x0a007033L
+  val MASK_MAXU = 0xfe00707fL
+  val OPCODE_MAXU = 0x33
+  val FUNCT7_MAXU = 0x05
+  val MATCH_ROL = 0x60001033L
+  val MASK_ROL = 0xfe00707fL
+  val OPCODE_ROL = 0x33
+  val FUNCT7_ROL = 0x30
+  val MATCH_ROR = 0x60005033L
+  val MASK_ROR = 0xfe00707fL
+  val OPCODE_ROR = 0x33
+  val FUNCT7_ROR = 0x30
+  val MATCH_RORI = 0x60005013L
+  val MASK_RORI = 0xfe00707fL
+  val OPCODE_RORI = 0x13
+  val FUNCT7_RORI = 0x30
+  val MATCH_CLZ = 0x60001013L
+  val MASK_CLZ = 0xfff0707fL
+  val OPCODE_CLZ = 0x13
+  val MATCH_CTZ = 0x60101013L
+  val MASK_CTZ = 0xfff0707fL
+  val OPCODE_CTZ = 0x13
+  val MATCH_CPOP = 0x60201013L
+  val MASK_CPOP = 0xfff0707fL
+  val OPCODE_CPOP = 0x13
+  val MATCH_SEXT_B = 0x60401013L
+  val MASK_SEXT_B = 0xfff0707fL
+  val OPCODE_SEXT_B = 0x13
+  val MATCH_SEXT_H = 0x60501013L
+  val MASK_SEXT_H = 0xfff0707fL
+  val OPCODE_SEXT_H = 0x13
+  val MATCH_ZEXT_H = 0x08004033L
+  val MASK_ZEXT_H = 0xfff0707fL
+  val OPCODE_ZEXT_H = 0x33
+  val FUNCT7_ZEXT_H = 0x04
+  val MATCH_REV8 = 0x69805013L
+  val MASK_REV8 = 0xfff0707fL
+  val OPCODE_REV8 = 0x13
   val MATCH_CSRRW = 0x00001073L
   val MASK_CSRRW = 0x0000707fL
   val OPCODE_CSRRW = 0x73
@@ -398,6 +484,29 @@ object Opcodes {
   def BGE(boff: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_BGE | (((boff.toLong >> 12) & 0x1L) << 31) | (((boff.toLong >> 5) & 0x3fL) << 25) | (((boff.toLong >> 1) & 0xfL) << 8) | (((boff.toLong >> 11) & 0x1L) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def BLTU(boff: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_BLTU | (((boff.toLong >> 12) & 0x1L) << 31) | (((boff.toLong >> 5) & 0x3fL) << 25) | (((boff.toLong >> 1) & 0xfL) << 8) | (((boff.toLong >> 11) & 0x1L) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def BGEU(boff: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_BGEU | (((boff.toLong >> 12) & 0x1L) << 31) | (((boff.toLong >> 5) & 0x3fL) << 25) | (((boff.toLong >> 1) & 0xfL) << 8) | (((boff.toLong >> 11) & 0x1L) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MUL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MUL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MULH(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MULH | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MULHSU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MULHSU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MULHU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MULHU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def CZERO_EQZ(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_CZERO_EQZ | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def CZERO_NEZ(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_CZERO_NEZ | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def ANDN(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_ANDN | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def ORN(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_ORN | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def XNOR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_XNOR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MIN(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MIN | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MINU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MINU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MAX(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MAX | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def MAXU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_MAXU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def ROL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_ROL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def ROR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_ROR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
+  def RORI(rd: Int = 0, rs1: Int = 0, shamtw: Int = 0): BigInt = BigInt(MATCH_RORI | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((shamtw.toLong & 0x1fL) << 20))
+  def CLZ(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_CLZ | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def CTZ(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_CTZ | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def CPOP(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_CPOP | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def SEXT_B(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_SEXT_B | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def SEXT_H(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_SEXT_H | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def ZEXT_H(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_ZEXT_H | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def REV8(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_REV8 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
   def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
   def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }
