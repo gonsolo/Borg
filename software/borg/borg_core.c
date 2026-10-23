@@ -283,6 +283,7 @@ void borg_set_push_constants(const uint32_t *words, uint32_t off_words, uint32_t
   if (nwords > BORG_PUSH_CONST_MAX_WORDS - off_words) nwords = BORG_PUSH_CONST_MAX_WORDS - off_words;
   for (uint32_t i = 0; i < nwords; i++) BDRAM_W(BORG_PUSH_CONST_SPI + (off_words + i) * 4, words[i]);
   BREG_W(ls_base, BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
+  BREG_W(root, BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm);   // ISA v2: LW at root + offset
   g_push_used = 1;
 }
 
@@ -395,6 +396,7 @@ void borg_core_render(int frame) {
   BREG_W(depth_scale, BORG_FLOAT_ONE); BREG_W(depth_offset, BORG_FLOAT_ZERO);
 
   BREG_W(ls_base, DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
+  BREG_W(root, DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
   // The shaders' constant windows, from their blobs' draw extensions (range-checked in borg_stage_shader).
   for (int i = 0; i < g_draw_vert.num_window; i++)
     BDRAM_W(DRAW_VS_CONST_SPI + (uint32_t)(g_draw_vert.window_regs[i] - DRAW_VS_CONST_U0) * 4,
@@ -538,6 +540,7 @@ void borg_core_list_draw(void) {
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
   LREG(st, n, ls_base, draw_ls_base(1));
+  LREG(st, n, root, draw_ls_base(1));
   LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
   if (g_st.raster_valid) {
     LREG(st, n, stencil_cfg, g_st.stencil_cfg); LREG(st, n, stencil_front, g_st.stencil_front);
@@ -563,7 +566,7 @@ void borg_core_list_draw(void) {
     g_list.state_n = n;
   }
 
-  uint32_t pr[8][2]; int m = 0;
+  uint32_t pr[9][2]; int m = 0;
   LREG(pr, m, draw_vertex_count, g_draw_vertex_count); LREG(pr, m, draw_instance_count, g_dp.instance_count);
   LREG(pr, m, draw_first_vertex, g_dp.first_vertex); LREG(pr, m, draw_first_instance, g_dp.first_instance);
   LREG(pr, m, draw_vertex_offset, (uint32_t)g_dp.vertex_offset); LREG(pr, m, draw_index_base, g_dp.index_base);
@@ -571,6 +574,7 @@ void borg_core_list_draw(void) {
   // state block's table is the fragment shader's, which Pass 2 writes back.
   LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
   LREG(pr, m, ls_base, draw_ls_base(0));   // the vertex shader's LOADs
+  LREG(pr, m, root, draw_ls_base(0));
   uint32_t params = list_block(pr, m);
 
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8, g_list.state_addr);
