@@ -5,6 +5,9 @@ import chisel3.util._
 
 import soc.TmdsEncoder
 
+import _root_.circt.stage.ChiselStage
+import soc.Emit
+
 class HdmiTop extends RawModule{
     val clk = IO(Input(Clock()))
     val cpu_resetn = IO(Input(Bool()))
@@ -114,4 +117,15 @@ class HdmiTop extends RawModule{
         hdmi_tx_p := Cat(bufR.O, bufG.O, bufB.O)
         hdmi_tx_n := Cat(bufR.OB, bufG.OB, bufB.OB)
     }
+}
+
+object HdmiTopMain extends App{
+    val targetDir = "out/nexysvideo_hdmi/verilog"
+    Emit.cleanTargetDir(targetDir)
+
+    ChiselStage.emitSystemVerilogFile(
+        gen = new HdmiTop,
+        args = Array("--target-dir", targetDir),
+        firtoolOpts = Emit.firtoolOpts
+    )
 }
