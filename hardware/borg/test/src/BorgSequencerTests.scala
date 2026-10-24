@@ -216,8 +216,8 @@ object BorgSequencerTests extends TestSuite {
         // constants make every pixel inside, each ITER write shades one).
         // Pass 1 is near (depth = colour = 0.25), pass 2 is far (0.75) and
         // therefore hidden everywhere. The fragment shader writes its depth,
-        // then (optionally) ZTEST, then STOREs its colour. With the tests late
-        // every hidden fragment's STORE lands -- exactly what SPIR-V
+        // then (optionally) ZTEST, then stores its colour. With the tests late
+        // every hidden fragment's store lands -- exactly what SPIR-V
         // EarlyFragmentTests forbids. With ZTEST none may.
         println("\n=== BorgSequencerTests: ztest_suppresses_stores_of_hidden_fragments ===")
         val lsBase = 0x30000
@@ -235,15 +235,14 @@ object BorgSequencerTests extends TestSuite {
             Instructions.ADD(rs1 = 12, rs2 = 25, rd = 27, funct3 = 1),      // r27 = colour = u12
             if (useZTest) Instructions.ZTEST()
             else Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),            // same length, no test
-            Instructions.STORE(rs1 = 25, rs2 = 27),                         // mem[lsBase] = colour
+            Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 27),   // mem[lsBase] = colour
             BigInt(0))
           for ((w, i) <- frag.zipWithIndex)
             rawWrite(borg, BorgGpuRegs.imem_offset.litValue.toInt + (fragPc + i) * 4, w)
           rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
-          rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
 
           // Memory reads 0 everywhere; the harness logs the 32-bit writes to lsBase, a shader
-          // STORE of a register each (the reset above emptied the log).
+          // SW of a register each (the reset above emptied the log).
           BorgDrawSim.clear(borg, mirror)
           borg.bd.watch.poke(lsBase.U)
           def run(cycles: Int): Unit = borg.clock.step(cycles)
@@ -257,7 +256,6 @@ object BorgSequencerTests extends TestSuite {
               run(300)
             }
           }
-          rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
           rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
           BorgDrawSim.stores(borg)
         }
@@ -272,7 +270,7 @@ object BorgSequencerTests extends TestSuite {
         Predef.assert(count(early, nearBits) == 16,
           "ZTEST must not suppress the visible fragments' stores")
         Predef.assert(count(early, farBits) == 0,
-          "hidden fragments executed STOREs despite failing ZTEST")
+          "hidden fragments executed stores despite failing ZTEST")
         println("=== ztest_suppresses_stores_of_hidden_fragments PASSED ===\n")
         }
 
@@ -281,7 +279,7 @@ object BorgSequencerTests extends TestSuite {
         // the MMIO DMA preloads only 40 words at IMEM offset 1 (which also sets
         // CODE_BASE = source - 4). Each of 16 pixels, shaded through the real
         // rasterizer ROM, dispatcher and core, must run all of it: it adds 1
-        // a hundred times and STOREs the sum. Every instruction past the
+        // a hundred times and stores the sum. Every instruction past the
         // preload arrives through the core's miss path and Borg's gpuMem mux.
         println("\n=== BorgSequencerTests: icache_runs_a_fragment_shader_longer_than_imem ===")
         resetAndWait(borg)
@@ -291,7 +289,7 @@ object BorgSequencerTests extends TestSuite {
             Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),                  // r5 = 0
             Instructions.IOR(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1)) ++ // r6 = u12 = 1
           Seq.fill(100)(Instructions.IADD(rs1 = 5, rs2 = 6, rd = 5)) ++   // r5 += 1, x100
-          Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
+          Seq(Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 5), BigInt(0))
         Predef.assert(frag.length + fragPc > suiteCfg.maxInstructions)
         BorgDrawSim.clear(borg, mirror)
         for ((w, i) <- frag.zipWithIndex) BorgDrawSim.put(borg, mirror, fragAddr + i * 4, w)
@@ -308,14 +306,12 @@ object BorgSequencerTests extends TestSuite {
         for (i <- 0 until 12) uniform(i, 0)          // all-zero edges: every pixel inside
         uniform(12, 1)
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
-        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
         rawWrite(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)
         run(10)
         for (_ <- 0 until 16) {
           rawWrite(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
           run(3000)
         }
-        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
         val stores = BorgDrawSim.stores(borg)
         println(s"  stores: ${stores.length} (expect 16), values: ${stores.distinct.mkString(",")} (expect 100)")
@@ -339,7 +335,7 @@ object BorgSequencerTests extends TestSuite {
             Instructions.IOR(rs1 = 13, rs2 = 25, rd = 7, funct3 = 1),
             Instructions.IOR(rs1 = 14, rs2 = 25, rd = 8, funct3 = 1)) ++
           (0 until adds).map(i => Instructions.IADD(rs1 = 5, rs2 = 6 + i % 3, rd = 5)) ++
-          Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
+          Seq(Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 5), BigInt(0))
         val expect = (0 until adds).map(i => consts(i % 3)).sum
         Predef.assert(frag.length + fragPc > 128)
         BorgDrawSim.clear(borg, mirror)
@@ -355,14 +351,12 @@ object BorgSequencerTests extends TestSuite {
         for (i <- 0 until 12) uniform(i, 0)
         for ((c, i) <- consts.zipWithIndex) uniform(12 + i, c)
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
-        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
         rawWrite(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)
         run(10)
         for (_ <- 0 until 16) {
           rawWrite(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
           run(6000)
         }
-        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
         val stores = BorgDrawSim.stores(borg)
         println(s"  stores: ${stores.length} (expect 16), values: ${stores.distinct.mkString(",")} (expect $expect)")

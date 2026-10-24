@@ -113,16 +113,17 @@ object BorgDrawTests extends TestSuite {
     }
 
     import Instructions._
-    // Vertex pulling: vertex i is six words (X, Y, Z, W, r, g) at
-    // u25 + 6*i; u26 = 6 and u27 = 1 are integers. Varyings r and g are
-    // output components 0 and 1.
+    // Vertex pulling: vertex i is six words (X, Y, Z, W, r, g) at byte
+    // u25 + 24*i; u26 = 24 and u27 = 4 are integers. Varyings r and g are
+    // output components 0 and 1. LW cannot write r0 (x0), so X goes through r15.
     val vs = Seq(
       IXOR(rs1 = 9, rs2 = 9, rd = 9), IOR(rs1 = 9, rs2 = 26, rd = 9, funct3 = 2), IMUL(rs1 = 30, rs2 = 9, rd = 9),
       IXOR(rs1 = 13, rs2 = 13, rd = 13), IOR(rs1 = 13, rs2 = 25, rd = 13, funct3 = 2), IADD(rs1 = 9, rs2 = 13, rd = 9),
       IXOR(rs1 = 14, rs2 = 14, rd = 14), IOR(rs1 = 14, rs2 = 27, rd = 14, funct3 = 2)) ++
       (0 until 6).flatMap { c =>
         val dst = if (c < 4) c else 10 + c - 4
-        Seq(LOAD(rs1 = 9, rd = dst)) ++ (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 14, rd = 9)) else Nil)
+        (if (dst == 0) Seq(Opcodes.LW(rd = 15, rs1 = 9), IOR(rs1 = 15, rs2 = 15, rd = 0)) else Seq(Opcodes.LW(rd = dst, rs1 = 9))) ++
+          (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 14, rd = 9)) else Nil)
       } ++ Seq(SOUT(rs2 = 10, index = 0), SOUT(rs2 = 11, index = 1), BigInt(0))
     // v = l0*a0 + l1*a1 + l2*a2 for r and g; blue is 0 (u20 = 0.0, the
     // constant window's first word).
@@ -135,7 +136,7 @@ object BorgDrawTests extends TestSuite {
       BigInt(0))
     rom ++= vs.zipWithIndex.map { case (w, i) => (vsAddr + 4 * i) -> w }
     rom ++= CsrOutputs(fs).zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
-    rom ++= Seq(vsConst -> BigInt(vb / 4), (vsConst + 4) -> BigInt(6), (vsConst + 8) -> BigInt(1))
+    rom ++= Seq(vsConst -> BigInt(vb), (vsConst + 4) -> BigInt(24), (vsConst + 8) -> BigInt(4))
     rom ++= Seq(fsConst -> BigInt(0))
 
     /** Render; returns the occlusion count. topology 0/1/2, indexType 0/1/2.

@@ -9,6 +9,7 @@ import chisel3.simulator.SharedSimFast.{simulate,
   toTestableReset, toTestableEnum, toTestableRecord, toTestableVec, toTestableData
 }
 import utest._
+import scala.language.implicitConversions
 import BorgGpuMemWordTests.{HalfwordDram, mmioRead, mmioWrite}
 
 /** vkCmdDispatch through BorgComputeSequencer, on full Borg.
@@ -20,6 +21,13 @@ import BorgGpuMemWordTests.{HalfwordDram, mmioRead, mmioWrite}
 object BorgComputeTests extends TestSuite {
 
   val lsBase   = 0x1000
+  // Programs address words: SLLI and ADD of the base in r28 (r29 scratch), then LW or SW.
+  private val Base = 28
+  private implicit def one(w: BigInt): Seq[BigInt] = Seq(w)
+  private def words(ws: Seq[BigInt]*): Seq[BigInt] = ws.flatten
+  private def addr(a: Int): Seq[BigInt] = Seq(Opcodes.SLLI(29, a, 2), Opcodes.ADD(29, 29, Base))
+  private def st(a: Int, v: Int): Seq[BigInt] = addr(a) :+ Opcodes.SW(rs1 = 29, rs2 = v)
+  private def ld(a: Int, d: Int): Seq[BigInt] = addr(a) :+ Opcodes.LW(rd = d, rs1 = 29)
   val scalar   = BorgConfig.Test                           // fragLanes = 1
   val quad     = BorgConfig.Simt.copy(maxBinTiles = 64)    // fragLanes = 4
 
@@ -37,7 +45,7 @@ object BorgComputeTests extends TestSuite {
     d.io.gpuMem.data.poke(0.U)
     dram.step(d)
     mmioWrite(d, dram, off(BorgGpuRegs.control_offset), 2)
-    mmioWrite(d, dram, off(BorgGpuRegs.ls_base_offset), lsBase)
+    mmioWrite(d, dram, off(BorgGpuRegs.gpr_offset) + 4 * Base, lsBase)
     for ((r, v) <- gprs) mmioWrite(d, dram, off(BorgGpuRegs.gpr_offset) + 4 * r, v)
     setup(dram)
     for ((w, i) <- (prog :+ BigInt(0)).zipWithIndex)
@@ -70,14 +78,14 @@ object BorgComputeTests extends TestSuite {
 
   // r1 = WorkgroupID.x (u29), r2 = WorkgroupID.y (u30); store r31 at
   // ((wgY * groupsX + wgX) * count + LocalInvocationIndex).
-  val flatIdsProgram = Seq(
+  val flatIdsProgram = words(
     Opcodes.CSRRS(1, 0, Csr.GroupIdX),
     Opcodes.CSRRS(2, 0, Csr.GroupIdY),
     Instructions.IMUL(rs1 = 2, rs2 = 11, rd = 2),
     Instructions.IADD(rs1 = 2, rs2 = 1, rd = 2),
     Instructions.IMUL(rs1 = 2, rs2 = 12, rd = 2),
     Instructions.IADD(rs1 = 2, rs2 = 30, rd = 2),
-    Instructions.STORE(rs1 = 2, rs2 = 31)
+    st(2, 31)
   )
 
   /** 3x2 workgroups of 5 invocations: every (workgroup, invocation) pair stores
@@ -107,11 +115,11 @@ object BorgComputeTests extends TestSuite {
     utest.test("dispatch_quad_3d_local_ids") {
       // LocalSize (2, 3, 2) = 12 invocations = three full quads; two
       // workgroups along z. Store r31 at wgZ * 12 + LocalInvocationIndex.
-      val prog = Seq(
+      val prog = words(
         Opcodes.CSRRS(1, 0, Csr.GroupIdZ),
         Instructions.IMUL(rs1 = 1, rs2 = 12, rd = 1),
         Instructions.IADD(rs1 = 1, rs2 = 30, rd = 1),
-        Instructions.STORE(rs1 = 1, rs2 = 31)
+        st(1, 31)
       )
       simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
         val dram = dispatch(d, prog, Map(10 -> 0, 12 -> 12), (1, 1, 2), (2, 3, 2))
@@ -142,16 +150,16 @@ object BorgComputeTests extends TestSuite {
       */
     def barrierScenario(d: BorgGpuMemWordTests.Dut, count: Int): Unit = {
       val half = count / 2
-      val prog = Seq(
+      val prog = words(
         Instructions.IADD(rs1 = 10, rs2 = 30, rd = 1),        // r1 = 100 + i
         Instructions.IADD(rs1 = 30, rs2 = 11, rd = 2),        // r2 = 1000 + i
-        Instructions.STORE(rs1 = 1, rs2 = 2),                 // shared[100+i] = 1000+i
+        st(1, 2),                 // shared[100+i] = 1000+i
         Instructions.BARRIER(),
         Instructions.IADD(rs1 = 30, rs2 = 12, rd = 3),        // r3 = i + half
         Instructions.IAND(rs1 = 3, rs2 = 13, rd = 3),         // r3 = (i+half) & (count-1) = j
         Instructions.IADD(rs1 = 10, rs2 = 3, rd = 4),         // r4 = 100 + j
-        Instructions.LOAD(rs1 = 4, rd = 5),                   // r5 = shared[100+j]
-        Instructions.STORE(rs1 = 30, rs2 = 5)                 // output[i] = r5
+        ld(4, 5),                   // r5 = shared[100+j]
+        st(30, 5)                 // output[i] = r5
       )
       val gprs = Map(10 -> 100, 11 -> 1000, 12 -> half, 13 -> (count - 1))
       val dram = dispatch(d, prog, gprs, (1, 1, 1), (count, 1, 1))
@@ -215,19 +223,19 @@ object BorgComputeTests extends TestSuite {
       // read-modify-write is ever real at a time, and lane i+1's LOAD does
       // not even issue until lane i's STORE has landed in DRAM. r30 differs
       // per lane, so ISEQ(r30, i) is genuinely a per-lane, not per-quad, mask.
-      val prog = Seq(
+      val prog = words(
         Instructions.ISEQ(rs1 = 30, rs2 = 10, rd = 1), Instructions.EXPUSH(rs1 = 1),
-        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
-        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP(),
+        ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        st(14, 5), Instructions.EXPOP(),
         Instructions.ISEQ(rs1 = 30, rs2 = 11, rd = 1), Instructions.EXPUSH(rs1 = 1),
-        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
-        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP(),
+        ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        st(14, 5), Instructions.EXPOP(),
         Instructions.ISEQ(rs1 = 30, rs2 = 12, rd = 1), Instructions.EXPUSH(rs1 = 1),
-        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
-        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP(),
+        ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        st(14, 5), Instructions.EXPOP(),
         Instructions.ISEQ(rs1 = 30, rs2 = 13, rd = 1), Instructions.EXPUSH(rs1 = 1),
-        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
-        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP()
+        ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        st(14, 5), Instructions.EXPOP()
       )
       // r10-13 = the four lane indices; r14 = counter address (index 50,
       // preset to 0 so the counter starts there rather than DRAM garbage);
@@ -249,10 +257,10 @@ object BorgComputeTests extends TestSuite {
       // of the four increments are lost. This is the failure mode
       // atomic_add_via_per_lane_expush_is_race_free's masking exists to
       // prevent, made concrete rather than asserted in the abstract.
-      val prog = Seq(
-        Instructions.LOAD(rs1 = 14, rd = 5),
+      val prog = words(
+        ld(14, 5),
         Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
-        Instructions.STORE(rs1 = 14, rs2 = 5)
+        st(14, 5)
       )
       val gprs = Map(14 -> 50, 15 -> 1)
       simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
@@ -275,15 +283,15 @@ object BorgComputeTests extends TestSuite {
       // physically overwrite the one shared register file -- this only
       // passes if the spill/reload genuinely defeats that, not because
       // nothing ever clobbers the registers in this config.
-      val prog = Seq(
+      val prog = words(
         Instructions.IMUL(rs1 = 30, rs2 = 10, rd = 1),  // r1 = i*100
         Instructions.IADD(rs1 = 1, rs2 = 11, rd = 1),   // r1 = i*100+7 (the live value)
         Instructions.IADD(rs1 = 12, rs2 = 30, rd = 2),  // r2 = scratchBase + i
-        Instructions.STORE(rs1 = 2, rs2 = 1),           // scratch[i] = live value
+        st(2, 1),           // scratch[i] = live value
         Instructions.BARRIER(),
         Instructions.IADD(rs1 = 12, rs2 = 30, rd = 3),  // r3 = scratchBase + i, recomputed fresh
-        Instructions.LOAD(rs1 = 3, rd = 4),             // r4 = reloaded live value
-        Instructions.STORE(rs1 = 30, rs2 = 4)           // output[i] = r4
+        ld(3, 4),             // r4 = reloaded live value
+        st(30, 4)           // output[i] = r4
       )
       val gprs = Map(10 -> 100, 11 -> 7, 12 -> 200)
       simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
@@ -304,11 +312,11 @@ object BorgComputeTests extends TestSuite {
       // (the last to run segment 0) left there -- 707 -- and nothing in
       // segment 1 writes r1 again, so every invocation's output reads that
       // same frozen, wrong value.
-      val prog = Seq(
+      val prog = words(
         Instructions.IMUL(rs1 = 30, rs2 = 10, rd = 1),
         Instructions.IADD(rs1 = 1, rs2 = 11, rd = 1),
         Instructions.BARRIER(),
-        Instructions.STORE(rs1 = 30, rs2 = 1)  // output[i] = r1, NOT recomputed/reloaded
+        st(30, 1)  // output[i] = r1, NOT recomputed/reloaded
       )
       val gprs = Map(10 -> 100, 11 -> 7)
       simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
@@ -326,14 +334,14 @@ object BorgComputeTests extends TestSuite {
       // lane 0's register still holds texture 0's. Texture 0 is red 0, texture 1 red 255.
       val (tex, desc, samp) = (0x2000, 0x3000, 0x3100)
       val ctl = SamplerCtl.LodExplicit << 21
-      val prog = Seq(
+      val prog = words(
         Instructions.TEXA(rs1 = 10, rs2 = 10, rs3 = 10),
         Instructions.IADD(rs1 = 12, rs2 = 10, rd = 1),
         Instructions.ISEQ(rs1 = 30, rs2 = 10, rd = 2), Instructions.EXPUSH(rs1 = 2), Instructions.EXELSE(),
         Instructions.IADD(rs1 = 13, rs2 = 10, rd = 1),
         Instructions.TEX(rd = 20, rs1 = 14, rs2 = 14, rs3 = 1),
         Instructions.EXPOP(),
-        Instructions.STORE(rs1 = 30, rs2 = 20)
+        st(30, 20)
       )
       val gprs = Map(10 -> 0, 12 -> ctl, 13 -> (ctl | 1), 14 -> java.lang.Float.floatToRawIntBits(0.5f), 20 -> 0x12345)
       simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
@@ -377,11 +385,11 @@ object BorgComputeTests extends TestSuite {
       // Lanes 2-3 sample the texture at 0x3040 (red 255), lanes 0-1 the one at 0x3000 (red 0);
       // TEXS gives the sampler at 0x3100 and the control word (explicit LOD 0).
       val (tex, desc, samp) = (0x2000, 0x3000, 0x3100)
-      val prog = Seq(
+      val prog = words(
         Instructions.TEXA(rs1 = 10, rs2 = 10, rs3 = 10), TEXS(16, 12),
         SRLI(1, 30, 1), Instructions.EXPUSH(rs1 = 1), ADDI(2, 17, 64), TEXD(20, 14, 14, 2),
         Instructions.EXELSE(), TEXD(20, 14, 14, 17), Instructions.EXPOP(),
-        Instructions.STORE(rs1 = 30, rs2 = 20))
+        st(30, 20))
       val gprs = Map(10 -> 0, 12 -> (SamplerCtl.LodExplicit << 21), 14 -> java.lang.Float.floatToRawIntBits(0.5f),
                      16 -> samp, 17 -> desc)
       simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>

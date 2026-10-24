@@ -111,7 +111,7 @@ object BorgGpuMemWordTests extends TestSuite {
   // back as 0x00000FDB -- distinguishable from a write that never happened.
   val values = Seq(BigInt("C0490FDB", 16), BigInt("3F800000", 16)) // -pi, 1.0f
 
-  /** STORE r1 to element r0, LOAD it back into r3, for values whose upper
+  /** SW r1 to an element, LW it back into r3, for values whose upper
     * halfword is non-zero. Checks the DRAM word itself and the register.
     */
   def storeLoadScenario(d: Dut): Unit = {
@@ -121,17 +121,16 @@ object BorgGpuMemWordTests extends TestSuite {
     d.io.gpuMem.data.poke(0.U)
     dram.step(d)
     mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
-    mmioWrite(d, dram, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
 
     val imem = BorgGpuRegs.imem_offset.litValue.toInt
     val gpr  = BorgGpuRegs.gpr_offset.litValue.toInt
     for ((v, i) <- values.zipWithIndex) {
       val index = 3 + i
-      mmioWrite(d, dram, gpr + 0 * 4, index)
+      mmioWrite(d, dram, gpr + 2 * 4, lsBase + index * 4)
       mmioWrite(d, dram, gpr + 1 * 4, v)
       mmioWrite(d, dram, gpr + 3 * 4, 0)
-      mmioWrite(d, dram, imem + 0 * 4, Instructions.STORE(rs1 = 0, rs2 = 1))
-      mmioWrite(d, dram, imem + 1 * 4, Instructions.LOAD(rs1 = 0, rd = 3))
+      mmioWrite(d, dram, imem + 0 * 4, Opcodes.SW(rs1 = 2, rs2 = 1))
+      mmioWrite(d, dram, imem + 1 * 4, Opcodes.LW(rd = 3, rs1 = 2))
       mmioWrite(d, dram, imem + 2 * 4, 0)
       mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 2)
       mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 1)
@@ -160,12 +159,11 @@ object BorgGpuMemWordTests extends TestSuite {
     * `ntq_emit_tmu_general`: every SSBO access is `base_offset` -- a driver-
     * resolved per-binding constant, `QUNIFORM_SSBO_OFFSET` -- plus the
     * shader's own computed local index; there is no hardware binding-select
-    * mechanism at all). LS_BASE stays at its reset default of 0, so each
-    * binding's "base" (r10/r11 here) is a full, independent word index into
-    * the real 25-bit GPU address space -- not a MMIO register, just an
-    * ordinary GPR the way a real RISC-V program would hold a pointer.
+    * mechanism at all). Each binding's "base" (r10/r11 here) is a word index
+    * into the GPU address space -- not a MMIO register, just an ordinary GPR
+    * the way a real RISC-V program would hold a pointer.
     *
-    * Two STOREs to two far-apart, non-overlapping regions, then two LOADs
+    * Two SWs to two far-apart, non-overlapping regions, then two LWs
     * back, proves both that each address actually reaches where it should
     * (not silently folded through some shared indirection) and that they
     * don't alias each other -- exactly two words end up written, at exactly
@@ -179,8 +177,6 @@ object BorgGpuMemWordTests extends TestSuite {
     d.io.gpuMem.data.poke(0.U)
     dram.step(d)
     mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
-    // LS_BASE deliberately left unwritten: 0 is the reset default, and that
-    // is the point -- no per-binding MMIO register is needed at all.
 
     val gpr = BorgGpuRegs.gpr_offset.litValue.toInt
     val bindingABase = 200 // "binding 0"'s base word index -- a pinned const, same shape as borgc's push_const_reg
@@ -200,11 +196,13 @@ object BorgGpuMemWordTests extends TestSuite {
     val imem = BorgGpuRegs.imem_offset.litValue.toInt
     val prog = Seq(
       Instructions.IADD(rs1 = 10, rs2 = 1, rd = 5), // r5 = bindingABase + offsetA
-      Instructions.STORE(rs1 = 5, rs2 = 3),         // binding0[offsetA] = valueA
+      Opcodes.SLLI(rd = 5, rs1 = 5, shamtw = 2),
+      Opcodes.SW(rs1 = 5, rs2 = 3),                 // binding0[offsetA] = valueA
       Instructions.IADD(rs1 = 11, rs2 = 2, rd = 6), // r6 = bindingBBase + offsetB
-      Instructions.STORE(rs1 = 6, rs2 = 4),         // binding1[offsetB] = valueB
-      Instructions.LOAD(rs1 = 5, rd = 7),           // r7 = binding0[offsetA]
-      Instructions.LOAD(rs1 = 6, rd = 8)            // r8 = binding1[offsetB]
+      Opcodes.SLLI(rd = 6, rs1 = 6, shamtw = 2),
+      Opcodes.SW(rs1 = 6, rs2 = 4),                 // binding1[offsetB] = valueB
+      Opcodes.LW(rd = 7, rs1 = 5),                  // r7 = binding0[offsetA]
+      Opcodes.LW(rd = 8, rs1 = 6)                   // r8 = binding1[offsetB]
     )
     for ((w, i) <- (prog :+ BigInt(0)).zipWithIndex)
       mmioWrite(d, dram, imem + 4 * i, w)

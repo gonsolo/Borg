@@ -99,23 +99,20 @@ object BorgCoreTestsC extends TestSuite {
 
     utest.test("load_reads_dram_into_a_register") {
       simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: LOAD ---")
+        println("\n--- BorgCore: LW ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.get.poke(LS_BASE.U)
 
         val mem = scala.collection.mutable.Map[BigInt, BigInt](
           BigInt(LS_BASE + 3 * 4) -> BigInt("beef", 16))
 
-        writeReg(core, 0, 3)                      // r0 = element index 3
-        writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
+        writeReg(core, 4, LS_BASE)
+        writeImem(core, 0, Opcodes.LW(rd = 2, rs1 = 4, imm12 = 3 * 4))
         writeImem(core, 1, 0)
 
         startAndWaitWithMem(core, mem)
         val got = readReg(core, 2)
         println(f"  r2 = 0x${got.toInt.toHexString} (expect 0xbeef)")
-        // Also proves no spurious ALU write-back: BorgLane has no decode for
-        // LOAD, so an unfrozen pipeline would have written an ADD result here.
         utest.assert(got == BigInt("beef", 16))
         println("  PASSED")
       }
@@ -123,23 +120,23 @@ object BorgCoreTestsC extends TestSuite {
 
     utest.test("store_writes_a_register_to_dram") {
       simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: STORE ---")
+        println("\n--- BorgCore: SW ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.get.poke(LS_BASE.U)
 
         val mem = scala.collection.mutable.Map[BigInt, BigInt]()
-        writeReg(core, 0, 5)                      // r0 = element index 5
+        writeReg(core, 0, 5)
+        writeReg(core, 3, LS_BASE)
         writeReg(core, 1, BigInt("1234", 16))     // r1 = payload
-        writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 1))
+        writeImem(core, 0, Opcodes.SW(simm = 5 * 4, rs1 = 3, rs2 = 1))
         writeImem(core, 1, 0)
 
         startAndWaitWithMem(core, mem)
         val addr = BigInt(LS_BASE + 5 * 4)
         println(f"  mem[0x${addr.toInt.toHexString}] = 0x${mem.getOrElse(addr, BigInt(0)).toInt.toHexString} (expect 0x1234)")
         utest.assert(mem.get(addr).contains(BigInt("1234", 16)))
-        // STORE encodes rd = 0; that must not be mistaken for a destination.
-        println(f"  r0 still ${readReg(core, 0)} (expect 5 -- rd=0 is not a write)")
+        // SW keeps immediate bits in the rd field; they must not be taken for a destination.
+        println(f"  r0 still ${readReg(core, 0)} (expect 5)")
         utest.assert(readReg(core, 0) == 5)
         println("  PASSED")
       }
@@ -183,8 +180,7 @@ object BorgCoreTestsC extends TestSuite {
         println("\n--- BorgCore: helper lanes ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.get.poke(LS_BASE.U)
-        writeReg(core, 0, 2)
+        writeReg(core, 3, LS_BASE + 8)
         writeReg(core, 1, BigInt("77", 16))
 
         def run(op: BigInt, helpers: Seq[Boolean]): (Int, Int) = {
@@ -206,17 +202,13 @@ object BorgCoreTestsC extends TestSuite {
           utest.assert(wd < 500)
           (reads, writes)
         }
-        val (_, allW)    = run(Instructions.STORE(rs1 = 0, rs2 = 1), Seq(false, false, false, false))
-        val (_, helperW) = run(Instructions.STORE(rs1 = 0, rs2 = 1), Seq(false, true, false, true))
-        val (helperR, _) = run(Instructions.LOAD(rs1 = 0, rd = 2), Seq(false, true, false, true))
-        // Private memory (spills, local arrays) is written by helpers too.
-        val (_, privW)   = run(Instructions.STORE(rs1 = 0, rs2 = 1, `private` = true), Seq(false, true, false, true))
-        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); " +
-                s"private stores $privW (expect 4); loads $helperR (expect 4)")
+        val (_, allW)    = run(Opcodes.SW(rs1 = 3, rs2 = 1), Seq(false, false, false, false))
+        val (_, helperW) = run(Opcodes.SW(rs1 = 3, rs2 = 1), Seq(false, true, false, true))
+        val (helperR, _) = run(Opcodes.LW(rd = 2, rs1 = 3), Seq(false, true, false, true))
+        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); loads $helperR (expect 4)")
         utest.assert(allW == 4)
         utest.assert(helperW == 2)
         utest.assert(helperR == 4)
-        utest.assert(privW == 4)
         core.io.laneHelper.get.foreach(_.poke(false.B))
       }
     }
@@ -398,19 +390,18 @@ object BorgCoreTestsC extends TestSuite {
 
     utest.test("store_then_load_round_trips_through_memory") {
       simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: STORE then LOAD ---")
+        println("\n--- BorgCore: SW then LW ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.get.poke(LS_BASE.U)
 
         val mem = scala.collection.mutable.Map[BigInt, BigInt]()
-        writeReg(core, 0, 7)
+        writeReg(core, 2, LS_BASE + 7 * 4)
         writeReg(core, 1, BigInt("cafe", 16))
         // Two memory instructions back to back: the second must not inherit
         // any state from the first (the FSM has to have fully returned to
         // idle and the resume-delay has to have cleared).
-        writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 1))
-        writeImem(core, 1, Instructions.LOAD(rs1 = 0, rd = 3))
+        writeImem(core, 0, Opcodes.SW(rs1 = 2, rs2 = 1))
+        writeImem(core, 1, Opcodes.LW(rd = 3, rs1 = 2))
         writeImem(core, 2, 0)
 
         startAndWaitWithMem(core, mem)
@@ -421,7 +412,7 @@ object BorgCoreTestsC extends TestSuite {
       }
     }
 
-    utest.test("effective_address_is_base_plus_index_times_four") {
+    utest.test("effective_address_is_rs1_plus_the_immediate") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: effective address ---")
         idleInputs(core)
@@ -430,19 +421,18 @@ object BorgCoreTestsC extends TestSuite {
         // The addressing rule is the part a compiler has to agree with, so it
         // is checked directly against emitted addresses rather than inferred
         // from a value round-tripping.
-        for ((base, index) <- Seq((0x1000, 0), (0x1000, 1), (0x2000, 255), (0x0, 1024))) {
+        for ((base, imm) <- Seq((0x1000, 0), (0x1000, 4), (0x2000, 2044), (0x2000, -2048))) {
           // Each iteration is a fresh program: without the reset the program
           // counter stays past the previous halt and nothing executes.
           resetCore(core)
-          core.io.lsBase.get.poke(base.U)
           val mem = scala.collection.mutable.Map[BigInt, BigInt]()
-          writeReg(core, 0, index)
-          writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 0))
+          writeReg(core, 1, base)
+          writeImem(core, 0, Opcodes.SW(simm = imm, rs1 = 1, rs2 = 1))
           writeImem(core, 1, 0)
           startAndWaitWithMem(core, mem)
-          val expected = BigInt(base + index * 4)
+          val expected = BigInt(base + imm)
           val touched = mem.keys.toSeq
-          println(f"  base=0x$base%x index=$index%4d -> ${touched.map(a => "0x" + a.toInt.toHexString).mkString(",")} (expect 0x${expected.toInt.toHexString})")
+          println(f"  base=0x$base%x imm=$imm%5d -> ${touched.map(a => "0x" + a.toInt.toHexString).mkString(",")} (expect 0x${expected.toInt.toHexString})")
           utest.assert(touched == Seq(expected))
         }
         println("  PASSED")
@@ -451,13 +441,12 @@ object BorgCoreTestsC extends TestSuite {
 
     utest.test("a_stalled_load_does_not_advance_until_memory_answers") {
       simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: LOAD stalls the pipeline ---")
+        println("\n--- BorgCore: LW stalls the pipeline ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.get.poke(LS_BASE.U)
 
-        writeReg(core, 0, 1)
-        writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
+        writeReg(core, 1, LS_BASE + 4)
+        writeImem(core, 0, Opcodes.LW(rd = 2, rs1 = 1))
         writeImem(core, 1, 0)
 
         core.io.control.start.poke(true.B)

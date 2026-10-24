@@ -120,7 +120,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
     }
   }
 
-  // --- Memory-read scenario: known colour words planted at LS_BASE. ---
+  // --- Memory-read scenario: known colour words planted at texBaseAddr. ---
   // One word per channel, R at +0, G at +4, B at +8.
   val texBaseAddr = 0x400
   val texTileBase = 0x600
@@ -134,7 +134,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
   )
 
   /** Second scenario: a real render where every pixel's fragment shader
-    * executes three LOADs, driving three real sequential gpuMem reads per
+    * executes three LWs, driving three real sequential gpuMem reads per
     * pixel through the link -- the actual missing coverage described in
     * this file's class doc: the original acceptance gate only ever exercised
     * the output write burst, never a gpuMem read.
@@ -150,8 +150,8 @@ object BorgLinkEquivalenceTests extends TestSuite {
     * BorgShaderDispatcher's MSAA coverage comment), zero of either sign reads
     * as inside, not outside, so every one of the tile's 16 pixels shades.
     *
-    * Fragment shader at PC=4: `LOAD r26, r6; LOAD r27, r7; LOAD r28, r8`
-    * with r6/r7/r8 = word indices 0/1/2 off LS_BASE = `texBaseAddr`, landing
+    * Fragment shader at PC=4: `LW r26, (r6); LW r27, (r7); LW r28, (r8)`
+    * with r6/r7/r8 = the words 0/1/2 at `texBaseAddr`, landing
     * the planted (R,G,B) directly in the tile-write ABI registers
     * (r26/r27/r28 -- see BorgShaderDispatcher's "Hardware ABI" comment), so no
     * further shader instructions are needed. Frag Z (r29) is left at its
@@ -168,7 +168,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
     // own MMIO completion, not a plain clock step. This matters here in a
     // way it doesn't in runScenario(): once a pixel's shading genuinely
     // reads real texture data (below), the iterate write's own completion
-    // is gated behind that shading finishing, which needs the LOADs' gpuMem
+    // is gated behind that shading finishing, which needs the LWs' gpuMem
     // reads serviced *during* the wait -- a plain `d.clock.step(1)` would
     // never answer the pending read and deadlock the whole pipeline behind
     // it. (Found the hard way: every write up through frag_pc genuinely
@@ -191,25 +191,23 @@ object BorgLinkEquivalenceTests extends TestSuite {
     rw(BorgGpuRegs.flush_fb_base_offset.litValue.toInt, texTileBase)
     rw(BorgGpuRegs.flush_width_offset.litValue.toInt, 5) // log2(32)
 
-    rw(BorgGpuRegs.ls_base_offset.litValue.toInt, texBaseAddr)
-
     // Edge uniforms 0-5 = 0x0000 (see this method's doc comment).
     for (i <- 0 until 6) {
       rw((BorgGpuRegs.uniform_offset.litValue + i * 4).toInt, 0x0000)
     }
 
-    // Fragment shader: three LOADs into r26..r28, then halt. fragPcReg=0 is a
+    // Fragment shader: three LWs into r26..r28, then halt. fragPcReg=0 is a
     // hard "no fragment shader" sentinel (BorgConfig.scala's
     // BORG_IMEM_FRAG_OFFSET doc, BorgShaderDispatcher's
     // `any_inside && io.fragPcReg =/= 0.U` chain condition) -- it must be
     // nonzero for the chain to fire at all, regardless of what word 0 holds,
     // so the fragment shader is placed at word 4, not word 0.
     rw(BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
-    rw(6 * 4, 0) // word indices, raw integers
-    rw(7 * 4, 1)
-    rw(8 * 4, 2)
-    val frag = CsrOutputs(Seq(Instructions.LOAD(rs1 = 6, rd = 26), Instructions.LOAD(rs1 = 7, rd = 27),
-                              Instructions.LOAD(rs1 = 8, rd = 28), BigInt(0)))
+    rw(6 * 4, texBaseAddr) // byte addresses
+    rw(7 * 4, texBaseAddr + 4)
+    rw(8 * 4, texBaseAddr + 8)
+    val frag = CsrOutputs(Seq(Opcodes.LW(rd = 26, rs1 = 6), Opcodes.LW(rd = 27, rs1 = 7),
+                              Opcodes.LW(rd = 28, rs1 = 8), BigInt(0)))
     for ((w, i) <- frag.zipWithIndex) rw(128 + (4 + i) * 4, w)
     rw(BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)
 
@@ -218,7 +216,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
     for (_ <- 0 until 5) mm.step(d)
 
     // Step the iterator through all 16 pixels. Each one runs the setup shader,
-    // then (since fragPcReg != 0 and every edge is inside) the LOAD fragment
+    // then (since fragPcReg != 0 and every edge is inside) the LW fragment
     // shader -- three real gpuMem reads per pixel, serviced by `mm`.
     for (_ <- 0 until 16) {
       rw(BorgGpuRegs.iter_offset.litValue.toInt, 1)
