@@ -20,10 +20,11 @@ class RvInt(instr: UInt) {
   val sysReg = MuxLookup(csr, 0.U(5.W))(Seq(Csr.FragX -> 30, Csr.FragY -> 31, Csr.VertexIndex -> 30,
     Csr.InstanceIndex -> 31, Csr.LocalIndex -> 30, Csr.LocalId -> 31, Csr.Bary0 -> 5, Csr.Bary1 -> 6,
     Csr.Bary2 -> 7, Csr.InvW -> 8, Csr.FragZ -> 29).map { case (c, r) => c.U -> r.U(5.W) })
-  val sysWin = MuxLookup(csr, 0.U(5.W))(Seq(Csr.GroupIdX -> 29, Csr.GroupIdY -> 30, Csr.GroupIdZ -> 31)
-    .map { case (c, r) => c.U -> r.U(5.W) })
+  private val uniform = csr(11, 5) === (Csr.Uniform0 >> 5).U
+  val sysWin = Mux(uniform, csr(4, 0), MuxLookup(csr, 0.U(5.W))(Seq(Csr.GroupIdX -> 29, Csr.GroupIdY -> 30,
+    Csr.GroupIdZ -> 31).map { case (c, r) => c.U -> r.U(5.W) }))
   val csrReg = csrrs && sysReg =/= 0.U
-  val csrWin = csrrs && sysWin =/= 0.U
+  val csrWin = csrrs && (uniform || sysWin =/= 0.U)
   /** sample_mask reads each lane's coverage, through the lanes' SMASK path. */
   val csrMask = csrrs && csr === Csr.SampleMask.U
   /** LB, LH, LW, LBU, LHU at rs1 + imm12; SW at rs1 + the S-type immediate. */

@@ -225,12 +225,14 @@ object BorgCoreRvTests extends TestSuite {
         resetCore(core)
         def f(x: Float) = BigInt(java.lang.Float.floatToRawIntBits(x)) & M
         writeReg(core, 5, f(0.25f)); writeReg(core, 29, f(0.75f)); writeUniform(core, 29, 0x1234)
+        writeUniform(core, 0, 0x55); writeUniform(core, 17, 0x77)
         for ((w, i) <- Seq(CSRRS(1, 0, Csr.FragX), CSRRS(2, 0, Csr.FragY), CSRRS(3, 0, Csr.Bary0), CSRRS(4, 0, Csr.FragZ),
-                           CSRRS(6, 0, Csr.GroupIdX), BigInt(0)).zipWithIndex) writeImem(core, i, w)
+                           CSRRS(6, 0, Csr.GroupIdX), CSRRS(7, 0, Csr.Uniform0), CSRRS(8, 0, Csr.Uniform0 + 17),
+                           BigInt(0)).zipWithIndex) writeImem(core, i, w)
         startAndWait(core)
-        val got = Seq(1, 2, 3, 4, 6).map(readReg(core, _))
+        val got = Seq(1, 2, 3, 4, 6, 7, 8).map(readReg(core, _))
         println(s"  ${got.map(_.toString(16))}")
-        utest.assert(got == Seq(f(0.5f), f(0.5f), f(0.25f), f(0.75f), BigInt(0x1234)))
+        utest.assert(got == Seq(f(0.5f), f(0.5f), f(0.25f), f(0.75f), BigInt(0x1234), BigInt(0x55), BigInt(0x77)))
       }
     }
 

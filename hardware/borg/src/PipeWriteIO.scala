@@ -29,6 +29,7 @@ object Csr {
   val OutDepth = 0x804; val Discard = 0x805; val SampleMask = 0x806
   val OutPos0 = 0x808  // gl_Position x..w at 0x808..0x80B
   val Root = 0xCC0
+  val Uniform0 = 0x840  // the per-draw and per-triangle words, uniform k at 0x840 + k (k < 32)
   // System values (B8 step 7), read-only.
   val FragX = 0xCC1; val FragY = 0xCC2; val FragZ = 0xCC3; val InvW = 0xCC4
   val Bary0 = 0xCC5; val Bary1 = 0xCC6; val Bary2 = 0xCC7
