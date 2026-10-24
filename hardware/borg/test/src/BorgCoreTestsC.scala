@@ -61,7 +61,7 @@ object BorgCoreTestsC extends TestSuite {
           0x29881484L, 0x31889284L, 0x39891304L, 0x41899384L,
           0x49961404L, 0x29969484L, 0x31971284L, 0x39979304L,
           0x41a41004L, 0x49a49084L, 0x29a51104L, 0x31a59184L,
-          0x14018200L, 0x08400000L, 0x08408080L, 0x08410100L,
+          0x0001820BL, 0x08400000L, 0x08408080L, 0x08410100L,
           0x00000000L)
         for ((w, i) <- prog.zipWithIndex) writeImem(core, i, BigInt(w))
 
@@ -150,9 +150,9 @@ object BorgCoreTestsC extends TestSuite {
         println("\n--- BorgCore: ZTEST stall ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 5)
+        writeReg(core, 0, 5); writeReg(core, 2, 5)
         writeImem(core, 0, Instructions.ZTEST())
-        writeImem(core, 1, Instructions.IADD(rs1 = 0, rs2 = 0, rd = 1))  // r1 = 10
+        writeImem(core, 1, Instructions.IADD(rs1 = 2, rs2 = 2, rd = 1))  // r1 = 10
         writeImem(core, 2, 0)
         core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
 
@@ -508,13 +508,13 @@ object BorgCoreTestsC extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        writeReg(core, 0, 0)              // condition == 0 -> branch taken
+        writeReg(core, 8, 0)              // condition == 0 -> branch taken
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
         // 0: BRZ r0 -> 2      (skip the add at slot 1)
         // 1: r2 = r1 + r1     (must NOT execute)
         // 2: halt
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 2))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
@@ -532,10 +532,10 @@ object BorgCoreTestsC extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        writeReg(core, 0, 1)              // condition != 0 -> fall through
+        writeReg(core, 8, 1)              // condition != 0 -> fall through
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 2))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
@@ -553,18 +553,17 @@ object BorgCoreTestsC extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        // The target's low 5 bits land in the rd field. Target 3 therefore
-        // names r3; an ALU write-back would clobber it. This is the failure
-        // mode BorgLane's `!opFlags.branch` guard exists for.
-        writeReg(core, 0, 1)                            // not taken
-        writeReg(core, 3, floatToBits(7.0f))        // sentinel in r3
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 3))
+        // BEQ keeps offset bits in the rd field: offset 3 (12 bytes) names r12,
+        // which an ALU write-back would clobber (BorgLane's `!opFlags.branch` guard).
+        writeReg(core, 8, 1)                            // not taken
+        writeReg(core, 12, floatToBits(7.0f))       // sentinel in r12
+        writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 3))
         writeImem(core, 1, 0)
 
         startAndWait(core)
-        val r3 = bitsToFloat(readReg(core, 3))
-        println(f"  r3 = $r3%.2f (expect 7.0 -- untouched)")
-        utest.assert(math.abs(r3 - 7.0f) < 0.01f)
+        val r12 = bitsToFloat(readReg(core, 12))
+        println(f"  r12 = $r12%.2f (expect 7.0 -- untouched)")
+        utest.assert(math.abs(r12 - 7.0f) < 0.01f)
         println("  PASSED")
       }
     }

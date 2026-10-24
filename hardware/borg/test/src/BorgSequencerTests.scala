@@ -289,7 +289,7 @@ object BorgSequencerTests extends TestSuite {
         val frag = Seq(
             Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),               // r25 = 0 (index, no kill)
             Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),                  // r5 = 0
-            Instructions.IADD(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1)) ++ // r6 = u12 = 1
+            Instructions.IOR(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1)) ++ // r6 = u12 = 1
           Seq.fill(100)(Instructions.IADD(rs1 = 5, rs2 = 6, rd = 5)) ++   // r5 += 1, x100
           Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
         Predef.assert(frag.length + fragPc > suiteCfg.maxInstructions)
@@ -335,9 +335,9 @@ object BorgSequencerTests extends TestSuite {
         val frag = Seq(
             Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),
             Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),
-            Instructions.IADD(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1),
-            Instructions.IADD(rs1 = 13, rs2 = 25, rd = 7, funct3 = 1),
-            Instructions.IADD(rs1 = 14, rs2 = 25, rd = 8, funct3 = 1)) ++
+            Instructions.IOR(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1),
+            Instructions.IOR(rs1 = 13, rs2 = 25, rd = 7, funct3 = 1),
+            Instructions.IOR(rs1 = 14, rs2 = 25, rd = 8, funct3 = 1)) ++
           (0 until adds).map(i => Instructions.IADD(rs1 = 5, rs2 = 6 + i % 3, rd = 5)) ++
           Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
         val expect = (0 until adds).map(i => consts(i % 3)).sum

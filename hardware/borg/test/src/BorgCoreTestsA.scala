@@ -19,11 +19,11 @@ object BorgCoreTestsA extends TestSuite {
         resetCore(core)
 
         // r0 = 2.0, r1 = 3.0
-        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 9, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
 
         // IMEM[0] = fadd r2, r0, r1;  IMEM[1] = halt
-        val instr = Instructions.ADD(0, 1, 2)
+        val instr = Instructions.ADD(9, 1, 2)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 
@@ -40,9 +40,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: iadd_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 100)
+        writeReg(core, 9, 100)
         writeReg(core, 1, 200)
-        writeImem(core, 0, Instructions.IADD(0, 1, 2))
+        writeImem(core, 0, Instructions.IADD(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -57,9 +57,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: ishl_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 5)
+        writeReg(core, 9, 5)
         writeReg(core, 1, 3)
-        writeImem(core, 0, Instructions.ISHL(0, 1, 2))
+        writeImem(core, 0, Instructions.ISHL(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -74,9 +74,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: ishr_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 40)
+        writeReg(core, 9, 40)
         writeReg(core, 1, 3)
-        writeImem(core, 0, Instructions.ISHR(0, 1, 2))
+        writeImem(core, 0, Instructions.ISHR(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -91,9 +91,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: ishl_int32_full_shift_range ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 1)
+        writeReg(core, 9, 1)
         writeReg(core, 1, 20)
-        writeImem(core, 0, Instructions.ISHL(0, 1, 2))
+        writeImem(core, 0, Instructions.ISHL(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2)
@@ -108,9 +108,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: ishr_int32_full_shift_range ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, BigInt(1) << 30)
+        writeReg(core, 9, BigInt(1) << 30)
         writeReg(core, 1, 20)
-        writeImem(core, 0, Instructions.ISHR(0, 1, 2))
+        writeImem(core, 0, Instructions.ISHR(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2)
@@ -125,9 +125,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: imul_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 6)
+        writeReg(core, 9, 6)
         writeReg(core, 1, 7)
-        writeImem(core, 0, Instructions.IMUL(0, 1, 2))
+        writeImem(core, 0, Instructions.IMUL(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -142,9 +142,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: isub_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 100)
+        writeReg(core, 9, 100)
         writeReg(core, 1, 30)
-        writeImem(core, 0, Instructions.ISUB(0, 1, 2))
+        writeImem(core, 0, Instructions.ISUB(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -159,9 +159,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: isub_int16_underflow_wraps ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 5)
+        writeReg(core, 9, 5)
         writeReg(core, 1, 10)
-        writeImem(core, 0, Instructions.ISUB(0, 1, 2))
+        writeImem(core, 0, Instructions.ISUB(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2) & intMask
@@ -176,9 +176,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: iand_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 0xF0)
+        writeReg(core, 9, 0xF0)
         writeReg(core, 1, 0x3C)
-        writeImem(core, 0, Instructions.IAND(0, 1, 2))
+        writeImem(core, 0, Instructions.IAND(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -193,9 +193,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: ior_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 0xF0)
+        writeReg(core, 9, 0xF0)
         writeReg(core, 1, 0x0F)
-        writeImem(core, 0, Instructions.IOR(0, 1, 2))
+        writeImem(core, 0, Instructions.IOR(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -210,9 +210,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: ixor_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 0xFF)
+        writeReg(core, 9, 0xFF)
         writeReg(core, 1, 0x0F)
-        writeImem(core, 0, Instructions.IXOR(0, 1, 2))
+        writeImem(core, 0, Instructions.IXOR(9, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
         val r = readReg(core, 2).toInt
@@ -227,12 +227,12 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: islt_int16_signed ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, intBits(-1))
+        writeReg(core, 9, intBits(-1))
         writeReg(core, 1, 1)
         writeReg(core, 2, 5)
         writeReg(core, 3, 5)
         // r4 = (r0 <s r1); r5 = (r2 <s r3)
-        writeImem(core, 0, Instructions.ISLT(0, 1, 4))
+        writeImem(core, 0, Instructions.ISLT(9, 1, 4))
         writeImem(core, 1, Instructions.ISLT(2, 3, 5))
         writeImem(core, 2, 0)
         startAndWait(core)
@@ -250,12 +250,12 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: iseq_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 42)
+        writeReg(core, 9, 42)
         writeReg(core, 1, 42)
         writeReg(core, 2, 43)
         // r3 = (r0 == r1); r4 = (r0 == r2)
-        writeImem(core, 0, Instructions.ISEQ(0, 1, 3))
-        writeImem(core, 1, Instructions.ISEQ(0, 2, 4))
+        writeImem(core, 0, Instructions.ISEQ(9, 1, 3))
+        writeImem(core, 1, Instructions.ISEQ(9, 2, 4))
         writeImem(core, 2, 0)
         startAndWait(core)
         val eqTrue  = readReg(core, 3).toInt
@@ -272,9 +272,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: i2f_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, 35)              // int 35
+        writeReg(core, 9, 35)              // int 35
         writeReg(core, 1, intBits(-5))     // int -5, two's complement at the datapath width
-        writeImem(core, 0, Instructions.I2F(0, 2))
+        writeImem(core, 0, Instructions.I2F(9, 2))
         writeImem(core, 1, Instructions.I2F(1, 3))
         writeImem(core, 2, 0)
         startAndWait(core)
@@ -292,9 +292,9 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: f2i_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, floatToBits(35.0f))
+        writeReg(core, 9, floatToBits(35.0f))
         writeReg(core, 1, floatToBits(-5.0f))
-        writeImem(core, 0, Instructions.F2I(0, 2))
+        writeImem(core, 0, Instructions.F2I(9, 2))
         writeImem(core, 1, Instructions.F2I(1, 3))
         writeImem(core, 2, 0)
         startAndWait(core)
@@ -315,8 +315,8 @@ object BorgCoreTestsA extends TestSuite {
         // (float, half bits): exact, negative, max, rounds up to Inf, below 2^-14 flushes, nearest even
         val cases = Seq((1.0f, 0x3C00), (-2.5f, 0xC100), (65504.0f, 0x7BFF), (65520.0f, 0x7C00),
                         (1.0e-5f, 0x0000), (-1.0e-5f, 0x8000), (0.1f, 0x2E66), (Float.PositiveInfinity, 0x7C00))
-        cases.zipWithIndex.foreach { case ((f, _), i) => writeReg(core, i, floatToBits(f)) }
-        cases.indices.foreach(i => writeImem(core, i, Instructions.F2H(i, 8 + i)))
+        cases.zipWithIndex.foreach { case ((f, _), i) => writeReg(core, 20 + i, floatToBits(f)) }
+        cases.indices.foreach(i => writeImem(core, i, Instructions.F2H(20 + i, 8 + i)))
         writeImem(core, cases.size, 0)
         startAndWait(core)
         cases.zipWithIndex.foreach { case ((f, h), i) =>
@@ -336,8 +336,8 @@ object BorgCoreTestsA extends TestSuite {
         // (half bits, float): exact, negative, Inf, a denormal reads as zero, 0.1's half
         val cases = Seq((0x3C00, 1.0f), (0xC100, -2.5f), (0x7BFF, 65504.0f), (0x7C00, Float.PositiveInfinity),
                         (0x0001, 0.0f), (0x2E66, 0.0999755859375f))
-        cases.zipWithIndex.foreach { case ((h, _), i) => writeReg(core, i, BigInt(h)) }
-        cases.indices.foreach(i => writeImem(core, i, Instructions.H2F(i, 8 + i)))
+        cases.zipWithIndex.foreach { case ((h, _), i) => writeReg(core, 20 + i, BigInt(h)) }
+        cases.indices.foreach(i => writeImem(core, i, Instructions.H2F(20 + i, 8 + i)))
         writeImem(core, cases.size, 0)
         startAndWait(core)
         cases.zipWithIndex.foreach { case ((h, f), i) =>
@@ -355,10 +355,10 @@ object BorgCoreTestsA extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        writeReg(core, 0, floatToBits(3.0f))
+        writeReg(core, 9, floatToBits(3.0f))
         writeReg(core, 1, floatToBits(4.0f))
 
-        val instr = Instructions.MUL(0, 1, 2)
+        val instr = Instructions.MUL(9, 1, 2)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 
@@ -377,11 +377,11 @@ object BorgCoreTestsA extends TestSuite {
         resetCore(core)
 
         // r0=2.0, r1=3.0, r3=1.0 → fmadd r2, r0, r1, r3 = 2*3+1 = 7.0
-        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 9, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
         writeReg(core, 3, floatToBits(1.0f))
 
-        val instr = Instructions.FMA(0, 1, 3, 2)
+        val instr = Instructions.FMA(9, 1, 3, 2)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 

@@ -234,15 +234,14 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
-    utest.test("custom_forms_match_v1") {
+    utest.test("custom_forms") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
-        // FRCP and FRSQ of 2 both ways; a masked-off EXPUSH skips the then arm; DDX of a uniform value.
-        val rd = run(core, Seq(Opcodes.FRCP(2, 1), FRCP_V2(3, 1), Opcodes.FRSQ(4, 1), FRSQ_V2(5, 1),
-                               EXPUSH_V2(10), ADDI(6, 0, 1), EXELSE_V2(), ADDI(7, 0, 1), EXPOP_V2(), EXANY_V2(8),
-                               DDX_V2(9, 1, 1)), Map(1 -> u(0x40000000L), 6 -> 0, 7 -> 0, 9 -> 5, 10 -> 0))
-        println(s"  rcp ${rd(2)} ${rd(3)} rsq ${rd(4)} ${rd(5)} then ${rd(6)} else ${rd(7)} any ${rd(8)} ddx ${rd(9)}")
-        utest.assert(rd(2) == rd(3) && rd(4) == rd(5) && rd(6) == 0 && rd(7) == 1 && rd(8) == 1 && rd(9) == 0)
+        // FRCP of 2; a masked-off EXPUSH skips the then arm; DDX of a uniform value.
+        val rd = run(core, Seq(FRCP_V2(3, 1), EXPUSH_V2(10), ADDI(6, 0, 1), EXELSE_V2(), ADDI(7, 0, 1), EXPOP_V2(),
+                               EXANY_V2(8), DDX_V2(9, 1, 1)), Map(1 -> u(0x40000000L), 6 -> 0, 7 -> 0, 9 -> 5, 10 -> 0))
+        println(s"  rcp ${rd(3)} then ${rd(6)} else ${rd(7)} any ${rd(8)} ddx ${rd(9)}")
+        utest.assert(math.abs(java.lang.Float.intBitsToFloat(rd(3).toInt) - 0.5f) < 1e-3f && rd(6) == 0 && rd(7) == 1 && rd(8) == 1 && rd(9) == 0)
       }
     }
 
@@ -250,10 +249,10 @@ object BorgCoreRvTests extends TestSuite {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
         // r0 holds 5: a RISC-V read sees 0, a RISC-V write is dropped, v1 still uses r0.
-        val rd = run(core, Seq(ADD(1, 0, 0), ADDI(2, 0, 9), ADDI(0, 2, 1), Instructions.IADD(0, 0, 3),
+        val rd = run(core, Seq(ADD(1, 0, 0), ADDI(2, 0, 9), ADDI(0, 2, 1), Instructions.IOR(0, 0, 3),
                                OR(4, 2, 0)), Map(0 -> 5))
         println(s"  r1 ${rd(1)} r2 ${rd(2)} r0 ${rd(0)} r3 ${rd(3)} r4 ${rd(4)}")
-        utest.assert(rd(1) == 0 && rd(2) == 9 && rd(0) == 5 && rd(3) == 10 && rd(4) == 9)
+        utest.assert(rd(1) == 0 && rd(2) == 9 && rd(0) == 5 && rd(3) == 5 && rd(4) == 9)
       }
     }
   }

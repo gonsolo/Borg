@@ -71,8 +71,8 @@ object BorgComputeTests extends TestSuite {
   // r1 = WorkgroupID.x (u29), r2 = WorkgroupID.y (u30); store r31 at
   // ((wgY * groupsX + wgX) * count + LocalInvocationIndex).
   val flatIdsProgram = Seq(
-    Instructions.IADD(rs1 = 29, rs2 = 10, rd = 1, funct3 = 1),
-    Instructions.IADD(rs1 = 30, rs2 = 10, rd = 2, funct3 = 1),
+    Opcodes.CSRRS(1, 0, Csr.GroupIdX),
+    Opcodes.CSRRS(2, 0, Csr.GroupIdY),
     Instructions.IMUL(rs1 = 2, rs2 = 11, rd = 2),
     Instructions.IADD(rs1 = 2, rs2 = 1, rd = 2),
     Instructions.IMUL(rs1 = 2, rs2 = 12, rd = 2),
@@ -108,7 +108,7 @@ object BorgComputeTests extends TestSuite {
       // LocalSize (2, 3, 2) = 12 invocations = three full quads; two
       // workgroups along z. Store r31 at wgZ * 12 + LocalInvocationIndex.
       val prog = Seq(
-        Instructions.IADD(rs1 = 31, rs2 = 10, rd = 1, funct3 = 1),
+        Opcodes.CSRRS(1, 0, Csr.GroupIdZ),
         Instructions.IMUL(rs1 = 1, rs2 = 12, rd = 1),
         Instructions.IADD(rs1 = 1, rs2 = 30, rd = 1),
         Instructions.STORE(rs1 = 1, rs2 = 31)

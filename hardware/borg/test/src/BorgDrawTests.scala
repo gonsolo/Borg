@@ -117,11 +117,12 @@ object BorgDrawTests extends TestSuite {
     // u25 + 6*i; u26 = 6 and u27 = 1 are integers. Varyings r and g are
     // output components 0 and 1.
     val vs = Seq(
-      IMUL(rs1 = 30, rs2 = 26, rd = 9, funct3 = 2),
-      IADD(rs1 = 9, rs2 = 25, rd = 9, funct3 = 2)) ++
+      IXOR(rs1 = 9, rs2 = 9, rd = 9), IOR(rs1 = 9, rs2 = 26, rd = 9, funct3 = 2), IMUL(rs1 = 30, rs2 = 9, rd = 9),
+      IXOR(rs1 = 13, rs2 = 13, rd = 13), IOR(rs1 = 13, rs2 = 25, rd = 13, funct3 = 2), IADD(rs1 = 9, rs2 = 13, rd = 9),
+      IXOR(rs1 = 14, rs2 = 14, rd = 14), IOR(rs1 = 14, rs2 = 27, rd = 14, funct3 = 2)) ++
       (0 until 6).flatMap { c =>
         val dst = if (c < 4) c else 10 + c - 4
-        Seq(LOAD(rs1 = 9, rd = dst)) ++ (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 27, rd = 9, funct3 = 2)) else Nil)
+        Seq(LOAD(rs1 = 9, rd = dst)) ++ (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 14, rd = 9)) else Nil)
       } ++ Seq(SOUT(rs2 = 10, index = 0), SOUT(rs2 = 11, index = 1), BigInt(0))
     // v = l0*a0 + l1*a1 + l2*a2 for r and g; blue is 0 (u20 = 0.0, the
     // constant window's first word).
@@ -392,10 +393,10 @@ object BorgDrawTests extends TestSuite {
     val zero = MUL(rs1 = 5, rs2 = 20, rd = 24, funct3 = 2)
     def withAlpha(a: Float) = { rig.rom(rig.fsConst + 8) = BigInt(java.lang.Float.floatToRawIntBits(a)) & 0xFFFFFFFFL
       rig.fs.init ++ Seq(zero, ADD(rs1 = 24, rs2 = 22, rd = 24, funct3 = 2), BigInt(0)) }
-    val shaderMask = rig.fs.init ++ Seq(MUL(rs1 = 5, rs2 = 20, rd = 19, funct3 = 2), IADD(rs1 = 19, rs2 = 23, rd = 19, funct3 = 2), BigInt(0))
+    val shaderMask = rig.fs.init ++ Seq(MUL(rs1 = 5, rs2 = 20, rd = 19, funct3 = 2), IOR(rs1 = 19, rs2 = 23, rd = 19, funct3 = 2), BigInt(0))
     val smaskId  = rig.fs.init ++ Seq(SMASK(rd = 19), BigInt(0))
     val smaskNot = rig.fs.init ++ Seq(SMASK(rd = 19), MUL(rs1 = 5, rs2 = 20, rd = 18, funct3 = 2),
-                                      IADD(rs1 = 18, rs2 = 23, rd = 18, funct3 = 2), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
+                                      IOR(rs1 = 18, rs2 = 23, rd = 18, funct3 = 2), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
     val static = rig.draw(quad, topology = 1, sampleMaskCfg = 0x5)
     val a50 = rig.draw(quad, topology = 1, frag = withAlpha(0.5f), sampleMaskCfg = 0xF | 0x10)
     val a30 = rig.draw(quad, topology = 1, frag = withAlpha(0.3f), sampleMaskCfg = 0xF | 0x10)
@@ -631,7 +632,7 @@ object BorgDrawTests extends TestSuite {
     val a40 = rig.draw(quad, topology = 1, frag = withAlpha(0.4f), sampleMaskCfg = 0xF | 0x10 | one)
     val smaskId = rig.fs.init ++ Seq(SMASK(rd = 19), BigInt(0))
     val smaskNot = rig.fs.init ++ Seq(SMASK(rd = 19), MUL(rs1 = 5, rs2 = 20, rd = 18, funct3 = 2),
-                                      IADD(rs1 = 18, rs2 = 23, rd = 18, funct3 = 2), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
+                                      IOR(rs1 = 18, rs2 = 23, rd = 18, funct3 = 2), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
     rig.rom(rig.fsConst + 12) = BigInt(0x1)
     val id = rig.draw(quad, topology = 1, frag = smaskId, sampleMaskCfg = 0xF | 0x20 | one)
     val not = rig.draw(quad, topology = 1, frag = smaskNot, sampleMaskCfg = 0xF | 0x20 | one)
@@ -694,8 +695,9 @@ object BorgDrawTests extends TestSuite {
     u(1, BigInt(0xA1B2C3D4L)); u(2, BigInt(1)); u(3, BigInt(0x11223344L)); u(4, BigInt(2))
     val store = Seq(IXOR(rs1 = 9, rs2 = 9, rd = 26), IOR(rs1 = 26, rs2 = 21, rd = 26, funct3 = 2),
                     IXOR(rs1 = 9, rs2 = 9, rd = 27), IOR(rs1 = 27, rs2 = 23, rd = 27, funct3 = 2), BigInt(0))
-    val addOne = Seq(TLD(rd = 20), IADD(rs1 = 20, rs2 = 22, rd = 26, funct3 = 2),
-                     TLD(rd = 21, word = 1), IADD(rs1 = 21, rs2 = 24, rd = 27, funct3 = 2), BigInt(0))
+    val addOne = Seq(TLD(rd = 20), IXOR(rs1 = 9, rs2 = 9, rd = 26), IOR(rs1 = 26, rs2 = 22, rd = 26, funct3 = 2),
+                     IADD(rs1 = 20, rs2 = 26, rd = 26), TLD(rd = 21, word = 1), IXOR(rs1 = 9, rs2 = 9, rd = 27),
+                     IOR(rs1 = 27, rs2 = 24, rd = 27, funct3 = 2), IADD(rs1 = 21, rs2 = 27, rd = 27), BigInt(0))
     val bytes = Map(FlushFormat.RAW32 -> 4, FlushFormat.RAW16 -> 2, FlushFormat.RAW8 -> 1, FlushFormat.RAW64 -> 8)
     def bytesAt(fmt: Int, x: Int, y: Int): BigInt = {
       val n = bytes(fmt)
@@ -760,7 +762,8 @@ object BorgDrawTests extends TestSuite {
       IXOR(rs1 = 9, rs2 = 9, rd = dst), IOR(rs1 = dst, rs2 = lo, rd = dst, funct3 = 2),
       IXOR(rs1 = 9, rs2 = 9, rd = 19), IOR(rs1 = 19, rs2 = hi, rd = 19, funct3 = 2),
       IXOR(rs1 = dst, rs2 = 19, rd = 19), IAND(rs1 = 19, rs2 = 20, rd = 19), IXOR(rs1 = dst, rs2 = 19, rd = dst))
-    val store128 = Seq(Opcodes.CSRRS(20, 0, Csr.Attachment), ISRL(rs1 = 20, rs2 = 26, rd = 20, funct3 = 2),
+    val store128 = Seq(Opcodes.CSRRS(20, 0, Csr.Attachment), IXOR(rs1 = 9, rs2 = 9, rd = 18),
+                       IOR(rs1 = 18, rs2 = 26, rd = 18, funct3 = 2), ISRL(rs1 = 20, rs2 = 18, rd = 20),
                        IXOR(rs1 = 9, rs2 = 9, rd = 18), ISUB(rs1 = 18, rs2 = 20, rd = 20)) ++
                    pick(26, 21, 24) ++ pick(27, 23, 25) :+ BigInt(0)
     val w23Clear = Seq(BorgGpuRegs.att_clear_w2_0_offset -> BigInt(0x0C0FFEE0L), BorgGpuRegs.att_clear_w3_0_offset -> BigInt(0x0FACADE0L))

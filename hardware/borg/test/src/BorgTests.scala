@@ -187,8 +187,8 @@ object BorgTests extends TestSuite {
         (encodeInstruction(config, FNEG, rs1 = 0, rs2 = 0, rd = 2),
           8, -a_eff, f"-$a_eff%8.2f")
       case FMOV =>
-        (encodeInstruction(config, FMOV, rs1 = 0, rs2 = 0, rd = 2),
-          8, a_eff, f"mov $a_eff%8.2f")
+        (encodeInstruction(config, FMOV, rs1 = 1, rs2 = 0, rd = 2),   // x0 is zero for FSGNJ.S
+          8, b_eff, f"mov $b_eff%8.2f")
       case FSTEP =>
         (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2), // rs1 edge, rs2 not used
           8, if (a_eff > 0.0f) 1.0f else 0.0f, f"step($a_eff%8.2f)")
@@ -242,7 +242,7 @@ object BorgTests extends TestSuite {
         case FNEG =>
           runTest(borg, config, FNEG, a, 0f)
         case FMOV =>
-          runTest(borg, config, FMOV, a, 0f)
+          runTest(borg, config, FMOV, 0f, a)
         case ADD => runTest(borg, config, ADD, a, b)
         case MUL =>
           if (config != FloatConfig.FP16 || math.abs(a * b) <= FP16_MAX)

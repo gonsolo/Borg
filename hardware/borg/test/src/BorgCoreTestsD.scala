@@ -25,18 +25,18 @@ object BorgCoreTestsD extends TestSuite {
         //   1: r0 = r0 + r1        decrement (integer add on raw bits)
         //   2: BRNZ r0 -> 0        loop while the counter is non-zero
         //   3: halt
-        writeReg(core, 0, 4)
+        writeReg(core, 8, 4)
         writeReg(core, 1, intBits(-1))                  // -1 at the datapath width
         writeReg(core, 2, floatToBits(1.0f))
         writeReg(core, 3, floatToBits(0.0f))
         writeImem(core, 0, Instructions.ADD(3, 2, 3))
-        writeImem(core, 1, Instructions.IADD(0, 1, 0))
-        writeImem(core, 2, Instructions.BRNZ(rs1 = 0, offset = -2))
+        writeImem(core, 1, Instructions.IADD(8, 1, 8))
+        writeImem(core, 2, Instructions.BRNZ(rs1 = 8, offset = -2))
         writeImem(core, 3, 0)
 
         startAndWait(core)
         val acc = bitsToFloat(readReg(core, 3))
-        val ctr = readReg(core, 0)
+        val ctr = readReg(core, 8)
         println(f"  looped: r3 = $acc%.2f (expect 4.0), counter = $ctr (expect 0)")
         utest.assert(math.abs(acc - 4.0f) < 0.01f)
         utest.assert(ctr == 0)
@@ -54,10 +54,10 @@ object BorgCoreTestsD extends TestSuite {
         // swapped polarity shows up as both cases behaving alike.
         for ((cond, shouldBranch) <- Seq((0, false), (1, true))) {
           resetCore(core)
-          writeReg(core, 0, cond)
+          writeReg(core, 8, cond)
           writeReg(core, 1, floatToBits(1.0f))
           writeReg(core, 2, floatToBits(0.0f))
-          writeImem(core, 0, Instructions.BRNZ(rs1 = 0, offset = 2))
+          writeImem(core, 0, Instructions.BRNZ(rs1 = 8, offset = 2))
           writeImem(core, 1, Instructions.ADD(1, 1, 2))
           writeImem(core, 2, 0)
           startAndWait(core)
@@ -79,10 +79,10 @@ object BorgCoreTestsD extends TestSuite {
         // The condition is a RAW bits comparison, so -0.0 (0x8000) does NOT
         // branch on BRZ -- the same convention the discard register uses.
         // Worth pinning down: an FP-aware comparison would do the opposite.
-        writeReg(core, 0, 0x8000)
+        writeReg(core, 8, 0x8000)
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 2))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
@@ -100,8 +100,8 @@ object BorgCoreTestsD extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        writeReg(core, 0, 0)
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 1))
+        writeReg(core, 8, 0)
+        writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 1))
         writeImem(core, 1, 0)
         startAndWait(core)
 
