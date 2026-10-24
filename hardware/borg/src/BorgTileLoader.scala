@@ -31,6 +31,7 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
 
   val aspects     = Input(new TileLoadAspects)
   val format      = Input(UInt(FlushFormat.Bits.W))   // FlushFormat of the colour attachment
+  val srgb        = Input(Bool())                       // its colour is sRGB-encoded
   val colorBase   = Input(UInt(GpuMemIO.AddrBits.W))       // this tile's colour data, as the flusher wrote it
   // Present only in a build that can store the aspect (hasDepthFlush /
   // hasStencil): there is nothing to load back otherwise.
@@ -95,6 +96,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
 
   val aspects = Reg(new TileLoadAspects)
   val format  = Reg(UInt(FlushFormat.Bits.W))
+  val srgb    = Reg(Bool())
   val cBase   = Reg(UInt(GpuMemIO.AddrBits.W))
   val zBase   = Reg(UInt(GpuMemIO.AddrBits.W))
   val sBase   = Reg(UInt(GpuMemIO.AddrBits.W))
@@ -156,6 +158,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
         if (!hasDepth)   aspects.depth   := false.B
         if (!hasStencil) aspects.stencil := false.B
         format  := io.format
+        srgb    := io.srgb
         d32     := io.depthD32.getOrElse(false.B)
         val ms = io.msLoad.getOrElse(false.B)
         msReg := ms
@@ -243,9 +246,10 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   // pass's own coverage bit -- all bits cover it.
   io.write.coverage := Mux(msReg && !msGiven, UIntToOH(sampleIdx, samples), Fill(samples, 1.U(1.W)))
   io.write.idx := entry + second.asUInt
-  io.write.data.r := Mux(aspects.color, ColorQuantize.dequantize8(r8), io.clearColor.r)
-  io.write.data.g := Mux(aspects.color, ColorQuantize.dequantize8(g8), io.clearColor.g)
-  io.write.data.b := Mux(aspects.color, ColorQuantize.dequantize8(b8), io.clearColor.b)
+  def linear(v: UInt): UInt = Mux(srgb, SrgbCodec.decode(v), ColorQuantize.dequantize8(v))
+  io.write.data.r := Mux(aspects.color, linear(r8), io.clearColor.r)
+  io.write.data.g := Mux(aspects.color, linear(g8), io.clearColor.g)
+  io.write.data.b := Mux(aspects.color, linear(b8), io.clearColor.b)
   io.write.data.z := Mux(aspects.depth, zLoaded, io.clearColor.z)
   io.write.alpha   := Mux(aspects.color, a8, io.clearAlpha)
   io.write.stencil := Mux(aspects.stencil, s8, io.clearStencil)

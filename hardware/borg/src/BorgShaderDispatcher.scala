@@ -151,6 +151,8 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // the fragment's r26 is stored as raw bytes, unblended, and each lane's
   // destination word is read before the shader starts, for TLD.
   val rawColor = Input(Bool())
+  // An sRGB attachment: the shader blends, TLD reads linear FP16 (R | G << 16, B | A << 16).
+  val srgbColor = Input(Bool())
   val laneDst  = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
   // RAW64's word 1: the tile's extension plane (read with the colour, and
   // written from r27 whenever the colour is).
@@ -345,6 +347,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.laneDst := dstWord
   io.extWrite.foreach(_ := 0.U)
   private val rawActive = io.rawColor && rawSupported.B
+  private val dstActive = rawActive || io.srgbColor && rawSupported.B
 
   // discard: r25 is a hardware-ABI "kill" register, not a new ISA opcode. The
   // compiler lowers GLSL/SPIR-V `discard`/`discard_if(cond)` (already reduced
@@ -534,7 +537,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // Run the fragment shader if ANY lane is inside (outside lanes run as helper
     // invocations and are masked off at tile-write time — required SIMT semantics).
     when(any_inside && io.fragPcReg =/= 0.U) {
-      when(rawActive) {
+      when(dstActive) {
         // First each lane's destination word, for TLD.
         laneCtr := 0.U
         phase   := sDstRead
@@ -585,9 +588,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   when(phase === sDstCap) {
     if (rawSupported) {
       val d = io.tileRead.data(0)
-      dstWord(laneIdx)(0) := Cat(io.alphaRead.get(0), ColorQuantize.quantize8(d.b),
-                                 ColorQuantize.quantize8(d.g), ColorQuantize.quantize8(d.r))
-      dstWord(laneIdx)(1) := io.extRead.get(0)
+      dstWord(laneIdx)(0) := Mux(io.srgbColor, Cat(d.g, d.r), Cat(io.alphaRead.get(0), ColorQuantize.quantize8(d.b),
+                                 ColorQuantize.quantize8(d.g), ColorQuantize.quantize8(d.r)))
+      dstWord(laneIdx)(1) := Mux(io.srgbColor, Cat(ColorQuantize.dequantize8(io.alphaRead.get(0)), d.b), io.extRead.get(0))
     }
     when(laneCtr === (N - 1).U) {
       laneCtr := 0.U
@@ -695,16 +698,21 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
     // A RAW attachment stores r26's bytes as they are: no blending, no write
     // mask (the shader applies both, having read the destination with TLD).
+    // An sRGB one stores the shader's colour unblended for the same reason.
+    val srgbActive = io.srgbColor && rawSupported.B
     val (outR, outG, outB) = frag_raw match {
       case Some(raw) =>
         val w = raw(laneIdx)
         when(rawActive) {
           io.alphaWrite.get     := w(31, 24)
           io.alphaWriteMask.get := true.B
+        }.elsewhen(srgbActive) {
+          io.alphaWrite.get     := ColorQuantize.quantize8(frag_a.get(laneIdx))
+          io.alphaWriteMask.get := true.B
         }
-        (Mux(rawActive, ColorQuantize.dequantize8(w(7, 0)), blendR),
-         Mux(rawActive, ColorQuantize.dequantize8(w(15, 8)), blendG),
-         Mux(rawActive, ColorQuantize.dequantize8(w(23, 16)), blendB))
+        (Mux(rawActive, ColorQuantize.dequantize8(w(7, 0)), Mux(srgbActive, frag_r(laneIdx), blendR)),
+         Mux(rawActive, ColorQuantize.dequantize8(w(15, 8)), Mux(srgbActive, frag_g(laneIdx), blendG)),
+         Mux(rawActive, ColorQuantize.dequantize8(w(23, 16)), Mux(srgbActive, frag_b(laneIdx), blendB)))
       case None => (blendR, blendG, blendB)
     }
     // The extension plane is written only for a RAW64 attachment (the tile

@@ -77,6 +77,7 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
 
   // Colour attachment format, see [[FlushFormat]]. Sampled at the start pulse.
   val format    = Input(UInt(FlushFormat.Bits.W))
+  val srgb      = Input(Bool())          // encode R, G, B linear -> sRGB (formats 1 and 2)
   // Destination alpha per sample, valid alongside `read.data` (the tile
   // buffer's alpha plane shares its read index and latency). Absent when the
   // build has no alpha plane, in which case the 32-bit formats write opaque.
@@ -243,6 +244,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val sVec           = if (hasStencil) Some(Reg(Vec(16, UInt(8.W)))) else None
   val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(GpuMemIO.AddrBits.W))) else None
   val formatReg = RegInit(FlushFormat.RGB565.U(FlushFormat.Bits.W))
+  val srgbReg   = RegInit(false.B)
   // Per-sample store: the sample being flushed and whether more follow.
   val msReg      = RegInit(false.B)
   val sampleSel  = RegInit(0.U(math.max(1, log2Up(samples)).W))
@@ -359,8 +361,8 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     // (every shipped config is MSAA now; the samples==1 tests keep it honest).
     when(v3) {
       val e = io.read.data(0)
-      stagePixel(capIdx(3, 0), fp16ToUnorm(e.r, 8), fp16ToUnorm(e.g, 8),
-                 fp16ToUnorm(e.b, 8), alphaOf(0), io.ext.map(_(0)).getOrElse(0.U))
+      def enc(h: UInt): UInt = Mux(srgbReg, SrgbCodec.encode(h), fp16ToUnorm(h, 8))
+      stagePixel(capIdx(3, 0), enc(e.r), enc(e.g), enc(e.b), alphaOf(0), io.ext.map(_(0)).getOrElse(0.U))
       // Depth rides the same capture: io.read.data(0) is already valid here
       // for the colour conversion, and .z is simply another field of it, so
       // this adds a quantizer and a register write -- no extra read, no
@@ -395,7 +397,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     // multi-pixel queue (which would have eaten back much of the area this
     // is meant to save).
     val sampleBits = log2Ceil(samples)
-    val accBits    = 8 + sampleBits          // max sum = samples*255, fits exactly
+    val accBits    = 16 + sampleBits         // UNORM8 << 8, or an sRGB attachment's linear UNORM16
 
     val pipelineBusy   = RegInit(false.B)
     val resolveBusy    = RegInit(false.B)
@@ -432,21 +434,27 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     when(resolveBusy) {
       // Per sample (msReg): one sample, stored as is. Resolved: the average.
       val s     = pendingSamples(Mux(msReg, sampleIdx, resolveSample))
-      val rTerm = fp16ToUnorm(s.r, 8)
-      val gTerm = fp16ToUnorm(s.g, 8)
-      val bTerm = fp16ToUnorm(s.b, 8)
+      // An sRGB attachment averages in linear (16 bits) and encodes the result.
+      def term(h: UInt): UInt = Mux(srgbReg, DepthQuantize.quantize16(h), Cat(fp16ToUnorm(h, 8), 0.U(8.W)))
+      val rTerm = term(s.r)
+      val gTerm = term(s.g)
+      val bTerm = term(s.b)
       val rSum  = accR + rTerm
       val gSum  = accG + gTerm
       val bSum  = accB + bTerm
       val aOne  = pendingAlpha.map(_(Mux(msReg, sampleIdx, resolveSample)))
-      val aSum  = accA.map(a => a + aOne.get)
+      val aSum  = accA.map(a => a + Cat(aOne.get, 0.U(8.W)))
       when(msReg || resolveSample === (samples - 1).U) {
-        def pick(sum: UInt, one: UInt): UInt = Mux(msReg, one, (sum >> sampleBits)(7, 0))
+        def pick(sum: UInt, one: UInt): UInt = Mux(msReg, one, (sum >> sampleBits)(15, 0))(15, 8)
+        def colour(sum: UInt, one: UInt, h: UInt): UInt = {
+          val avg = ((sum +& (if (sampleBits > 0) (1 << (sampleBits - 1)) else 0).U) >> sampleBits)(15, 0)   // rounded: samples * 65535 + half still fits
+          Mux(srgbReg, SrgbCodec.encode(Mux(msReg, h, DepthQuantize.dequantize16(avg))), pick(sum, one))
+        }
         stagePixel(capIdx(3, 0),
-          pick(rSum, rTerm),
-          pick(gSum, gTerm),
-          pick(bSum, bTerm),
-          aSum.map(a => pick(a, aOne.get)).getOrElse(255.U(8.W)),
+          colour(rSum, rTerm, s.r),
+          colour(gSum, gTerm, s.g),
+          colour(bSum, bTerm, s.b),
+          aSum.map(a => pick(a, Cat(aOne.get, 0.U(8.W)))).getOrElse(255.U(8.W)),
           pendingExt.getOrElse(0.U(32.W)))
         // Depth resolves by taking SAMPLE ZERO, not this average: averaging
         // depth is meaningless across a triangle edge, and sample-zero is
@@ -486,6 +494,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         d32Reg    := io.depthD32.getOrElse(false.B)
         zHalf     := false.B
         formatReg := io.format
+        srgbReg   := io.srgb
         colorOffReg := io.colorOff
         // Per sample: one given sample (msaaMultiPass), else all in turn.
         val ms = io.msStore.getOrElse(false.B)

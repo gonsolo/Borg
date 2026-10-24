@@ -141,6 +141,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // the last pass of the tile.
   private val attBase     = WireDefault(0.U(GpuMemIO.AddrBits.W))
   private val attFormat   = WireDefault(0.U(FlushFormat.Bits.W))
+  private val attSrgb     = WireDefault(false.B)
   private val attClearRG  = WireDefault(0.U(32.W))
   private val attClearB   = WireDefault(0.U(16.W))
   private val attClearA   = WireDefault(0.U(8.W))
@@ -462,6 +463,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.depthCompareOp := rdlRegs.io.hw.depth_cfg_compare_op
     rast.io.depthUnorm     := !depthD32Reg
     rast.io.rawColor       := FlushFormat.isRaw(attFormat)
+    rast.io.srgbColor      := attSrgb
     rast.io.depthWriteEn   := rdlRegs.io.hw.depth_cfg_write_en.asBool
     // BLEND_CFG / BLEND_CONST (Step 50 item 9). Reset 0 means blending
     // disabled -- the historical unconditional overwrite -- so, as with
@@ -661,6 +663,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     f.io.alpha.foreach(_ := tile.io.alphaRead.get)
     f.io.ext.foreach(_ := tile.io.extRead.get)
     f.io.format    := attFormat
+    f.io.srgb      := attSrgb
     f.io.colorOff  := rdlRegs.io.hw.flush_format_nocolor
     // Autonomous tiles are addressed from the sequencer's tile offset (in
     // 32-byte units, one RGB565 tile). A 32-bit colour format doubles the
@@ -744,6 +747,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     ld.io.aspects     := tileLoadReg
     ld.io.aspects.color := attLoad
     ld.io.format      := attFormat
+    ld.io.srgb        := attSrgb
     ld.io.colorBase   := attBase + colourOffset
     ld.io.depthBase.foreach(_ := flushDepthBaseReg + depthTileOffset)
     ld.io.depthD32.foreach(_ := depthD32Reg)
@@ -1119,7 +1123,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.laneDst.foreach(_ := rast.io.laneDst)
     core.io.pixelOrigin.x := pixelOriginX; core.io.pixelOrigin.y := pixelOriginY
     // Colour attachments 1..3; attachment 0 is the historical one.
-    val attCfg = RegInit(0.U(8.W)); val attFmtReg = RegInit(0.U(9.W))
+    val attCfg = RegInit(0.U(8.W)); val attFmtReg = RegInit(0.U(12.W))
     val attBases = Seq.fill(3)(RegInit(0.U(GpuMemIO.AddrBits.W)))
     val attRG = Seq.fill(3)(RegInit(0.U(32.W))); val attBA = Seq.fill(3)(RegInit(0.U(32.W)))
     val attExt = Seq.fill(4)(RegInit(0.U(32.W)))
@@ -1127,7 +1131,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                                     BorgGpuRegs.att_clear_ext2_offset, BorgGpuRegs.att_clear_ext3_offset)))
       when(bus.is_writing && bus.address === off) { r := bus.data_in }
     when(bus.is_writing && bus.address === BorgGpuRegs.att_cfg_offset)    { attCfg := bus.data_in(7, 0) }
-    when(bus.is_writing && bus.address === BorgGpuRegs.att_format_offset) { attFmtReg := bus.data_in(8, 0) }
+    when(bus.is_writing && bus.address === BorgGpuRegs.att_format_offset) { attFmtReg := bus.data_in(11, 0) }
     for ((r, off) <- attBases.zip(Seq(BorgGpuRegs.att_base1_offset, BorgGpuRegs.att_base2_offset, BorgGpuRegs.att_base3_offset)))
       when(bus.is_writing && bus.address === off) { r := bus.data_in }
     for ((r, off) <- attRG.zip(Seq(BorgGpuRegs.att_clear_rg1_offset, BorgGpuRegs.att_clear_rg2_offset, BorgGpuRegs.att_clear_rg3_offset)))
@@ -1155,6 +1159,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     def sel[T <: Data](first: T, rest: Seq[T]): T = MuxLookup(att, first)((1 to 3).map(k => k.U -> rest(k - 1)))
     attBase    := sel(s.io.mmio.fbBase, attBases) + Mux(slice, 128.U, 0.U)
     attFormat  := sel(fmts(0), fmts.drop(1))
+    attSrgb    := sel(rdlRegs.io.hw.flush_format_srgb, Seq(attFmtReg(9), attFmtReg(10), attFmtReg(11)))
     // A RAW128 slice 1 clears to words 2 and 3, word 2 split into the
     // UNORM8 channels it rides.
     val w2 = VecInit(attW2)(att)
