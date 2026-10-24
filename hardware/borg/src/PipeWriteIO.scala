@@ -32,5 +32,5 @@ object Csr {
   val FragX = 0xCC1; val FragY = 0xCC2; val FragZ = 0xCC3; val InvW = 0xCC4
   val Bary0 = 0xCC5; val Bary1 = 0xCC6; val Bary2 = 0xCC7
   val VertexIndex = 0xCC8; val InstanceIndex = 0xCC9; val LocalIndex = 0xCCA; val LocalId = 0xCCB
-  val GroupIdX = 0xCCC; val GroupIdY = 0xCCD; val GroupIdZ = 0xCCE
+  val GroupIdX = 0xCCC; val GroupIdY = 0xCCD; val GroupIdZ = 0xCCE; val Attachment = 0xCCF
 }

@@ -583,7 +583,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       v.valid := RegEnable(valid, false.B, op_en); v.bits := RegEnable(bits(w - 1, 0), op_en)
       v
     }
-    val csrValue = Mux(rv.csr === Csr.Root.U, io.root, 0.U)
+    val csrValue = MuxLookup(rv.csr, 0.U(w.W))(Seq(Csr.Root.U -> io.root) ++
+      io.attIndex.map(a => Csr.Attachment.U -> a.pad(w)))
     (latch(rv.aZero || rv.auipc || rv.csrrs && !rv.csrReg && !rv.csrWin,
            Mux(rv.csrrs, csrValue, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W)))),
      latch(rv.bZero || rv.bImm || rv.csrrs, Mux(rv.bImm, rv.imm, 0.U(32.W))))

@@ -457,7 +457,7 @@ object BorgDrawTests extends TestSuite {
   }
 
   /** Several colour attachments: the tile is rendered once per attachment,
-    * the fragment shader writing the one ATTIDX names. Attachment 0 RGBA8
+    * the fragment shader writing the one CSR attachment names. Attachment 0 RGBA8
     * cleared, 1 BGRA8 cleared to its own colour, 2 RGBA8 loaded; depth LESS,
     * which only works if every pass starts from the same depth. */
   def attachments(rig: DrawRig): Unit = {
@@ -467,7 +467,7 @@ object BorgDrawTests extends TestSuite {
     // Attachment 2's previous content: every pixel (10, 20, 30, 40).
     for (i <- 0 until Size * Size) { rig.rom(bases(2) + 4 * i) = BigInt(0x281E140AL) }
     rig.rom(rig.fsConst + 8) = BigInt(java.lang.Float.floatToRawIntBits(0.25f))   // u22
-    val frag = rig.fs.init ++ Seq(ATTIDX(rd = 10), I2F(rs1 = 10, rd = 10), MUL(rs1 = 10, rs2 = 22, rd = 26, funct3 = 2), BigInt(0))
+    val frag = rig.fs.init ++ Seq(Opcodes.CSRRS(10, 0, Csr.Attachment), I2F(rs1 = 10, rd = 10), MUL(rs1 = 10, rs2 = 22, rd = 26, funct3 = 2), BigInt(0))
     def fp16(f: Float) = java.lang.Float.floatToFloat16(f).toInt & 0xFFFF
     rig.fbBase = bases(0)
     val count = rig.draw(t, frag = frag, depthCfg = 1 | (1 << 3), extra = Seq(
@@ -753,14 +753,14 @@ object BorgDrawTests extends TestSuite {
       Predef.assert((fx, fy) == (if (in((x, y))) (2f, 4f) else (0f, 2f)), s"R32G32_SFLOAT pixel ($x,$y): ($fx, $fy)")
     }
     println("  R32G32_SFLOAT: (0, 2) -> x + x*y ... -> (2, 4) exactly: both words of the pixel resident")
-    // RAW128: two slices, ATTIDX = 4 * slice. u21, u23 = words 0, 1 and
+    // RAW128: two slices, CSR attachment = 4 * slice. u21, u23 = words 0, 1 and
     // u24, u25 = words 2, 3; u26 = 2 (the slice's shift).
     u(3, BigInt(0x11223344L)); u(4, BigInt(0x55667788L)); u(5, BigInt(0x99AABBCCL)); u(6, BigInt(2))
     def pick(dst: Int, lo: Int, hi: Int) = Seq(
       IXOR(rs1 = 9, rs2 = 9, rd = dst), IOR(rs1 = dst, rs2 = lo, rd = dst, funct3 = 2),
       IXOR(rs1 = 9, rs2 = 9, rd = 19), IOR(rs1 = 19, rs2 = hi, rd = 19, funct3 = 2),
       IXOR(rs1 = dst, rs2 = 19, rd = 19), IAND(rs1 = 19, rs2 = 20, rd = 19), IXOR(rs1 = dst, rs2 = 19, rd = dst))
-    val store128 = Seq(ATTIDX(rd = 20), ISRL(rs1 = 20, rs2 = 26, rd = 20, funct3 = 2),
+    val store128 = Seq(Opcodes.CSRRS(20, 0, Csr.Attachment), ISRL(rs1 = 20, rs2 = 26, rd = 20, funct3 = 2),
                        IXOR(rs1 = 9, rs2 = 9, rd = 18), ISUB(rs1 = 18, rs2 = 20, rd = 20)) ++
                    pick(26, 21, 24) ++ pick(27, 23, 25) :+ BigInt(0)
     val w23Clear = Seq(BorgGpuRegs.att_clear_w2_0_offset -> BigInt(0x0C0FFEE0L), BorgGpuRegs.att_clear_w3_0_offset -> BigInt(0x0FACADE0L))
