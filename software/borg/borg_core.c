@@ -68,7 +68,7 @@ static struct {
 static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
 static int g_vtab_dirty = 1;
 static int g_natt = 1;                 // colour attachments of the pass (host)
-static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each
+static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each, then their sRGB bits [11:9]
 #endif
 #ifdef BORG_HOST
 // The simulator's texels live above the colour attachments, so a texture of any size up to this
@@ -80,7 +80,17 @@ static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bi
 #define BC_TEXEL_BYTES (TEX_REGION_BYTES - 256)
 #endif
 static int g_nocolor = 0;              // the pass has no colour attachment
+static int g_srgb = 0;                 // attachment 0 is sRGB (FLUSH_FORMAT bit 4)
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 4 RAW16 (2 B/px), 5 RAW8 (1 B/px), 6 RAW64 (8 B/px), 7 RAW128 (16 B/px)
+#ifdef BORG_HOST
+// A wire flush code: the format, and bit 3 for an sRGB RGBA8 or BGRA8 attachment.
+static int wire_format(int code, int *srgb) {
+  *srgb = code >> 3 & 1;
+  code &= ~8;
+  return code > 7 || (*srgb && code != 1 && code != 2) ? -1 : code;
+}
+#endif
+
 static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f == 4 ? 2u : f == 6 ? 8u : f == 7 ? 16u : f ? 4u : 2u; }
 
 // Words per framebuffer, plus the DONE marker word.
@@ -118,7 +128,7 @@ static void core_apply_layout(void) {
   const int width = borg_fb_width, height = borg_fb_height;
   const uint32_t frame_stride = frame_stride_words();
   BREG_W(flush_fb_base, DRAM_OUT_SPI(0));
-  BREG_W(flush_format, g_flush_format | g_nocolor << 3);
+  BREG_W(flush_format, g_flush_format | g_nocolor << 3 | g_srgb << 4);
   unsigned int log2_w = 0;
   for (unsigned int w = (unsigned int)width; w > 1; w >>= 1) log2_w++;
   BREG_W(flush_width, log2_w);
@@ -794,10 +804,11 @@ int borg_core_packet(const uint8_t *p) {
     return BC_STATE;
   }
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
-    int fmt = p[1];
-    if (fmt > 7) return BC_BAD;
-    if (fmt != g_flush_format) {
+    int srgb, fmt = wire_format(p[1], &srgb);
+    if (fmt < 0) return BC_BAD;
+    if (fmt != g_flush_format || srgb != g_srgb) {
       g_flush_format = fmt;
+      g_srgb = srgb;
       core_apply_layout();
     }
     borg_core_set_clear(f32_to_fp16(le32(p + 2)), f32_to_fp16(le32(p + 6)), f32_to_fp16(le32(p + 10)));
@@ -805,16 +816,22 @@ int borg_core_packet(const uint8_t *p) {
   }
   case 0xBF: { // colour attachments of the pass: count, then the flush formats of 1-3
     if (p[1] < 1 || p[1] > 4) return BC_BAD;
-    for (int k = 0; k < 3; k++) if (p[2 + k] > 7) return BC_BAD;
+    uint32_t att = 0;
+    for (int k = 0; k < 3; k++) {
+      int srgb, fmt = wire_format(p[2 + k], &srgb);
+      if (fmt < 0) return BC_BAD;
+      att |= (uint32_t)fmt << (3 * k) | (uint32_t)srgb << (9 + k);
+    }
     g_natt = p[1];
-    g_att_fmt = (uint32_t)p[2] | (uint32_t)p[3] << 3 | (uint32_t)p[4] << 6;
+    g_att_fmt = att;
     return BC_ATT;
   }
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour, 4 per sample
-    int fmt = p[1];
-    if (fmt > 7 || p[2] > 31) return BC_BAD;
-    if (fmt != g_flush_format || ((p[2] >> 3) & 1) != g_nocolor) {
+    int srgb, fmt = wire_format(p[1], &srgb);
+    if (fmt < 0 || p[2] > 31) return BC_BAD;
+    if (fmt != g_flush_format || srgb != g_srgb || ((p[2] >> 3) & 1) != g_nocolor) {
       g_flush_format = fmt;
+      g_srgb = srgb;
       g_nocolor = (p[2] >> 3) & 1;
       core_apply_layout();
     }
