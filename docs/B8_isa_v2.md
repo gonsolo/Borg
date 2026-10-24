@@ -19,7 +19,8 @@ pipeline that follows it is B9.
 - **Loads, stores and atomics by address in every stage**, with a memory model that carries
   Vulkan's, and later buffer device address and the Vulkan 1.3 memory model.
 - **Subgroup operations** across the four lanes of a quad, with Vulkan 1.1 (the goal is 1.0).
-- **A base-and-limit check** per context as minimal memory protection.
+- **A base-and-limit check** per context as minimal memory protection, with the self-hosted
+  driver (the board runs one process).
 - **One ISA, a configuration per target**: every instruction exists on every target; a target
   may run some of them in more cycles.
 
@@ -345,7 +346,7 @@ Order, cheapest and most independent first:
 11. Addressed `TEX`, `TEXS` and the address-tagged descriptor cache; then the index control word
     and `TEX_DESC_BASE`, `SAMPLER_DESC_BASE` go.
 12. Atomics; then borgc's lane-serial atomics go.
-13. Base and limit.
+13. Base and limit: deferred until the self-hosted driver needs isolation.
 14. `QBALLOT`, `QSHUF`, and the subgroup feature bits in borgvk: deferred to Vulkan 1.1.
 15. The custom ops move to their custom-0..3 encodings, and opcodes 0x00 and 0x04 are empty.
 
