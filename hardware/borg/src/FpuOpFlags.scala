@@ -44,8 +44,6 @@ class FpuOpFlags extends Bundle {
   val barrier = Bool()
   // Gated on hasControlFlow, like expush/exelse/expop -- see Opcodes.FUNCT7_EXANY.
   val exany   = Bool()
-  val qballot = Bool()   // QBALLOT: the active lanes whose rs1 is non-zero
-  val qshuf   = Bool()   // QSHUF: rs1 of the lane rs2 names
   // Early per-fragment tests -- see Opcodes.FUNCT7_ZTEST.
   val ztest   = Bool()
   // Draw front end (BorgConfig.drawEnabled) -- see Opcodes.FUNCT7_SOUT/FATTR.
