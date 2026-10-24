@@ -102,6 +102,8 @@ texs    rs1 rs2 31..25=0 14..12=1 11..7=0 6..2=0x0A 1..0=3
 # v1's go. Operand fields stay where v1 has them.
 frcp.v2   rd rs1 31..25=0 24..20=0 14..12=0 6..2=0x02 1..0=3
 frsq.v2   rd rs1 31..25=1 24..20=0 14..12=0 6..2=0x02 1..0=3
+fexp2     rd rs1 31..25=2 24..20=0 14..12=0 6..2=0x02 1..0=3
+flog2     rd rs1 31..25=3 24..20=0 14..12=0 6..2=0x02 1..0=3
 ddx.v2    rd rs1 fine 31..25=0 14..12=1 6..2=0x02 1..0=3
 ddy.v2    rd rs1 fine 31..25=1 14..12=1 6..2=0x02 1..0=3
 # TLD: the word in the rs2 field.

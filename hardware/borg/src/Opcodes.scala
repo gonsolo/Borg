@@ -554,6 +554,14 @@ object Opcodes {
   val MASK_FRSQ_V2 = 0xfff0707fL
   val OPCODE_FRSQ_V2 = 0x0b
   val FUNCT7_FRSQ_V2 = 0x01
+  val MATCH_FEXP2 = 0x0400000bL
+  val MASK_FEXP2 = 0xfff0707fL
+  val OPCODE_FEXP2 = 0x0b
+  val FUNCT7_FEXP2 = 0x02
+  val MATCH_FLOG2 = 0x0600000bL
+  val MASK_FLOG2 = 0xfff0707fL
+  val OPCODE_FLOG2 = 0x0b
+  val FUNCT7_FLOG2 = 0x03
   val MATCH_DDX_V2 = 0x0000100bL
   val MASK_DDX_V2 = 0xfe00707fL
   val OPCODE_DDX_V2 = 0x0b
@@ -745,6 +753,8 @@ object Opcodes {
   def TEXS(rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_TEXS | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def FRCP_V2(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FRCP_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
   def FRSQ_V2(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FRSQ_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def FEXP2(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FEXP2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def FLOG2(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_FLOG2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
   def DDX_V2(rd: Int = 0, rs1: Int = 0, fine: Int = 0): BigInt = BigInt(MATCH_DDX_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((fine.toLong & 0x1fL) << 20))
   def DDY_V2(rd: Int = 0, rs1: Int = 0, fine: Int = 0): BigInt = BigInt(MATCH_DDY_V2 | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((fine.toLong & 0x1fL) << 20))
   def TLD_V2(rd: Int = 0, fine: Int = 0): BigInt = BigInt(MATCH_TLD_V2 | ((rd.toLong & 0x1fL) << 7) | ((fine.toLong & 0x1fL) << 20))
