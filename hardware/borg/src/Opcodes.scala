@@ -606,6 +606,14 @@ object Opcodes {
   val MASK_BARRIER_V2 = 0xffffffffL
   val OPCODE_BARRIER_V2 = 0x7b
   val FUNCT7_BARRIER_V2 = 0x00
+  val MATCH_QBALLOT = 0x0000207bL
+  val MASK_QBALLOT = 0xfff0707fL
+  val OPCODE_QBALLOT = 0x7b
+  val FUNCT7_QBALLOT = 0x00
+  val MATCH_QSHUF = 0x0200207bL
+  val MASK_QSHUF = 0xfe00707fL
+  val OPCODE_QSHUF = 0x7b
+  val FUNCT7_QSHUF = 0x01
   val MATCH_CSRRW = 0x00001073L
   val MASK_CSRRW = 0x0000707fL
   val OPCODE_CSRRW = 0x73
@@ -766,6 +774,8 @@ object Opcodes {
   def EXPOP_V2(): BigInt = BigInt(MATCH_EXPOP_V2)
   def EXANY_V2(rd: Int = 0): BigInt = BigInt(MATCH_EXANY_V2 | ((rd.toLong & 0x1fL) << 7))
   def BARRIER_V2(): BigInt = BigInt(MATCH_BARRIER_V2)
+  def QBALLOT(rd: Int = 0, rs1: Int = 0): BigInt = BigInt(MATCH_QBALLOT | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15))
+  def QSHUF(rd: Int = 0, rs1: Int = 0, rs2: Int = 0): BigInt = BigInt(MATCH_QSHUF | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20))
   def CSRRW(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRW | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
   def CSRRS(rd: Int = 0, rs1: Int = 0, csr: Int = 0): BigInt = BigInt(MATCH_CSRRS | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((csr.toLong & 0xfffL) << 20))
 }
