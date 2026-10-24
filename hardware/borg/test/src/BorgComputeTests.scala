@@ -361,6 +361,19 @@ object BorgComputeTests extends TestSuite {
       }
     }
 
+    utest.test("flog2_and_fexp2_per_lane") {
+      import Opcodes._
+      // Lane i: r2 = log2(i + 1), r3 = exp2(r2) = i + 1, each lane its own value.
+      val prog = words(ADDI(1, 30, 1), FCVT_S_W(1, 1), FLOG2(2, 1), FEXP2(3, 2), st(30, 2), ADDI(4, 30, 8), st(4, 3))
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, Map(10 -> 0), (1, 1, 1), (4, 1, 1))
+        val l = (0 until 4).map(i => java.lang.Float.intBitsToFloat(word(dram, i).toInt))
+        val e = (0 until 4).map(i => java.lang.Float.intBitsToFloat(word(dram, 8 + i).toInt))
+        println(s"  log2: $l  exp2: $e")
+        utest.assert((0 until 4).forall(i => math.abs(l(i) - math.log(i + 1) / math.log(2)) < 1e-6 && e(i) == (i + 1).toFloat))
+      }
+    }
+
     utest.test("amoadd_and_amocas_serialize_the_lanes") {
       import Opcodes._
       // r14 counter (0x2000, starts 0), r19 a second word (0x2010, starts 100); old values to 0x3000 / 0x3010 + 4 * lane.
