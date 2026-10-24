@@ -96,5 +96,22 @@ class HdmiTop extends RawModule{
         val serClk = Module(new TmdsSerializer)
         serClk.io.en   := tick25
         serClk.io.tmds := "b0000011111".U // Clock pattern
+
+        val bufB = Module(new OBUFDS)
+        bufB.I := serB.io.out
+
+        val bufG = Module(new OBUFDS)
+        bufG.I := serG.io.out
+
+        val bufR = Module(new OBUFDS)
+        bufR.I := serR.io.out
+
+        val bufClk = Module(new OBUFDS)
+        bufClk.I := serClk.io.out
+
+        hdmi_tx_clk_p := bufClk.O
+        hdmi_tx_clk_n := bufClk.OB
+        hdmi_tx_p := Cat(bufR.O, bufG.O, bufB.O)
+        hdmi_tx_n := Cat(bufR.OB, bufG.OB, bufB.OB)
     }
 }
