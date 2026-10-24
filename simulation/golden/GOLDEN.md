@@ -16,8 +16,9 @@ removed once firmware content stopped being baked in — see `borg_kernel.c`; al
 geometry/shaders/textures now arrive from borgvk at runtime.
 
 `borgvk_capture.bin` is one frame of the unmodified Vulkan-Tools vkcube as borgvk
-puts it on the wire (current capture: FP32 datapath, draw-mode shaders, TEX
-sampling with RGBA8 0xAF rows, 2026-09-26, 19220 B):
+puts it on the wire (current capture: FP32 datapath, ISA v2 shaders, TEX
+sampling with RGBA8 0xAF rows, 2026-10-24, 22836 B; the blend and stencil
+captures are from `scenes/*/vkcube-*` the same way):
 
 ```bash
 BORGVK_SIM=/bin/true BORGVK_SIM_FW=software/borg/kernel.bin \
