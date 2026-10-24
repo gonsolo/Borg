@@ -46,35 +46,26 @@ object Instructions {
     BigInt((rs3.toLong << BF_RS3.lo) | (funct2 << 25) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
 
   // @doc:isa-encoders
-  // The ISA v2 form where it is the same operation: no window operand (funct3 = 0) and, for the
-  // RISC-V forms, no r0, which is x0 there.
+  // ISA v2 only: no window operand (funct3 = 0) and no r0, which is x0 in these forms.
   private def rv(f3: Int, regs: Int*) = f3 == 0 && regs.forall(_ != 0)
-  private def r(f7: Int, v2: (Int, Int, Int) => BigInt)(rs1: Int, rs2: Int, rd: Int, f3: Int): BigInt =
-    if (rv(f3, rs1, rs2, rd)) v2(rd, rs1, rs2) else encodeRType(f7, rs2, rs1, rd, f3)
-  private def r1(f7: Int, v2: (Int, Int) => BigInt)(rs1: Int, rd: Int, f3: Int): BigInt =
-    if (rv(f3, rs1, rd)) v2(rd, rs1) else encodeRType(f7, 0, rs1, rd, f3)
-  private def c(f7: Int, rs1: Int, rd: Int, f3: Int, v2: => BigInt): BigInt =
-    if (f3 == 0) v2 else encodeRType(f7, 0, rs1, rd, f3)
-  // Ops whose v1 form is gone: only the v2 form.
   private def only(ok: Boolean, v2: => BigInt): BigInt = { require(ok, "no v1 form: no window operand, no r0"); v2 }
   private def r2(v2: (Int, Int, Int) => BigInt)(rs1: Int, rs2: Int, rd: Int, f3: Int): BigInt = only(rv(f3, rs1, rs2, rd), v2(rd, rs1, rs2))
   private def r12(v2: (Int, Int) => BigInt)(rs1: Int, rd: Int, f3: Int): BigInt = only(rv(f3, rs1, rd), v2(rd, rs1))
 
-  def ADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_FADD, FADD_S(_, _, _))(rs1, rs2, rd, funct3)
-  def MUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_FMUL, FMUL_S(_, _, _))(rs1, rs2, rd, funct3)
-  def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r1(FUNCT7_FNEG, (d, a) => FSGNJN_S(d, a, a))(rs1, rd, funct3)
+  def ADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(FADD_S(_, _, _))(rs1, rs2, rd, funct3)
+  def MUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(FMUL_S(_, _, _))(rs1, rs2, rd, funct3)
+  def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12((d, a) => FSGNJN_S(d, a, a))(rs1, rd, funct3)
   def FMOV(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12((d, a) => FSGNJ_S(d, a, a))(rs1, rd, funct3)
   def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = only(funct3 == 0, FRCP_V2(rd, rs1))
   def IADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(Opcodes.ADD(_, _, _))(rs1, rs2, rd, funct3)
-  def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_ISHL, SLL(_, _, _))(rs1, rs2, rd, funct3)
+  def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SLL(_, _, _))(rs1, rs2, rd, funct3)
   def ISHR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SRA(_, _, _))(rs1, rs2, rd, funct3)
   def IMUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(Opcodes.MUL(_, _, _))(rs1, rs2, rd, funct3)
   def ISUB(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SUB(_, _, _))(rs1, rs2, rd, funct3)
-  def IAND(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_IAND, AND(_, _, _))(rs1, rs2, rd, funct3)
-  def IOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_IOR, OR(_, _, _))(rs1, rs2, rd, funct3)
-  def IXOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_IXOR, XOR(_, _, _))(rs1, rs2, rd, funct3)
+  def IAND(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(AND(_, _, _))(rs1, rs2, rd, funct3)
+  def IOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(OR(_, _, _))(rs1, rs2, rd, funct3)
+  def IXOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(XOR(_, _, _))(rs1, rs2, rd, funct3)
   def ISLT(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SLT(_, _, _))(rs1, rs2, rd, funct3)
-  def ISEQ(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISEQ, rs2, rs1, rd, funct3)
   def I2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_S_W(_, _))(rs1, rd, funct3)
   def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_W_S(_, _, 1))(rs1, rd, funct3)
   def F2H(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_H_S(_, _))(rs1, rd, funct3)
@@ -101,7 +92,7 @@ object Instructions {
     only(rv(funct3, rs1), BNE(4 * offset, rs1, 0))
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt =
-    if (rv(funct3, rs1, rs2, rs3, rd)) FMADD_S(rd, rs1, rs2, rs3) else encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
+    only(rv(funct3, rs1, rs2, rs3, rd), FMADD_S(rd, rs1, rs2, rs3))
   def SMASK(rd: Int): BigInt = CSRRS(rd, 0, Csr.SampleMask)
   def ATTIDX(rd: Int): BigInt = CSRRS(rd, 0, Csr.Attachment)
   def TLD(rd: Int, word: Int = 0): BigInt = only(word < 2, TLD_V2(rd, word))
@@ -113,8 +104,8 @@ object Instructions {
   def ISLTU(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SLTU(_, _, _))(rs1, rs2, rd, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
   def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
-    val (hi, lo) = indexFields(index)
-    if (funct3 == 0) SOUT_V2(rs2, index) else encodeRType(FUNCT7_SOUT, rs2, hi, lo, funct3)
+    indexFields(index)
+    only(funct3 == 0, SOUT_V2(rs2, index))
   }
   /** FATTR: rd..rd+2 = component `index`'s per-vertex values (packed into rs2:rs1). */
   def FATTR(rd: Int, index: Int): BigInt = {

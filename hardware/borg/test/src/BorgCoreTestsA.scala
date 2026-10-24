@@ -245,28 +245,6 @@ object BorgCoreTestsA extends TestSuite {
       }
     }
 
-    utest.test("iseq_int16") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: iseq_int16 ---")
-        idleInputs(core)
-        resetCore(core)
-        writeReg(core, 9, 42)
-        writeReg(core, 1, 42)
-        writeReg(core, 2, 43)
-        // r3 = (r0 == r1); r4 = (r0 == r2)
-        writeImem(core, 0, Instructions.ISEQ(9, 1, 3))
-        writeImem(core, 1, Instructions.ISEQ(9, 2, 4))
-        writeImem(core, 2, 0)
-        startAndWait(core)
-        val eqTrue  = readReg(core, 3).toInt
-        val eqFalse = readReg(core, 4).toInt
-        println(s"  iseq(42, 42) = $eqTrue (expected 1), iseq(42, 43) = $eqFalse (expected 0)")
-        utest.assert(eqTrue == 1)
-        utest.assert(eqFalse == 0)
-        println("  PASSED")
-      }
-    }
-
     utest.test("i2f_int16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: i2f_int16 ---")

@@ -94,6 +94,10 @@ object BorgSetupRomTests extends TestSuite {
   }
 
   val tests = Tests {
+    utest.test("roms_are_isa_v2") {
+      for (p <- Seq(BorgSetupRom.instructions, BorgRasterRom.instructions, BorgRasterRom.drawInstructions))
+        utest.assert(p.forall(w => w == 0 || !Set(0, 4).contains((w & 0x7f).toInt)))
+    }
     utest.test("raster_rom_gives_planes_perspective_barycentrics_and_depth") {
       simulate(new BorgCore(config)) { core =>
         println(s"\n--- Draw-mode raster ROM: ${BorgRasterRom.drawInstructions.size} words ---")

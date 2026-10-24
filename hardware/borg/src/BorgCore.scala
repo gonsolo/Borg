@@ -396,30 +396,21 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     regs.rd  := Instructions.BF_RD(instr)
 
     val flags = Wire(new FpuOpFlags())
-    val opc     = Instructions.BF_OP(instr)
-    val v1      = opc === 0.U
-    val r4      = opc === 4.U
-    // ISA v2 (B8): RISC-V OP, OP-IMM, LUI and AUIPC run on the v1 integer ALU.
     val rv = RvInt(instr)
-    val f7op    = Instructions.BF_F7_OP(instr)
-    // v1 R4-type: FMADD is funct2 = 0; the other funct2 values (FTEX, v1 TEX/TEXA) are retired.
-    val funct2  = instr(26, 25)
-    flags.mul   := v1 && f7op === Opcodes.FUNCT7_FMUL.U || rv.fmul
-    flags.fma   := r4 && funct2 === 0.U || rv.r4
+    flags.mul   := rv.fmul
+    flags.fma   := rv.r4
     flags.negC  := rv.fsub || rv.fmsub || rv.fnmadd
     flags.negProd := rv.fnmadd || rv.fnmsub
-    flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
     flags.frcp  := rv.frcp
     flags.iadd  := rv.add
-    flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U || rv.sll
+    flags.ishl  := rv.sll
     flags.ishr  := rv.sra
     flags.imul  := rv.mul
     flags.isub  := rv.sub
-    flags.iand  := v1 && f7op === Opcodes.FUNCT7_IAND.U || rv.and
-    flags.ior   := v1 && f7op === Opcodes.FUNCT7_IOR.U || rv.or
-    flags.ixor  := v1 && f7op === Opcodes.FUNCT7_IXOR.U || rv.xor
+    flags.iand  := rv.and
+    flags.ior   := rv.or
+    flags.ixor  := rv.xor
     flags.islt  := rv.slt
-    flags.iseq  := v1 && f7op === Opcodes.FUNCT7_ISEQ.U
     flags.f2h   := rv.fcvtHS
     flags.h2f   := rv.fcvtSH
     flags.frsq  := rv.frsq
@@ -445,7 +436,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.isltu  := rv.sltu
     flags.ztest  := rv.ztest
     val draw = cfg.drawEnabled
-    flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U || rv.sout else false.B)
+    flags.sout   := (if (draw) rv.sout else false.B)
     flags.fattr  := (if (draw) rv.fattr else false.B)
     val smp = cfg.samplerEnabled
     flags.tex    := (if (smp) rv.texd else false.B)
@@ -453,7 +444,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.smask  := (if (draw) rv.csrMask else false.B)
     flags.tld    := (if (draw) rv.tld else false.B)
     flags.texa   := (if (smp) rv.texad else false.B)
-    flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U)))
+    flags.funct3 := Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
     flags.rvx  := rv.rvx
@@ -580,8 +571,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val op_en_del = RegNext(op_en, false.B)
     val funct3_del = RegEnable(opFlags.funct3, op_en)
 
-    val uniform_addr = Mux(opFlags.funct3 === 1.U, regs.rs1,
-                       Mux(opFlags.funct3 === 2.U, regs.rs2, regs.rs3))
+    val uniform_addr = regs.rs1
     val unifReadAddr = if (cfg.maxUniforms > 32) {
       val read_page = Mux(running_by_rasterizer, io.uniformPage, io.control.uniformWritePage)
       Cat(read_page, uniform_addr(4, 0))

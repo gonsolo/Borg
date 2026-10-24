@@ -18,10 +18,10 @@ object BorgCoreTestsB extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        // Run fmul: r0=2.0, r1=3.0 → r2=6.0
-        writeReg(core, 0, floatToBits(2.0f))
+        // Run fmul: r9=2.0, r1=3.0 → r2=6.0
+        writeReg(core, 9, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.MUL(0, 1, 2))
+        writeImem(core, 0, Instructions.MUL(9, 1, 2))
         writeImem(core, 1, 0)
 
         startAndWait(core)
@@ -47,7 +47,6 @@ object BorgCoreTestsB extends TestSuite {
         core.io.iter(0).y.poke(10.U)
 
         // fadd r2, r30, r31 → r2 = coordLut[5] + coordLut[10] = 5.5 + 10.5 = 16.0
-        writeReg(core, 0, 0)
         writeReg(core, 1, 0)
         writeImem(core, 0, Instructions.ADD(30, 31, 2))
         writeImem(core, 1, 0)
@@ -70,10 +69,10 @@ object BorgCoreTestsB extends TestSuite {
         // IMEM[0]: fmul r2, r0, r1  → r2 = 6.0
         // IMEM[1]: fadd r3, r2, r0  → r3 = 6.0 + 2.0 = 8.0
         // IMEM[2]: halt
-        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 9, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.MUL(0, 1, 2))
-        writeImem(core, 1, Instructions.ADD(2, 0, 3))
+        writeImem(core, 0, Instructions.MUL(9, 1, 2))
+        writeImem(core, 1, Instructions.ADD(2, 9, 3))
         writeImem(core, 2, 0)
 
         startAndWait(core)
@@ -82,109 +81,6 @@ object BorgCoreTestsB extends TestSuite {
         println(f"  r2 = $r2%.2f (expected 6.0), r3 = $r3%.2f (expected 8.0)")
         utest.assert(math.abs(r2 - 6.0f) < 0.1f)
         utest.assert(math.abs(r3 - 8.0f) < 0.1f)
-        println("  PASSED")
-      }
-    }
-
-    utest.test("uniform_funct3_01_rs1") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: uniform_funct3_01_rs1 ---")
-        idleInputs(core)
-        resetCore(core)
-
-        // u5 = 7.0, r1 = 3.0
-        // fadd with funct3=01: r2 = u5 + r1 = 7.0 + 3.0 = 10.0
-        writeUniform(core, 5, floatToBits(7.0f))
-        writeReg(core, 1, floatToBits(3.0f))
-
-        // Encode fadd with funct3=1 (rs1 from uniform): ADD(rs1=5, rs2=1, rd=2)
-        val instr = Instructions.encodeRType(Opcodes.FUNCT7_FADD, 1, 5, 2, funct3 = 1)
-        writeImem(core, 0, instr)
-        writeImem(core, 1, 0)
-
-        // Read out uniform buffer 5 using peek
-        core.clock.step(2)
-        // uniformMem isn't exposed, so we can't peek it directly from the wrapper easily.
-        // Let's just start and see what happens.
-        startAndWait(core)
-        val result = bitsToFloat(readReg(core, 2))
-        println(f"  fadd(u5=7.0, r1=3.0) funct3=01 = $result%.2f (expected 10.0)")
-        utest.assert(math.abs(result - 10.0f) < 0.1f)
-        println("  PASSED")
-      }
-    }
-
-    utest.test("uniform_funct3_10_rs2") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: uniform_funct3_10_rs2 ---")
-        idleInputs(core)
-        resetCore(core)
-
-        // r0 = 4.0, u3 = 5.0
-        // fmul with funct3=10: r2 = r0 * u3 = 4.0 * 5.0 = 20.0
-        writeReg(core, 0, floatToBits(4.0f))
-        writeUniform(core, 3, floatToBits(5.0f))
-
-        // Encode fmul with funct3=2 (rs2 from uniform): MUL(rs1=0, rs2=3, rd=2)
-        val instr = Instructions.encodeRType(Opcodes.FUNCT7_FMUL, 3, 0, 2, funct3 = 2)
-        writeImem(core, 0, instr)
-        writeImem(core, 1, 0)
-
-        startAndWait(core)
-        val result = bitsToFloat(readReg(core, 2))
-        println(f"  fmul(r0=4.0, u3=5.0) funct3=10 = $result%.2f (expected 20.0)")
-        utest.assert(math.abs(result - 20.0f) < 0.5f)
-        println("  PASSED")
-      }
-    }
-
-    utest.test("uniform_funct3_11_rs3") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: uniform_funct3_11_rs3 ---")
-        idleInputs(core)
-        resetCore(core)
-
-        // r0 = 2.0, r1 = 3.0, u4 = 1.0
-        // fmadd with funct3=11: r2 = r0 * r1 + u4 = 6.0 + 1.0 = 7.0
-        writeReg(core, 0, floatToBits(2.0f))
-        writeReg(core, 1, floatToBits(3.0f))
-        writeUniform(core, 4, floatToBits(1.0f))
-
-        // Encode fmadd with funct3=3 (rs3 from uniform): FMA(rs1=0, rs2=1, rs3=4, rd=2)
-        val instr = Instructions.encodeR4Type(4, 0, 1, 0, 2, funct3 = 3)
-        writeImem(core, 0, instr)
-        writeImem(core, 1, 0)
-
-        startAndWait(core)
-        val result = bitsToFloat(readReg(core, 2))
-        println(f"  fmadd(r0=2.0, r1=3.0, u4=1.0) funct3=11 = $result%.2f (expected 7.0)")
-        utest.assert(math.abs(result - 7.0f) < 0.1f)
-        println("  PASSED")
-      }
-    }
-
-    utest.test("uniform_funct3_00_backward_compat") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: uniform_funct3_00_backward_compat ---")
-        idleInputs(core)
-        resetCore(core)
-
-        // Same as fadd_fp16 test but with uniform buffer populated
-        // to prove funct3=00 ignores the uniform buffer entirely.
-        writeUniform(core, 0, floatToBits(999.0f))
-        writeUniform(core, 1, floatToBits(888.0f))
-        writeReg(core, 0, floatToBits(2.0f))
-        writeReg(core, 1, floatToBits(3.0f))
-
-        // fadd r2, r0, r1 with funct3=0 (default): should read from GPRs
-        val instr = Instructions.ADD(0, 1, 2)
-        writeImem(core, 0, instr)
-        writeImem(core, 1, 0)
-
-        startAndWait(core)
-        val result = bitsToFloat(readReg(core, 2))
-        println(f"  fadd(r0=2.0, r1=3.0) funct3=00 = $result%.2f (expected 5.0, NOT 999+888)")
-        utest.assert(math.abs(result - 5.0f) < 0.01f)
         println("  PASSED")
       }
     }
@@ -203,10 +99,8 @@ object BorgCoreTestsB extends TestSuite {
         core.io.control.uniformWritePage.poke(1.U)
         writeUniform(core, 5, floatToBits(222.0f))
 
-        // Program: fadd r2, u5, r0 (funct3=01: rs1 from uniform buffer)
-        // Instruction encodes rs1=5 -> uniform index 5; rs2=0 -> GPR r0 = 0.0
-        writeReg(core, 0, floatToBits(0.0f))  // r0 = 0 (additive identity)
-        val uload_instr = Instructions.ADD(5, 0, 2, funct3 = 1)  // result = uniform[5] + 0.0
+        // Program: r2 = uniform 5, through its CSR
+        val uload_instr = Opcodes.CSRRS(2, 0, Csr.Uniform0 + 5)
         writeImem(core, 0, uload_instr)
         writeImem(core, 1, 0)  // halt
 
@@ -243,8 +137,8 @@ object BorgCoreTestsB extends TestSuite {
 
         def testFrcp(input: Float, expected: Float, label: String): Unit = {
           resetCore(core)
-          writeReg(core, 0, floatToBits(input))
-          writeImem(core, 0, Instructions.FRCP(rs1 = 0, rd = 2))
+          writeReg(core, 9, floatToBits(input))
+          writeImem(core, 0, Instructions.FRCP(rs1 = 9, rd = 2))
           writeImem(core, 1, 0)  // halt
           startAndWait(core)
           val result = bitsToFloat(readReg(core, 2))
@@ -274,8 +168,8 @@ object BorgCoreTestsB extends TestSuite {
 
         def testFrsq(input: Float, expected: Float, label: String): Unit = {
           resetCore(core)
-          writeReg(core, 0, floatToBits(input))
-          writeImem(core, 0, Instructions.FRSQ(rs1 = 0, rd = 2))
+          writeReg(core, 9, floatToBits(input))
+          writeImem(core, 0, Instructions.FRSQ(rs1 = 9, rd = 2))
           writeImem(core, 1, 0) // halt
           startAndWait(core)
           val result = bitsToFloat(readReg(core, 2))

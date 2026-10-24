@@ -12,61 +12,6 @@ object BorgCoreTestsC extends TestSuite {
 
   val tests = Tests {
 
-    utest.test("borgc_vertex_shader_mvp") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: borgc_vertex_shader_mvp (compiled cube.c vertex shader) ---")
-        idleInputs(core)
-        resetCore(core)
-
-        def writeUniform(idx: Int, bits: BigInt): Unit =
-          writeCore(core, 432 + idx * 4, bits)
-
-        // The exact program borgc emits from cube.c's SPIR-V: 3 position pre-loads
-        // (FADD r24..r26 = u2..u0; pos.w folded to the constant 1.0), 16-op
-        // column-major MVP·pos accumulation (col3 loaded as the direct bias), then
-        // the 5-word epilogue FRCP r4,r3 / FMUL r0/r1/r2 *= r4 / HALT.
-        val prog = Seq(
-          0x01e11c00L, 0x01e09c80L, 0x01e01d00L,
-          0x01ea1280L, 0x01ea9300L, 0x01eb1380L, 0x01eb9400L,
-          0x29881484L, 0x31889284L, 0x39891304L, 0x41899384L,
-          0x49961404L, 0x29969484L, 0x31971284L, 0x39979304L,
-          0x41a41004L, 0x49a49084L, 0x29a51104L, 0x31a59184L,
-          0x0001820BL, 0x08400000L, 0x08408080L, 0x08410100L,
-          0x00000000L)
-        for ((w, i) <- prog.zipWithIndex) writeImem(core, i, BigInt(w))
-
-        // r30/r31 read 0 only when seqBusy — the position pre-loads (u + r30) need it.
-        core.io.seqBusy.poke(true.B)
-
-        // position (u0..u2) = (1, 2, 3); pos.w is folded to 1.0 by the compiler, so
-        // u3 is NOT read — set it to garbage (on real HW u3 holds color.r) to prove
-        // the shader is independent of it.
-        writeUniform(0, floatToBits(1.0f))
-        writeUniform(1, floatToBits(2.0f))
-        writeUniform(2, floatToBits(3.0f))
-        writeUniform(3, floatToBits(7.0f)) // garbage — must not affect the result
-
-        // Viewport-baked MVP, column-major in u8..u23 (u = 8 + col*4 + row):
-        //   col0=[1,0,0,0] col1=[0,1,0,0] col2=[0,0,1,0] col3=[0,0,0,2]
-        // → identity on x/y/z, clip_w = 2·pos.w (a power of two → exact 1/w).
-        val mvp = Array(
-          1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 2f)
-        for (i <- 0 until 16) writeUniform(8 + i, floatToBits(mvp(i)))
-
-        startAndWait(core)
-
-        val sx = bitsToFloat(readReg(core, 0))
-        val sy = bitsToFloat(readReg(core, 1))
-        val sz = bitsToFloat(readReg(core, 2))
-        // clip = MVP·pos = (1, 2, 3, 2); inv_w = 0.5; screen = (0.5, 1.0, 1.5).
-        println(f"  screen = ($sx%.3f, $sy%.3f, $sz%.3f)  expected (0.5, 1.0, 1.5)")
-        utest.assert(math.abs(sx - 0.5f) < 0.02f)
-        utest.assert(math.abs(sy - 1.0f) < 0.03f)
-        utest.assert(math.abs(sz - 1.5f) < 0.04f)
-        println("  PASSED")
-      }
-    }
-
     utest.test("load_reads_dram_into_a_register") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: LW ---")

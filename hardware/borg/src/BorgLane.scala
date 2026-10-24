@@ -151,8 +151,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- Register reads + uniform operand mux ---
   val (recA, recB, recC, mmioD) = wireGprReads()
   private val recA_raw = Mux(io.ovA.valid, io.ovA.bits, Mux(io.funct3Del === 1.U, io.uniformData, recA))
-  private val recB_raw = Mux(io.ovB.valid, io.ovB.bits, Mux(io.funct3Del === 2.U, io.uniformData, recB))
-  private val recC_raw = Mux(io.funct3Del === 3.U, io.uniformData, recC)
+  private val recB_raw = Mux(io.ovB.valid, io.ovB.bits, recB)
+  private val recC_raw = recC
   io.recARaw := recA_raw
   io.recBRaw := recB_raw
   io.recCRaw := recC_raw
@@ -244,7 +244,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     val is_mul_reg = RegInit(false.B)
     val is_fma_reg = RegInit(false.B)
-    val is_fneg_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
     val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
@@ -258,7 +257,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // result always arrives via the memWrite override below (BorgCore's
       // wireSampler), last-connect-wins over whatever this path produces.
       is_fma_reg := opFlags.fma
-      is_fneg_reg := opFlags.fneg
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
       is_deriv_reg := opFlags.ddx || opFlags.ddy
@@ -271,9 +269,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
         val c = Mux(is_deriv_reg, io.crossC,
                         Mux(is_fma_reg, recC_raw,
-                        Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw)))
+                        Mux(is_mul_reg, 0.U(config.totalBits.W), recB_raw)))
         fma.io.c := c ^ Cat(negC_reg, 0.U((config.totalBits - 1).W))
-        fma.io.negate := is_fneg_reg || negProd_reg
+        fma.io.negate := negProd_reg
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
         // Registered result ready for write-back/snoop at counter==1.
@@ -380,7 +378,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_ior_reg  = RegInit(false.B)
     val is_ixor_reg = RegInit(false.B)
     val is_islt_reg = RegInit(false.B)
-    val is_iseq_reg = RegInit(false.B)
     val is_f2h_reg  = RegInit(false.B)
     val is_h2f_reg  = RegInit(false.B)
     val is_exany_reg = RegInit(false.B)
@@ -404,7 +401,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_ior_reg  := opFlags.ior
       is_ixor_reg := opFlags.ixor
       is_islt_reg := opFlags.islt
-      is_iseq_reg := opFlags.iseq
       is_f2h_reg  := opFlags.f2h
       is_h2f_reg  := opFlags.h2f
       is_exany_reg := opFlags.exany
@@ -427,7 +423,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val islt = Mux(recA_raw.asSInt < recB_raw.asSInt, 1.U(w.W), 0.U(w.W))
     val isrl = (recA_raw >> shamt)(w - 1, 0)
     val isltu = Mux(recA_raw < recB_raw, 1.U(w.W), 0.U(w.W))
-    val iseq = Mux(recA_raw === recB_raw, 1.U(w.W), 0.U(w.W))
     val exany = Mux(io.execAny, 1.U(w.W), 0.U(w.W))
 
     // F2H/H2F: the boundary conversions of Fp16Fp32 (one narrow is already shared with the special functions).
@@ -446,14 +441,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_islt_reg, islt,
                  Mux(is_isrl_reg, isrl,
                  Mux(is_isltu_reg, isltu,
-                 Mux(is_iseq_reg, iseq,
                  Mux(is_exany_reg, exany,
                  Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_f2h_reg,  f2h, h2f)))))))))))))))))
+                 Mux(is_f2h_reg,  f2h, h2f))))))))))))))))
     val is_int = is_rvx_reg || is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_tld_reg || is_f2h_reg || is_h2f_reg
+                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_exany_reg || is_smask_reg || is_tld_reg || is_f2h_reg || is_h2f_reg
     (result, is_int)
   }
 

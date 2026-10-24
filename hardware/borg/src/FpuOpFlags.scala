@@ -8,7 +8,6 @@ import chisel3._
 class FpuOpFlags extends Bundle {
   val fma    = Bool()
   val mul    = Bool()
-  val fneg   = Bool()
   val frcp   = Bool()
   // Integer ALU ops (16-bit, operate on the raw register bits).
   val iadd   = Bool()
@@ -20,7 +19,6 @@ class FpuOpFlags extends Bundle {
   val ior    = Bool()
   val ixor   = Bool()
   val islt   = Bool()
-  val iseq   = Bool()
   val f2h    = Bool()   // FP32 -> FP16 (round to nearest even)
   val h2f    = Bool()   // FP16 -> FP32 (exact)
   val frsq   = Bool()
