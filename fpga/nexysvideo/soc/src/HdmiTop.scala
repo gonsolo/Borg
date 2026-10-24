@@ -3,6 +3,8 @@ package nexysvideo
 import chisel3._
 import chisel3.util._
 
+import soc.TmdsEncoder
+
 class HdmiTop extends RawModule{
     val clk = IO(Input(Clock()))
     val cpu_resetn = IO(Input(Bool()))
@@ -48,8 +50,8 @@ class HdmiTop extends RawModule{
         }
 
         val de = (hCount < hActive) && (vCount < vActive) // inside visible picture
-        val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync)) // 
-        val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync))
+        val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync)) // pulse telling monitor to start new line
+        val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync)) // pulse telling monitor to start new frame
 
         // Color bars: 8 vertical bars
         // hActive is 640. 640 / 8 = 80 pixels per bar.
@@ -60,5 +62,39 @@ class HdmiTop extends RawModule{
         val red   = Mux(de && (barIdx === 0.U || barIdx === 1.U || barIdx === 4.U || barIdx === 5.U), 255.U(8.W), 0.U(8.W))
         val green = Mux(de && (barIdx === 0.U || barIdx === 1.U || barIdx === 2.U || barIdx === 3.U), 255.U(8.W), 0.U(8.W))
         val blue  = Mux(de && (barIdx === 0.U || barIdx === 2.U || barIdx === 4.U || barIdx === 6.U), 255.U(8.W), 0.U(8.W))
+
+        val encB = Module(new TmdsEncoder)
+        encB.io.en   := tick25
+        encB.io.data := blue
+        encB.io.c    := Cat(vsync, hsync)
+        encB.io.de   := de
+
+        val encG = Module(new TmdsEncoder)
+        encG.io.en   := tick25
+        encG.io.data := green
+        encG.io.c    := 0.U
+        encG.io.de   := de
+
+        val encR = Module(new TmdsEncoder)
+        encR.io.en   := tick25
+        encR.io.data := red
+        encR.io.c    := 0.U
+        encR.io.de   := de
+
+        val serB = Module(new TmdsSerializer)
+        serB.io.en   := tick25
+        serB.io.tmds := encB.io.tmds
+
+        val serG = Module(new TmdsSerializer)
+        serG.io.en   := tick25
+        serG.io.tmds := encG.io.tmds
+
+        val serR = Module(new TmdsSerializer)
+        serR.io.en   := tick25
+        serR.io.tmds := encR.io.tmds
+
+        val serClk = Module(new TmdsSerializer)
+        serClk.io.en   := tick25
+        serClk.io.tmds := "b0000011111".U // Clock pattern
     }
 }
