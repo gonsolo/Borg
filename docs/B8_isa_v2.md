@@ -150,6 +150,7 @@ reads and writes registers only where an instruction names them.
 | r5-r7 barycentrics, r8 1/w | CSR `bary0`..`bary2`, `inv_w` |
 | r0-r4, r9-r14 raster ROM state, r29 FragCoord.z | rasterizer-internal; the shader reads `frag_z` |
 | r24 alpha, r26-r28 colour, r29 depth | CSR writes `out_c0`..`out_c3` (R, G, B, A or raw words), `out_depth` |
+| r0-r3 gl_Position (vertex) | CSR writes `out_pos0`..`out_pos3` (0x808-0x80B), x..w |
 | r25 kill | CSR write `discard` (sticky) |
 | r19 sample mask, `SMASK` | CSR `sample_mask` (read: coverage; write: output mask) |
 | `ATTIDX` | CSR `attachment` (0xCCF; attachment + 4 * slice) |

@@ -27,8 +27,8 @@ assembly (list, strip or fan, with optional 16- or 32-bit indices and
 primitive restart) gives every triangle three vertex indices. **One**
 vertex-shader run per triangle shades all three corners at once, one per SIMT
 lane, with `VertexIndex`/`InstanceIndex` in r30/r31. The shader fetches its
-own attributes with `LOAD` (vertex pulling), leaves the clip-space position in
-r0-r3, and writes varyings to the triangle's record in memory with a new
+own attributes with `LOAD` (vertex pulling), writes the clip-space position to
+the CSRs `out_pos0`..`out_pos3`, and writes varyings to the triangle's record in memory with a new
 store, `SOUT`. A fixed-function **setup program in ROM** (`BorgSetupRom`)
 turns the three clip-space positions into screen-space planes by inverting the
 3x3 homogeneous vertex matrix (**2D homogeneous rasterization**, Olano and
@@ -109,7 +109,7 @@ allows.
 | r30      | `VertexIndex` (integer)                                    |
 | r31      | `InstanceIndex` (integer)                                  |
 | u25-u31  | the constant window, loaded from `DRAW_VS_CONST` once per draw |
-| r0-r3    | output: clip-space X, Y, Z, W, when the shader halts       |
+| `out_pos0..3` | output CSRs: clip-space X, Y, Z, W                      |
 
 Lanes 0-2 are the triangle's three corners; lane 3 is masked off. A
 single-lane build runs the shader three times. The shader reaches vertex
@@ -471,10 +471,11 @@ on every configuration. All addresses are GPU byte addresses.
 
     IMUL  r9, r30, u26        ; VertexIndex * stride        (funct3 = 2)
     IADD  r9, r9, u25         ; + vertex buffer word address
-    LOAD  r0, r9              ; X      then IADD r9, r9, u27 between loads
-    LOAD  r1, r9              ; Y
-    LOAD  r2, r9              ; Z
-    LOAD  r3, r9              ; W      -> r0..r3 is the clip-space position
+    LOAD  r1, r9              ; X      then IADD r9, r9, u27 between loads
+    LOAD  r2, r9              ; Y
+    LOAD  r3, r9              ; Z
+    LOAD  r4, r9              ; W
+    CSRRW x0, out_pos0, r1    ; .. out_pos3, r4: the clip-space position
     LOAD  r10, r9             ; r
     LOAD  r11, r9             ; g
     SOUT  r10, 0              ; varying 0
