@@ -1,9 +1,9 @@
 # ISA v2
 
-Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-4, 7a-b,
-8-12 and 15 done; 5, 6, 13, 14 open; 7c moved to B9). The v1 forms are gone except the ten that
-read the window or r0 until 7c (`FADD`, `FMUL`, `FMA`, `FNEG`, `ISHL`, `IAND`, `IOR`, `IXOR`,
-`ISEQ`, `SOUT`) and `FSRGB` (step 6). The private window below is not built: borgc keeps local
+Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-12 except
+7c, and 15, done; 13, 14 open; 7c moved to B9). The v1 forms are gone except the ten that read
+the window or r0 until 7c (`FADD`, `FMUL`, `FMA`, `FNEG`, `ISHL`, `IAND`, `IOR`, `IXOR`, `ISEQ`,
+`SOUT`). An 8-bit tile's multi-pass resolve averages an sRGB attachment's stored codes. The private window below is not built: borgc keeps local
 arrays in registers and does not spill shaders that need helper lanes, so nothing uses it yet. The current ISA (v1) is
 `hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `fe1c9897`. The
 pipeline that follows it is B9.

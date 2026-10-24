@@ -65,11 +65,14 @@ The compiler therefore does per format:
 | R8_UNORM/UINT/SINT | RAW8 | round(v*255) or the integer, masked | UNORM: shader blend on the unpacked value |
 | R8G8_*, R16_UINT/SINT/SFLOAT, A1R5G5B5 | RAW16 | shifts and ORs; F16 by bit arithmetic | UNORM and R16_SFLOAT: shader blend |
 | R8G8B8A8/A8B8G8R8 UINT/SINT | RAW32 | bytes | none (integer) |
-| R8G8B8A8/B8G8R8A8/A8B8G8R8 SRGB | RAW32 | `FSRGB` per colour channel | decode `TLD` (a 256-entry table), blend in linear, encode |
+| R8G8B8A8/B8G8R8A8/A8B8G8R8 SRGB | RGBA8/BGRA8 + sRGB bit | none: the loader decodes, the flusher encodes (`SrgbCodec`); an 8-bit tile keeps the sRGB bytes | shader blend on the linear colour, `TLD` reads it as FP16 halves; resolve in linear |
 | A2B10G10R10_UNORM/UINT | RAW32 | 10/10/10/2 bits | UNORM: shader blend |
 | R16G16_*, R32_* | RAW32 | halves / the word | R16G16_SFLOAT: shader blend |
 | R16G16B16A16_*, R32G32_* | RAW64 | two words | R16G16B16A16_SFLOAT: shader blend (both words resident: DST_ALPHA works) |
 | R32G32B32A32_* | RAW128 | words 0-1, then 2-3 by slice | not required |
+
+R8_SRGB and R8G8_SRGB are not colour attachments (optional in Vulkan); only RGBA8 and BGRA8 have the
+tile path's sRGB conversion.
 
 A masked channel keeps its `TLD` value. Integer formats neither blend nor
 convert: Vulkan writes their value as is.
