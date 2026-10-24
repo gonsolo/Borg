@@ -436,7 +436,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
       g.waccept := false.B
     }
-    core.io.lsBase.foreach(_ := rdlRegs.io.hw.ls_base_base_addr)
     core.io.root := rdlRegs.io.hw.root_addr
     // Burst length: the flusher streams whole tiles, a wide word is two
     // halfwords (see wideWr above), everything else is 1 word.

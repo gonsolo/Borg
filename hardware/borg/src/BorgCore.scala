@@ -93,10 +93,6 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // program produces wrong results; this makes that detectable rather than
   // silent, same reasoning as branchDivergent.
   val execFault = Output(Bool())
-  // LS_BASE: the base address loads and stores are relative to. Effectively
-  // the SSBO descriptor -- see Opcodes.FUNCT7_LOAD for why the register
-  // operand is an index rather than a full address.
-  val lsBase  = if (cfg.hasMemoryOps) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   val root    = Input(UInt(32.W))                          // CSR root (ISA v2)
 
   // Raw invocation IDs for r30/r31 and the lanes a trigger starts with:
@@ -437,8 +433,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
     // not accidentally an ADD.
-    flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U || rv.load || rv.amo else false.B)
-    flags.store := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_STORE.U || rv.store else false.B)
+    flags.load  := (if (cfg.hasMemoryOps) rv.load || rv.amo else false.B)
+    flags.store := (if (cfg.hasMemoryOps) rv.store else false.B)
     val cf = cfg.hasControlFlow
     flags.branch := rv.br || rv.jal
     flags.expush := (if (cf) rv.expush else false.B)
@@ -929,12 +925,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_store_reg = RegInit(false.B)
     val is_sout_reg  = RegInit(false.B)
     val is_fattr_reg = RegInit(false.B)
-    // STORE with rd = 1: private memory (Function/Private storage -- the
-    // compiler's spills and local arrays), which helper invocations must
-    // still write (shaders.adoc: their stores have no effect "except for the
-    // Function, Private and Output storage classes").
-    val is_private_reg = RegInit(false.B)
-    // ISA v2 LB..LW and SW: byte address rs1 + imm instead of LS_BASE + (index << 2).
+    // LB..LW, SW and the AMOs: byte address rs1 + imm.
     val rvMem = RegInit(false.B); val rvWidth = Reg(UInt(3.W)); val rvImm = Reg(UInt(32.W))
     val isAmo = RegInit(false.B); val amoOp = Reg(UInt(5.W)); val amoNew = Reg(UInt(32.W))
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
@@ -943,7 +934,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       isAmo := rv.amo; amoOp := rv.amoOp
       is_load_reg  := opFlags.load
       is_store_reg := opFlags.store || opFlags.sout
-      is_private_reg := opFlags.store && Instructions.BF_RD(fetchedInstruction) === 1.U
       is_sout_reg  := opFlags.sout
       is_fattr_reg := opFlags.fattr
     }
@@ -962,12 +952,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val curData  = VecInit(dataOperands)(memLaneIdx)
     val curCmp   = VecInit(cmpOperands)(memLaneIdx)
 
-    // Effective address: LS_BASE + (index << 2). The shift is what makes the
-    // index a word index and misalignment unrepresentable; +& keeps the carry
-    // so a base near the top of the space does not wrap silently.
+    // Word accesses are aligned: the low address bits select within the word.
     val rvAddr = (curIndex.pad(32) + rvImm)(31, 0)
-    val lsAddr = Mux(rvMem, Cat(rvAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)),
-                     (io.lsBase.get +& (curIndex << 2))(GpuMemIO.AddrBits - 1, 0))
+    val lsAddr = Cat(rvAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W))
     def rvLoadData(w: UInt): UInt = {
       val sh = (w >> Cat(rvAddr(1, 0), 0.U(3.W)))(31, 0)
       MuxLookup(rvWidth, w)(Seq(0.U -> sh(7, 0).asSInt.pad(32).asUInt, 1.U -> sh(15, 0).asSInt.pad(32).asUInt,
@@ -1057,7 +1044,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // applies to a sequencer-run program: a vertex shader's or the setup
     // ROM's SOUT must not inherit it.
     val laneActive = VecInit(execMask.asBools)(memLaneIdx) && soutLaneOk &&
-                     !((is_store_reg || isAmo) && !is_private_reg && !io.seqBusy && io.laneHelper.get(memLaneIdx))
+                     !((is_store_reg || isAmo) && !io.seqBusy && io.laneHelper.get(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
       busy_counter := busy_counter

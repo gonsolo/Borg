@@ -159,7 +159,6 @@ object BorgCoreTestHelpers {
       c.r31.foreach(_.poke(0.U))
     }
     core.io.gpuMem.get.waccept.poke(false.B)
-    core.io.lsBase.get.poke(0.U)
     core.io.drawMode.foreach(_.poke(false.B))
     core.io.drawSingle.foreach(_.poke(false.B))
     core.io.setupShort.foreach(_.poke(false.B))

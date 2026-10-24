@@ -26,9 +26,8 @@ static int run_compute(const char *jobf, const char *outf) {
   auto rd = [&]() { uint32_t v = b[p] | b[p+1] << 8 | b[p+2] << 16 | (uint32_t)b[p+3] << 24; p += 4; return v; };
   uint32_t nprog = rd(), gx = rd(), gy = rd(), gz = rd(), lx = rd(), ly = rd(), lz = rd(), nregs = rd(), nbufs = rd(), bx = rd(), by = rd(), bz = rd();
   DirectSim sim;
-  const uint32_t GPR = 0, IMEM = 128, CONTROL = 424, LS_BASE = 724, C_CTRL = 752, C_PC = 756, C_XY = 760, C_Z = 764, C_LOCAL = 768;
+  const uint32_t GPR = 0, IMEM = 128, CONTROL = 424, C_CTRL = 752, C_PC = 756, C_XY = 760, C_Z = 764, C_LOCAL = 768;
   sim.mmio(CONTROL, true, 2);
-  sim.mmio(LS_BASE, true, 0);
   // IMEM holds 72 words; a longer program lives in DRAM (docs/B0_compiler_contract.md, "All
   // shaders: program length and the instruction cache"): CODE_BASE is written before the IMEM
   // words, because that write flushes the cache and the IMEM writes that follow are the prefill.

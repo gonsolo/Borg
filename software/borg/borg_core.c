@@ -269,11 +269,10 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
 
 static uint32_t g_push_used;
 #ifdef BORG_HOST
-// A draw's LOAD base: its uniform buffer, else the pushed constants, else the default UBO.
+// A draw's LW base: its uniform buffer, else the pushed constants, else the default UBO.
 static uint32_t draw_ls_base(int stage) {
-  uint32_t b = (g_dp.push_stage >> stage & 1) ? BORG_PUSH_CONST_SPI
-             : g_dp.ubo_base ? g_dp.ubo_base : g_push_used ? BORG_PUSH_CONST_SPI : DRAW_UBO_SPI;
-  return b & LS_BASE_REG_T__BASE_ADDR_bm;
+  return (g_dp.push_stage >> stage & 1) ? BORG_PUSH_CONST_SPI
+       : g_dp.ubo_base ? g_dp.ubo_base : g_push_used ? BORG_PUSH_CONST_SPI : DRAW_UBO_SPI;
 }
 #endif
 
@@ -284,14 +283,12 @@ static uint32_t root_table(uint32_t at, uint32_t ls, uint32_t tex, uint32_t samp
   return at;
 }
 
-// Push constants: stage the range and point LS_BASE at it (LOAD/STORE already exist). LS_BASE is
-// rewritten on every call because it is also the base for ordinary SSBO-style LOAD/STORE.
+// Push constants: stage the range and point the root table's LW base at it.
 void borg_set_push_constants(const uint32_t *words, uint32_t off_words, uint32_t nwords) {
   if (!words || nwords == 0) return;
   if (off_words >= BORG_PUSH_CONST_MAX_WORDS) return;
   if (nwords > BORG_PUSH_CONST_MAX_WORDS - off_words) nwords = BORG_PUSH_CONST_MAX_WORDS - off_words;
   for (uint32_t i = 0; i < nwords; i++) BDRAM_W(BORG_PUSH_CONST_SPI + (off_words + i) * 4, words[i]);
-  BREG_W(ls_base, BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
   BREG_W(root, root_table(DRAW_ROOT_SPI, BORG_PUSH_CONST_SPI, TEX_DESC_TABLE_ADDR, SAMPLER_DESC_TABLE_ADDR));
   g_push_used = 1;
 }
@@ -404,7 +401,6 @@ void borg_core_render(int frame) {
   BREG_W(viewport_ox, half_width_f);  BREG_W(viewport_oy, half_height_f);
   BREG_W(depth_scale, BORG_FLOAT_ONE); BREG_W(depth_offset, BORG_FLOAT_ZERO);
 
-  BREG_W(ls_base, DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
   BREG_W(root, root_table(DRAW_ROOT_SPI, DRAW_UBO_SPI, TEX_DESC_TABLE_ADDR, SAMPLER_DESC_TABLE_ADDR));
   // The shaders' constant windows, from their blobs' draw extensions (range-checked in borg_stage_shader).
   for (int i = 0; i < g_draw_vert.num_window; i++)
@@ -548,7 +544,6 @@ void borg_core_list_draw(void) {
   LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, blob_instrs(g_sh[1].blob) > 63 ? 63 : blob_instrs(g_sh[1].blob));
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
-  LREG(st, n, ls_base, draw_ls_base(1));
   int root_i = n;
   LREG(st, n, root, draw_ls_base(1));   // the table's address replaces it once the block is new
   LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
@@ -584,7 +579,6 @@ void borg_core_list_draw(void) {
   // The vertex shader's attribute descriptors are slots BORG_VATTR_SLOT0.. of ITS table: the
   // state block's table is the fragment shader's, which Pass 2 writes back.
   LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
-  LREG(pr, m, ls_base, draw_ls_base(0));   // the vertex shader's LOADs
   LREG(pr, m, root, root_table(list_alloc(16), draw_ls_base(0), g_list.vtab_addr - BORG_VATTR_SLOT0 * 64,
                                SAMPLER_DESC_TABLE_ADDR));
   uint32_t params = list_block(pr, m);

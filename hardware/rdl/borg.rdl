@@ -900,26 +900,11 @@ reg scissor_y_reg_t {
     field { sw = rw; hw = na; } RSVD[5] = 0;
 };
 
-// --- Load/store base address (Step 50) ---
-reg ls_base_reg_t {
-    name = "Load/Store Base Address";
-    desc = "Base DRAM byte address that the LOAD and STORE shader
-            instructions are relative to. Effectively an SSBO descriptor: the
-            shader supplies an element index, the hardware forms
-            LS_BASE + (index << 2).
-
-            Base-plus-index is the shape a Vulkan descriptor binding
-            naturally has. At FP32 an index register can also carry a full
-            32-bit address, with LS_BASE left at 0 (see
-            docs/B0_compiler_contract.md).
-
-            Reset 0. Nothing reads this until a shader actually executes a
-            LOAD or STORE, so firmware that never writes it is unaffected.";
-
-    field {
-        sw = rw; hw = r;
-        desc = "Bits 31:0: base GPU byte address.";
-    } base_addr[32] = 0;
+// --- Reserved: v1's LS_BASE (ISA v2 addresses memory by register + immediate) ---
+reg reserved_word_t {
+    name = "Reserved";
+    desc = "Was LS_BASE; kept so the registers after it keep their offsets.";
+    field { sw = r; hw = na; } RSVD[32] = 0;
 };
 
 // --- ISA v2 root table (docs/B8_isa_v2.md) ---
@@ -1634,8 +1619,8 @@ addrmap borg_gpu {
     scissor_x_reg_t scissor_x;
     scissor_y_reg_t scissor_y;
 
-    // ---- Load/store base — fully generated (hw=r). Reset 0. ----
-    ls_base_reg_t ls_base;
+    // ---- Reserved (was LS_BASE). ----
+    reserved_word_t rsvd_ls_base;
 
     // ---- Sampler configuration — fully generated (hw=r). Reset = NEAREST. ----
     sampler_cfg_reg_t sampler_cfg;

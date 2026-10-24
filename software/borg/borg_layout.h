@@ -180,8 +180,7 @@
 // Push-constant staging block (Step 50 item 13).
 // -------------------------------------------------------------------------
 //
-// LS_BASE points at this block, and the shader's `LOAD rd, rs1` forms
-// LS_BASE + (rs1 << 2) -- so word i here IS byte offset 4*i of the Vulkan
+// The root table's LW base points at this block, so word i here IS byte offset 4*i of the Vulkan
 // push-constant range.  That is exactly the mapping borgc already emits: it
 // pins each static field's byte_offset/4 into a const GPR as a RAW word index
 // (see lib.rs's load_push_constant lowering), so nothing on either side needs
@@ -206,8 +205,8 @@
 //
 // cube.vert's own UBO (`layout(std140, binding=0) uniform buf { mat4 MVP;
 // vec4 position[36]; vec4 attr[36]; }`, Vulkan-Tools/cube/cube.vert)
-// reproduced exactly so its borgc-compiled, draw-mode LOADs (LS_BASE + a
-// pinned-GPR base word + gl_VertexIndex*stride) read it directly: MVP at
+// reproduced exactly so its borgc-compiled LWs (the root table's base + a
+// base word + gl_VertexIndex*stride) read it directly: MVP at
 // word 0, position[] at word 16, attr[] at word 160 -- see
 // hardware/borg/test/src/BorgDrawFrontEndCompilerTests.scala, whose address
 // scheme this matches bit for bit. Placed above the push-constant block,

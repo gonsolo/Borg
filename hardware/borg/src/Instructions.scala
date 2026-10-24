@@ -86,12 +86,6 @@ object Instructions {
     only(funct3 == 0, DDX_V2(rd, rs1, if (fine) 1 else 0))
   def DDY(rs1: Int, rd: Int, funct3: Int = 0, fine: Boolean = false): BigInt =
     only(funct3 == 0, DDY_V2(rd, rs1, if (fine) 1 else 0))
-  def LOAD(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_LOAD, 0, rs1, rd, funct3)
-  /** STORE has no destination register; rd is encoded as 0. */
-  /** private = true (rd = 1): Function/Private memory, written by helper
-    * invocations too; a plain STORE (storage buffers, images) is not. */
-  def STORE(rs1: Int, rs2: Int, funct3: Int = 0, `private`: Boolean = false): BigInt =
-    encodeRType(FUNCT7_STORE, rs2, rs1, if (`private`) 1 else 0, funct3)
   /** BRZ rs1, offset: if rs1 == 0, jump by offset words from this instruction (-512..511). */
   def BRZ(rs1: Int, offset: Int, funct3: Int = 0): BigInt = {
     require(offset >= -512 && offset < 512, s"branch offset out of range: $offset")
