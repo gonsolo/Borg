@@ -1,7 +1,9 @@
 # ISA v2
 
 Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-4, 7a-b,
-8-12 and 15 done; 5, 6, 13, 14 and the v1 deletions open; 7c moved to B9). The current ISA (v1) is
+8-12 and 15 done; 5, 6, 13, 14 open; 7c moved to B9). The v1 forms are gone except the ten that
+read the window or r0 until 7c (`FADD`, `FMUL`, `FMA`, `FNEG`, `ISHL`, `IAND`, `IOR`, `IXOR`,
+`ISEQ`, `SOUT`), `SMASK` and `FSRGB`; the private window below is not built yet. The current ISA (v1) is
 `hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `fe1c9897`. The
 pipeline that follows it is B9.
 
@@ -90,8 +92,8 @@ file has them (`hardware/borg/isa/rv_i`, named `.v2` until v1's forms go):
 without the descriptor indices (operation, gather component, compare, LOD mode, offsets), since
 funct3 is too small for every combination. An explicit LOD, a bias, a layer or a depth reference
 comes with a `TEXA` before the `TEX`. The texture unit reads the descriptors at the addresses and
-keeps them in a cache tagged by address; v1's `TEX` forms its addresses from `TEX_DESC_BASE` and
-`SAMPLER_DESC_BASE` until it goes.
+keeps them in a cache tagged by address; a write to `DESC_FLUSH` (v1's `TEX_DESC_BASE` offset)
+forgets the cached descriptors.
 
 ## Base instructions
 
