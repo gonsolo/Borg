@@ -229,7 +229,9 @@ static void tex_desc_store(const uint32_t d[16]) {
     BDRAM_W(TEX_DESC_TABLE_ADDR + (BORG_VTEX_SLOT + g_tex_slot) * 64 + (uint32_t)w * 4, d[w]);
   }
   if (g_tex_slot >= g_tex_n) g_tex_n = g_tex_slot + 1;
+#ifdef BORG_HOST
   g_vtab_dirty = 1;
+#endif
 }
 
 void borg_set_texture(int tex_width, int tex_height) {
