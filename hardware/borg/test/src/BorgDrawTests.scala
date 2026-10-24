@@ -684,6 +684,35 @@ object BorgDrawTests extends TestSuite {
     utest.assert(flat0 == front(0) && biased.forall(_ == front(-0.25)) && front(-0.25) > flat0)
   }
 
+  /** An sRGB RGBA8 attachment: the flusher encodes the shader's linear colour, the loader decodes
+    * it again, and TLD reads the destination as linear FP16, so reading it and writing it back
+    * stores the same bytes. Edge pixels resolve in linear, or, with the 8-bit tile's multi-pass
+    * accumulator, as the average of the stored sRGB codes. */
+  def srgbAttachment(rig: DrawRig, codeAverage: Boolean = false): Unit = {
+    import Instructions._
+    val tri = Seq(at(0.25, 0.25, 1.0), at(8, 0.5, 4.0), at(0.5, 8, 2.0))
+    val in = (for (py <- 0 until Size; px <- 0 until Size if inside(tri, px + 0.5, py + 0.5)) yield (px, py)).toSet
+    def u(k: Int, v: Float): Unit = rig.rom(rig.fsConst + 4 * k) = BigInt(java.lang.Float.floatToRawIntBits(v)) & 0xFFFFFFFFL
+    val g = java.lang.Float.float16ToFloat(SrgbCodec.decodeTable(128).toShort)
+    u(1, 0.5f); u(2, g); u(3, 1.0f)
+    val write = rig.fs.init ++ Seq(MUL(rs1 = 5, rs2 = 20, rd = 9, funct3 = 2),
+      ADD(rs1 = 9, rs2 = 21, rd = 26, funct3 = 2), ADD(rs1 = 9, rs2 = 22, rd = 27, funct3 = 2),
+      ADD(rs1 = 9, rs2 = 23, rd = 28, funct3 = 2), ADD(rs1 = 9, rs2 = 23, rd = 24, funct3 = 2), BigInt(0))
+    val copy = Seq(TLD(rd = 20), H2F(rs1 = 20, rd = 26), Opcodes.SRLI(rd = 21, rs1 = 20, shamtw = 16), H2F(rs1 = 21, rd = 27),
+      TLD(rd = 22, word = 1), H2F(rs1 = 22, rd = 28), Opcodes.SRLI(rd = 23, rs1 = 22, shamtw = 16), H2F(rs1 = 23, rd = 24), BigInt(0))
+    val cfg = Seq(BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RGBA8 | 16))
+    val c1 = rig.draw(tri, frag = write, extra = cfg)
+    val first = in.toSeq.map { case (x, y) => rig.pixel(x, y) }.distinct
+    val c2 = rig.draw(tri, frag = copy, keep = true, extra = cfg :+ (BorgGpuRegs.tile_load_offset -> BigInt(1)))
+    val second = in.toSeq.map { case (x, y) => rig.pixel(x, y) }.distinct
+    // Edge pixels resolve k of 4 samples against the black clear, averaged in linear.
+    def enc(l: Double) = math.round((if (l <= 0.0031308) 12.92 * l else 1.055 * math.pow(l, 1 / 2.4) - 0.055) * 255).toInt
+    val resolved = (1 to 4).map(k => if (codeAverage) (188 * k / 4, 128 * k / 4, 255 * k / 4)
+                                     else (enc(0.5 * k / 4), enc(g * k / 4.0), enc(k / 4.0))).toSet
+    println(s"  sRGB RGBA8: $c1 pixels stored as $first (expect (188,128,255) and edge resolves); loaded, TLD, stored: $second")
+    utest.assert(first.contains((188, 128, 255)) && first.forall(resolved) && second == first && c2 == c1)
+  }
+
   /** RAW colour formats: the fragment shader's r26 as raw bytes (1, 2 or 4
     * per pixel), loaded back, read in the shader with TLD and written again
     * -- the path every format the compiler packs takes. Single-sample, so
@@ -920,6 +949,9 @@ object BorgDrawQuadTests extends TestSuite {
     utest.test("raw_colour_formats_and_tld") {
       run("RAW colour formats, 4 lanes", quadCfg)(rawFormats)
     }
+    utest.test("srgb_attachment_in_the_tile_path") {
+      run("sRGB attachment, 4 lanes", quadCfg)(srgbAttachment(_))
+    }
     utest.test("fragment_outputs_through_csrs") {
       run("CSR outputs, 4 lanes", quadCfg)(csrOutputs)
     }
@@ -944,6 +976,9 @@ object BorgDrawWaferTests extends TestSuite {
     }
     utest.test("raw_colour_formats_and_tld") {
       run("RAW colour formats, Wafer sizing", waferCfg)(rawFormats)
+    }
+    utest.test("srgb_attachment_in_the_tile_path") {
+      run("sRGB attachment, Wafer sizing", waferCfg)(srgbAttachment(_, codeAverage = true))
     }
     utest.test("d16_depth_is_invariant_across_store_and_reload") {
       run("D16 invariance, Wafer sizing", waferCfg)(depthInvariance)
