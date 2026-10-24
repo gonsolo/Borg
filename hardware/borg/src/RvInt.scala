@@ -24,6 +24,8 @@ class RvInt(instr: UInt) {
     .map { case (c, r) => c.U -> r.U(5.W) })
   val csrReg = csrrs && sysReg =/= 0.U
   val csrWin = csrrs && sysWin =/= 0.U
+  /** sample_mask reads each lane's coverage, through the lanes' SMASK path. */
+  val csrMask = csrrs && csr === Csr.SampleMask.U
   /** LB, LH, LW, LBU, LHU at rs1 + imm12; SW at rs1 + the S-type immediate. */
   val load  = opc === Opcodes.OPCODE_LW.U && (f3 === 0.U || f3 === 1.U || f3 === 2.U || f3 === 4.U || f3 === 5.U)
   val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U
@@ -103,7 +105,7 @@ class RvInt(instr: UInt) {
     4.U -> (a.asSInt < b.asSInt), 5.U -> (a.asSInt >= b.asSInt), 6.U -> (a < b), 7.U -> (a >= b)))
   private val base  = op && f7 === 0.U || opImm
   private val shift = (op || opImm) && f7 === 0.U
-  val add  = base && f3 === 0.U || lui || auipc || csrrs
+  val add  = base && f3 === 0.U || lui || auipc || csrrs && !csrMask
   val sub  = op && f7 === 0x20.U && f3 === 0.U
   val sll  = shift && f3 === 1.U
   val slt  = base && f3 === 2.U

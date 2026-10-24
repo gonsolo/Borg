@@ -448,7 +448,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val smp = cfg.samplerEnabled
     flags.tex    := (if (smp) rv.texd else false.B)
     flags.texs   := (if (smp) rv.texs else false.B)
-    flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
+    flags.smask  := (if (draw) rv.csrMask else false.B)
     flags.tld    := (if (draw) rv.tld else false.B)
     flags.texa   := (if (smp) rv.texad else false.B)
     flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U)))

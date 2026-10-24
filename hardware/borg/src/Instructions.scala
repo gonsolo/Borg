@@ -103,7 +103,7 @@ object Instructions {
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt =
     if (rv(funct3, rs1, rs2, rs3, rd)) FMADD_S(rd, rs1, rs2, rs3) else encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
-  def SMASK(rd: Int): BigInt = encodeRType(FUNCT7_SMASK, 0, 0, rd)
+  def SMASK(rd: Int): BigInt = CSRRS(rd, 0, Csr.SampleMask)
   def ATTIDX(rd: Int): BigInt = CSRRS(rd, 0, Csr.Attachment)
   def TLD(rd: Int, word: Int = 0): BigInt = only(word < 2, TLD_V2(rd, word))
   def JMP(offset: Int): BigInt = {
