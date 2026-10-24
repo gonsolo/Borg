@@ -175,9 +175,9 @@ object BorgShaderDispatcherTestHelpers {
     }
   }
 
-  /** Write a single edge-function result via pipeline snoop. */
-  def pokeEdge(d: BorgShaderDispatcher, reg: Int, value: Int): Unit = {
-    pokeWrite(d, reg, value)
+  /** Write edge `e`'s result via pipeline snoop. */
+  def pokeEdge(d: BorgShaderDispatcher, e: Int, value: Int): Unit = {
+    pokeWrite(d, BorgRasterRom.planeRegs(e), value)
     d.io.pipeWrite(0).en.poke(false.B)
   }
 

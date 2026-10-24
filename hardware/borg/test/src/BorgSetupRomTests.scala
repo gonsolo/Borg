@@ -72,7 +72,7 @@ object BorgSetupRomTests extends TestSuite {
     csrs.toMap
   }
 
-  /** Run the draw-mode raster ROM for one pixel; returns r0..r8 and r29. */
+  /** Run the draw-mode raster ROM for one pixel; returns E0..E2, Zn, Zf, the barycentrics, 1/w and r29. */
   def runRaster(core: BorgCore, x: Int, y: Int): Seq[Double] = {
     core.io.seqBusy.poke(false.B)             // r30/r31 = the pixel centre
     core.io.drawMode.get.poke(true.B)
@@ -90,7 +90,7 @@ object BorgSetupRomTests extends TestSuite {
     }
     Predef.assert(done, "raster ROM never finished")
     core.io.drawMode.get.poke(false.B)
-    ((0 to 8) :+ 29).map(r => bitsToFloat(readReg(core, r)).toDouble)
+    (BorgRasterRom.planeRegs ++ Seq(5, 6, 7, 8, 29)).map(r => bitsToFloat(readReg(core, r)).toDouble)
   }
 
   val tests = Tests {

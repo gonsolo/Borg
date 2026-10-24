@@ -220,7 +220,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
     // shader -- three real gpuMem reads per pixel, serviced by `mm`.
     for (_ <- 0 until 16) {
       rw(BorgGpuRegs.iter_offset.litValue.toInt, 1)
-      for (_ <- 0 until 200) mm.step(d)
+      for (_ <- 0 until 300) mm.step(d)
     }
 
     // Catch the single 16-word output burst (write path -- unaffected by mm,
@@ -308,7 +308,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
     // during these -- Z stays on-chip and the flusher only fires on tile complete.
     for (_ <- 0 until 16) {
       rawWrite(d, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-      for (_ <- 0 until 120) idleStep(d)
+      for (_ <- 0 until 260) idleStep(d)
     }
 
     // (6) Catch the single 16-word burst.

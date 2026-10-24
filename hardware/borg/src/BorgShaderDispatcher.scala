@@ -134,7 +134,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
     Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
 
   // Draw front end (docs/B1_geometry_front_end.md): the raster ROM also
-  // writes the near and far planes Zn and Zf to r3/r4, which coverage tests
+  // writes the near and far planes Zn and Zf to r4/r10, which coverage tests
   // like the three edges, and FragCoord.z to r29, which is the fragment's
   // depth unless the shader writes its own.
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
@@ -217,7 +217,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val e0_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
-  // Draw front end: the near (Zn) and far (Zf) planes, r3 and r4.
+  // Draw front end: the near (Zn) and far (Zf) planes, r4 and r10.
   private val drawMode = io.drawMode.getOrElse(false.B)
   private val nPlanes  = if (cfg.drawEnabled) 5 else 3
   val z_outside = Option.when(cfg.drawEnabled)(RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B)))))
@@ -934,7 +934,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
 
   // Per-lane edge snoop: each lane runs the rast shader in lockstep and writes
-  // its own r0/r1/r2 via its own pipeWrite port.
+  // its own E0..E2 (BorgRasterRom.planeRegs) via its own pipeWrite port.
   for (i <- 0 until N) {
     when(io.pipeWrite(i).en && phase === sRast) {
       // Draw mode at one sample: an edge value of exactly 0 is inside only
@@ -944,12 +944,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         val onEdge = d(config.totalBits - 2, 0) === 0.U
         isOutside(d) || io.topLeft.map(tl => drawMode && onEdge && !tl(e)).getOrElse(false.B)
       }
-      when(io.pipeWrite(i).addr === 0.U) { e0_outside(i) := out(0) }
-      when(io.pipeWrite(i).addr === 1.U) { e1_outside(i) := out(1) }
-      when(io.pipeWrite(i).addr === 2.U) { e2_outside(i) := out(2) }
+      val reg = BorgRasterRom.planeRegs
+      when(io.pipeWrite(i).addr === reg(0).U) { e0_outside(i) := out(0) }
+      when(io.pipeWrite(i).addr === reg(1).U) { e1_outside(i) := out(1) }
+      when(io.pipeWrite(i).addr === reg(2).U) { e2_outside(i) := out(2) }
       z_outside.foreach { z =>
-        when(io.pipeWrite(i).addr === 3.U) { z(i)(0) := isOutside(io.pipeWrite(i).data) }
-        when(io.pipeWrite(i).addr === 4.U) { z(i)(1) := isOutside(io.pipeWrite(i).data) }
+        when(io.pipeWrite(i).addr === reg(3).U) { z(i)(0) := isOutside(io.pipeWrite(i).data) }
+        when(io.pipeWrite(i).addr === reg(4).U) { z(i)(1) := isOutside(io.pipeWrite(i).data) }
         // FragCoord.z, the depth unless the fragment shader writes its own.
         when(drawMode && io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(31, 0) }
         frag_zs.foreach { zs =>
@@ -961,7 +962,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // lifecycle — just kept at full width.
       e_val.foreach { ev =>
         for (e <- 0 until nPlanes) {
-          when(io.pipeWrite(i).addr === e.U) { ev(i)(e) := io.pipeWrite(i).data(cfg.totalBits - 1, 0) }
+          when(io.pipeWrite(i).addr === BorgRasterRom.planeRegs(e).U) { ev(i)(e) := io.pipeWrite(i).data(cfg.totalBits - 1, 0) }
         }
       }
     }

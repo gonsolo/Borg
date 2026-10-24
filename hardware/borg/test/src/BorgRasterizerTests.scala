@@ -178,7 +178,7 @@ object BorgRasterizerTests extends TestSuite {
 
         // Write a negative (outside) value to edge 0: -1.0 FP16 = 0xBC00
         rast.io.pipeWrite(0).en.poke(true.B)
-        rast.io.pipeWrite(0).addr.poke(0.U)
+        rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(0).U)
         rast.io.pipeWrite(0).data.poke(0xBC00.U)
         rast.clock.step(1)
         rast.io.pipeWrite(0).en.poke(false.B)
@@ -189,7 +189,7 @@ object BorgRasterizerTests extends TestSuite {
 
         // Write a positive (inside) value to edge 0: +1.0 FP16 = 0x3C00
         rast.io.pipeWrite(0).en.poke(true.B)
-        rast.io.pipeWrite(0).addr.poke(0.U)
+        rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(0).U)
         rast.io.pipeWrite(0).data.poke(0x3C00.U)
         rast.clock.step(1)
         rast.io.pipeWrite(0).en.poke(false.B)
@@ -200,7 +200,7 @@ object BorgRasterizerTests extends TestSuite {
 
         // Write negative to edge 1
         rast.io.pipeWrite(0).en.poke(true.B)
-        rast.io.pipeWrite(0).addr.poke(1.U)
+        rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(1).U)
         rast.io.pipeWrite(0).data.poke(0xC000.U)  // -2.0
         rast.clock.step(1)
         rast.io.pipeWrite(0).en.poke(false.B)
@@ -211,7 +211,7 @@ object BorgRasterizerTests extends TestSuite {
 
         // Zero should count as inside (sign=0, magnitude=0 → not outside)
         rast.io.pipeWrite(0).en.poke(true.B)
-        rast.io.pipeWrite(0).addr.poke(1.U)
+        rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(1).U)
         rast.io.pipeWrite(0).data.poke(0.U)
         rast.clock.step(1)
         rast.io.pipeWrite(0).en.poke(false.B)
@@ -292,7 +292,7 @@ object BorgRasterizerTests extends TestSuite {
 
         // Set edge 0 to outside (negative sign)
         rast.io.pipeWrite(0).en.poke(true.B)
-        rast.io.pipeWrite(0).addr.poke(0.U)
+        rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(0).U)
         rast.io.pipeWrite(0).data.poke(0xBC00.U)  // -1.0
         rast.clock.step(1)
         rast.io.pipeWrite(0).en.poke(false.B)
@@ -342,7 +342,7 @@ object BorgRasterizerTests extends TestSuite {
         // Write edges inside
         for (i <- 0 until 3) {
           rast.io.pipeWrite(0).en.poke(true.B)
-          rast.io.pipeWrite(0).addr.poke(i.U)
+          rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(i).U)
           rast.io.pipeWrite(0).data.poke(0x3C00.U)  // +1.0
           rast.clock.step(1)
         }
@@ -392,7 +392,7 @@ object BorgRasterizerTests extends TestSuite {
         // Set all edges inside
         for (i <- 0 until 3) {
           rast.io.pipeWrite(0).en.poke(true.B)
-          rast.io.pipeWrite(0).addr.poke(i.U)
+          rast.io.pipeWrite(0).addr.poke(BorgRasterRom.planeRegs(i).U)
           rast.io.pipeWrite(0).data.poke(0x3C00.U)
           rast.clock.step(1)
         }

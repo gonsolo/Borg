@@ -673,7 +673,7 @@ object BorgTests extends TestSuite {
           borg.clock.step(5)
           // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
           writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-          waitForHalt(borg, 200)
+          waitForHalt(borg, 400)
           // waitForHalt returns immediately upon core execution halt but before
           // auto_run_stall propagates and clears in BorgRasterizer, so settle
           // a couple more cycles before sampling the snooped inside flag.
@@ -743,12 +743,12 @@ object BorgTests extends TestSuite {
         writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
 
         // Wait for auto-run to complete by bounded polling of the status register.
-        // The ROM is 13 words (vs. the 1-2 word programs this test used to write),
+        // The ROM is 25 words (vs. the 1-2 word programs this test used to write),
         // so it needs a longer budget than a hand-rolled shader would.
-        waitForHalt(borg, 200)
+        waitForHalt(borg, 400)
 
-        // Read r0 — the ROM's e0 output, should be 0.0 for all-zero edge constants
-        val result = readAddr(borg, 0, config)
+        // Read r1 — the ROM's e0 output, should be 0.0 for all-zero edge constants
+        val result = readAddr(borg, 4, config)
         assertResult(result, 0.0f, config, "auto-run: ROM e0 with all-zero edges")
         println("  Auto-run shader: PASSED")
 
@@ -779,9 +779,9 @@ object BorgTests extends TestSuite {
         writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
         borg.clock.step(5)
 
-        // Write BORG_ITER — auto-runs the ROM, r0/r1/r2 all become 0.0 (inside)
+        // Write BORG_ITER — auto-runs the ROM, r1/r2/r3 all become 0.0 (inside)
         writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-        waitForHalt(borg, 200)
+        waitForHalt(borg, 400)
         borg.clock.step(2)
 
         // Read inside_flag
@@ -1126,7 +1126,7 @@ object BorgTests extends TestSuite {
         // gpuMem writes happen during the pixel iterations (Z stays on-chip).
         for (_ <- 0 until 16) {
           rawWrite(BorgGpuRegs.iter_offset.litValue.toInt, 1)
-          for (_ <- 0 until 120) idleStep()
+          for (_ <- 0 until 260) idleStep()
         }
 
         // Tile complete → the flusher issues ONE 16-word RGB565 burst.

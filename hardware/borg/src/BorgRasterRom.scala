@@ -16,49 +16,30 @@ package borg
   * simultaneously resident, capping ASIC's usable frag budget at
   * maxInstructions-13).
   *
-  * The 12 real instruction words below are byte-for-byte the same words the
-  * SPIR-B loader (`spirb_parse`, software/borg/borg_spirb.c) would extract
-  * from the checked-in `rasterize_borg` blob in
-  * software/borg/compiler/shader_blobs.h -- parsed with that exact format
-  * (6-byte header: num_instrs=12, num_uniforms=12, num_attributes=0,
-  * num_outputs=3, num_consts=0, reserved; then 12 little-endian u32 words).
-  * A trailing 0 (HALT) is appended as the 13th ROM entry, matching the
-  * `borg_load_spirb_shader_at` upload convention that always HALT-terminates
-  * non-borgc-compiled blobs.
-  *
   * Consumes uniform slots 0-11 (dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2,
-  * neg_vx0, neg_vy0, neg_vx1, neg_vy1, neg_vx2, neg_vy2 -- see rasterize.s's
-  * `@borg uniform` directives) and writes e0/e1/e2 to r0/r1/r2. Uniform
-  * staging (borg_load_edge_constants in software/borg/borg_driver.c) is
-  * completely unchanged by this ROM -- only instruction *fetch* moves.
+  * neg_vx0, neg_vy0, neg_vx1, neg_vy1, neg_vx2, neg_vy2) and writes e0/e1/e2
+  * to r1/r2/r3, the inside-flag snoop's registers.
   *
-  * REGISTER CLOBBER ABI -- running this ROM destroys r0..r4 on EVERY pixel:
-  *   r0, r1, r2  = the e0/e1/e2 edge outputs (read by the inside-flag snoop)
-  *   r3, r4      = the per-edge dpx/dpy scratch pair, reused three times
-  *                 (r3 = r30 + neg_vx_k, r4 = r31 + neg_vy_k)
-  * Because BORG_ITER auto-run always runs this ROM before chaining into the
-  * fragment shader, NOTHING staged in r0..r4 survives into the frag phase --
-  * with all-zero uniforms r3/r4 come back as exactly coordX/coordY (px+0.5,
-  * py+0.5), which is a confusing value to debug. Fragment shaders must treat
-  * r0..r4 as caller-clobbered; borgc already does (regalloc.rs pre-colours
-  * r0..r3 for gl_Position and reserves r4 as the perspective-divide scratch).
+  * REGISTER CLOBBER ABI -- running this ROM destroys r1..r5 on EVERY pixel
+  * (r4, r5: the per-edge x + neg_vx_k, y + neg_vy_k), so fragment shaders
+  * must treat them as caller-clobbered.
   */
 private[borg] object BorgRasterRom {
-  val instructions: Seq[BigInt] = Seq(
-    BigInt("006f2180", 16),
-    BigInt("007fa200", 16),
-    BigInt("08401000", 16),
-    BigInt("00309004", 16),
-    BigInt("008f2180", 16),
-    BigInt("009fa200", 16),
-    BigInt("08411080", 16),
-    BigInt("08319084", 16),
-    BigInt("00af2180", 16),
-    BigInt("00bfa200", 16),
-    BigInt("08421100", 16),
-    BigInt("10329104", 16),
-    BigInt("00000000", 16) // HALT sentinel
-  )
+  import Instructions._
+  import Opcodes.{CSRRS, FSUB_S}
+  private def ld(rd: Int, k: Int): BigInt = CSRRS(rd, 0, Csr.Uniform0 + k)
+
+  /** The registers the dispatcher's coverage snoop reads: E0..E2, then the
+    * draw front end's Zn and Zf. */
+  val planeRegs: Seq[Int] = Seq(1, 2, 3, 4, 10)
+
+  /** Edge k: e = dx_k * (y + neg_vy_k) + neg_dy_k * (x + neg_vx_k), uniforms
+    * 2k, 2k + 1 and 6 + 2k, 7 + 2k. Clobbers r4, r5. */
+  val instructions: Seq[BigInt] = (0 until 3).flatMap { k =>
+    val e = planeRegs(k)
+    Seq(ld(e, 6 + 2 * k), ADD(rs1 = 30, rs2 = e, rd = 4), ld(e, 7 + 2 * k), ADD(rs1 = 31, rs2 = e, rd = 5),
+        ld(e, 2 * k), MUL(rs1 = e, rs2 = 5, rd = e), ld(5, 2 * k + 1), FMA(rs1 = 5, rs2 = 4, rs3 = e, rd = e))
+  } :+ BigInt(0)
 
   /** The draw front end's per-pixel program (docs/B1_geometry_front_end.md),
     * used when DRAW_CFG selects it. Uniforms are the first words of the
@@ -68,54 +49,49 @@ private[borg] object BorgRasterRom {
     *
     * Leaves, for the dispatcher's coverage snoop and then the fragment
     * shader:
-    *   r0..r2  E0..E2, screen-linear edge values, unscaled (Ek*Wk*|1/det| is
-    *           the noperspective barycentric)
-    *   r3, r4  Zn = z_ndc and Zf = 1 - Zn, the near and far half-spaces
+    *   r1..r3  E0..E2, screen-linear edge values, unscaled
+    *   r4, r10 Zn = z_ndc and Zf = 1 - Zn, the near and far half-spaces
     *   r5..r7  perspective-correct barycentrics Ek / sum(E)
     *   r8      FragCoord.w = sum(E) = 1/w
     *   r29     FragCoord.z = Zn*scale + offset, also the fragment's depth
     *   r11..r14 the depth at each MSAA sample, which the depth test uses
     *           unless the shader writes r29 -- the last instructions, which a
     *           single-sample draw skips (see drawSampleDepthPc)
-    * and clobbers r9, r10. Nothing writes r0..r4 after its plane value: the
-    * dispatcher keeps the last value each register gets in this phase.
+    * and clobbers r9. A snooped register's last write in this phase is its value.
     */
-  val drawInstructions: Seq[BigInt] = {
-    import Instructions._
-    val U2 = 2; val U3 = 3
+  private val draw: (Seq[BigInt], Int) = {
     val px = 30; val py = 31; val t = 9; val t2 = 10
     val R = BorgSetupRom.Record
     val p = Seq.newBuilder[BigInt]
-    for (k <- 0 until 4) {                       // E0, E1, E2, Zn -> r0..r3
-      p += MUL(rs1 = py, rs2 = R.plane(k) + 1, rd = t, funct3 = U2)
-      p += ADD(rs1 = t, rs2 = R.plane(k) + 2, rd = t, funct3 = U2)
-      p += FMA(rs1 = px, rs2 = R.plane(k), rs3 = t, rd = k, funct3 = U2)
+    for (k <- 0 until 4) {                       // E0, E1, E2, Zn
+      p += ld(t2, R.plane(k) + 1); p += MUL(rs1 = py, rs2 = t2, rd = t)
+      p += ld(t2, R.plane(k) + 2); p += ADD(rs1 = t, rs2 = t2, rd = t)
+      p += ld(t2, R.plane(k)); p += FMA(rs1 = px, rs2 = t2, rs3 = t, rd = planeRegs(k))
     }
-    p += FNEG(rs1 = 3, rd = t)                   // Zf = 1 - Zn
-    p += ADD(rs1 = t, rs2 = R.One, rd = 4, funct3 = U2)
-    p += ADD(rs1 = 0, rs2 = 1, rd = 8)           // 1/w = E0 + E1 + E2
-    p += ADD(rs1 = 8, rs2 = 2, rd = 8)
+    p += ADD(rs1 = 1, rs2 = 2, rd = 8)           // 1/w = E0 + E1 + E2
+    p += ADD(rs1 = 8, rs2 = 3, rd = 8)
     p += FRCP(rs1 = 8, rd = t)                   // 1 / sum(E), plus one Newton step
     p += FNEG(rs1 = 8, rd = t2)
-    p += FMA(rs1 = t2, rs2 = t, rs3 = R.One, rd = t2, funct3 = U3)
+    p += ld(5, R.One); p += FMA(rs1 = t2, rs2 = t, rs3 = 5, rd = t2)
     p += FMA(rs1 = t, rs2 = t2, rs3 = t, rd = t)
-    for (k <- 0 until 3) p += MUL(rs1 = k, rs2 = t, rd = 5 + k)
-    p += MUL(rs1 = 8, rs2 = R.InvDet, rd = 8, funct3 = U2)   // FragCoord.w = sum(E) / |det|
-    p += MUL(rs1 = 3, rs2 = R.DepthScale, rd = 29, funct3 = U2)
-    p += ADD(rs1 = 29, rs2 = R.DepthOffset, rd = 29, funct3 = U2)
+    for (k <- 0 until 3) p += MUL(rs1 = planeRegs(k), rs2 = t, rd = 5 + k)
+    p += ld(t2, R.InvDet); p += MUL(rs1 = 8, rs2 = t2, rd = 8)   // FragCoord.w = sum(E) / |det|
+    p += ld(t2, R.DepthScale); p += MUL(rs1 = 4, rs2 = t2, rd = 29)
+    p += ld(t2, R.DepthOffset); p += ADD(rs1 = 29, rs2 = t2, rd = 29)
+    p += ld(t, R.One); p += FSUB_S(t2, t, 4)       // Zf = 1 - Zn, r10's last write
     // Each sample's own depth, r11..r14: FragCoord.z + {d0, d1, -d1, -d0}.
-    p += ADD(rs1 = 29, rs2 = R.SampleDepth, rd = 11, funct3 = U2)
-    p += ADD(rs1 = 29, rs2 = R.SampleDepth + 1, rd = 12, funct3 = U2)
-    p += FNEG(rs1 = R.SampleDepth + 1, rd = 13, funct3 = 1)
-    p += ADD(rs1 = 29, rs2 = 13, rd = 13)
-    p += FNEG(rs1 = R.SampleDepth, rd = 14, funct3 = 1)
-    p += ADD(rs1 = 29, rs2 = 14, rd = 14)
+    val samplePc = p.result().length
+    p += ld(11, R.SampleDepth); p += ADD(rs1 = 29, rs2 = 11, rd = 11)
+    p += ld(12, R.SampleDepth + 1); p += ADD(rs1 = 29, rs2 = 12, rd = 12)
+    p += ld(13, R.SampleDepth + 1); p += FSUB_S(13, 29, 13)
+    p += ld(14, R.SampleDepth); p += FSUB_S(14, 29, 14)
     p += BigInt(0)                               // HALT
-    p.result()
+    (p.result(), samplePc)
   }
+  val drawInstructions: Seq[BigInt] = draw._1
 
   /** The PC of the first per-sample depth instruction. At one sample every
     * sample sits at the pixel centre, all four depths equal FragCoord.z, and
     * BorgCore fetches a HALT here instead. */
-  val drawSampleDepthPc: Int = drawInstructions.length - 7
+  val drawSampleDepthPc: Int = draw._2
 }
