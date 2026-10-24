@@ -24,7 +24,6 @@ class FpuOpFlags extends Bundle {
   val f2h    = Bool()   // FP32 -> FP16 (round to nearest even)
   val h2f    = Bool()   // FP16 -> FP32 (exact)
   val frsq   = Bool()
-  val fsrgb  = Bool()
   val ddx    = Bool() // quad derivative d/dx (cross-lane: lane1 - lane0)
   val ddy    = Bool() // quad derivative d/dy (cross-lane: lane2 - lane0)
   // Memory access (LS_BASE + (rs1 << 2)). Both stall the core like TEX/TEXA; the

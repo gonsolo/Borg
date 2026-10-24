@@ -12,36 +12,6 @@ object BorgCoreTestsC extends TestSuite {
 
   val tests = Tests {
 
-    utest.test("fsrgb_fp16") {
-      simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: fsrgb_fp16 ---")
-        idleInputs(core)
-        resetCore(core)
-
-        def testSrgb(input: Float, label: String): Unit = {
-          resetCore(core)
-          writeReg(core, 0, floatToBits(input))
-          writeImem(core, 0, Instructions.FSRGB(rs1 = 0, rd = 2))
-          writeImem(core, 1, 0) // halt
-          startAndWait(core)
-          val result = bitsToFloat(readReg(core, 2))
-          val expected = linearToSrgb(input)
-          println(f"  $label: srgb($input%.4f) actual=$result%.5f expected=$expected%.5f")
-          utest.assert(math.abs(result - expected) < 0.01f) // < ~2.5/255
-        }
-
-        testSrgb(0.0f,       "srgb(0)")
-        testSrgb(0.0031308f, "srgb(linear-knee)")
-        testSrgb(0.05f,      "srgb(0.05)")
-        testSrgb(0.2f,       "srgb(0.2)")
-        testSrgb(0.5f,       "srgb(0.5)")
-        testSrgb(0.8f,       "srgb(0.8)")
-        testSrgb(1.0f,       "srgb(1.0)")
-
-        println("  PASSED")
-      }
-    }
-
     utest.test("borgc_vertex_shader_mvp") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: borgc_vertex_shader_mvp (compiled cube.c vertex shader) ---")

@@ -104,7 +104,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- FP16 special-function ROMs (purely combinational VecInit — zero FFs, zero clock load) ---
   private val rcpRom  = VecInit(BorgLutTables.rcpLut.map(_.U(10.W)))
   private val frsqRom = VecInit(BorgLutTables.frsqLut.map(_.U(10.W)))
-  private val srgbRom = VecInit(BorgLutTables.srgbLut.map(_.U(16.W)))
 
   private val busy_counter = io.busyCounter
   private val is_busy      = io.isBusy
@@ -159,13 +158,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.recCRaw := recC_raw
 
   // --- ALU ---
-  val (fma_result, is_frcp_reg, is_frsq_reg, is_fsrgb_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
-  val special_result = computeFp16Special(recA_raw, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
+  val (fma_result, is_frcp_reg, is_frsq_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
+  val special_result = computeFp16Special(recA_raw, is_frcp_reg, is_frsq_reg)
   val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
 
   // --- Write-back (+ memory/TEX override) ---
   wireWriteBack(fma_result, special_result,
-                is_frcp_reg, is_frsq_reg, is_fsrgb_reg,
+                is_frcp_reg, is_frsq_reg,
                 int_result, is_int_reg, mmioD)
 
   io.regReadData := mmioD
@@ -190,7 +189,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * see the `regFile` declaration above for the area rationale).
     *
     * Shader execution needs rs1/rs2/rs3 all valid by busy_counter==4 (when the
-    * FMA/frcp/frsq/fsrgb/int-ALU pipeline captures them -- unchanged from the
+    * FMA/frcp/frsq/int-ALU pipeline captures them -- unchanged from the
     * original 3-port design). With one port, SyncReadMem's 1-cycle read
     * latency means the 3 reads must be issued on 3 *different* prior cycles:
     *   decode (rs1) -> busy_counter==7 (rs2, + rs1's result now ready) ->
@@ -240,7 +239,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     (holdA, holdB, holdC, mmioD)
   }
 
-  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool, Bool) = {
+  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool) = {
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
 
     val is_mul_reg = RegInit(false.B)
@@ -248,7 +247,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_fneg_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
-    val is_fsrgb_reg = RegInit(false.B)
     val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
     val negC_reg = RegInit(false.B); val negProd_reg = RegInit(false.B)
     when(start) {
@@ -263,7 +261,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_fneg_reg := opFlags.fneg
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
-      is_fsrgb_reg := opFlags.fsrgb
       is_deriv_reg := opFlags.ddx || opFlags.ddy
     }
 
@@ -286,19 +283,19 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     // @doc:end
 
-    (fma_result, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
+    (fma_result, is_frcp_reg, is_frsq_reg)
   }
 
   /** Reciprocal / reciprocal-sqrt / linear->sRGB, sharing one Fp16Special
     * instance (was 3 separate modules, each with its own copy of the
     * LUT-interpolation datapath -- measured 6,967+7,273+11,189=25,429 um^2
     * standalone vs 15,363 um^2 consolidated, -39.6%). Each op's ROM lookup
-    * (rcpRom/frsqRom/srgbRom, all purely combinational VecInits) still
+    * (rcpRom/frsqRom, both purely combinational VecInits) still
     * happens independently -- cheap, and keeps each op's indexing formula
     * untouched -- only the downstream interpolation/edge-case hardware is
     * shared, muxed by which op is latched active this instruction. */
   // @doc:frcp
-  private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool, isFsrgb: Bool): UInt = {
+  private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool): UInt = {
     // Narrow once, up front: every LUT index below and special.io.in itself
     // must all read the SAME FP16 bit pattern. Reading exp/mant straight off
     // recA_raw's low bits would silently misindex the ROMs at FP32 (bits
@@ -318,7 +315,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val oddExp = eUnb(0) && isFrsq
     val fp16In = if (wide) {
       val scaled = Cat(recA_raw(31), Mux(oddExp, 128.U(8.W), 127.U(8.W)), recA_raw(22, 0))
-      Mux(isFsrgb || special32, Fp16Fp32.narrow(recA_raw), Fp16Fp32.narrow(scaled))
+      Mux(special32, Fp16Fp32.narrow(recA_raw), Fp16Fp32.narrow(scaled))
     } else recA_raw(15, 0)
     val exp  = fp16In(14, 10)
     val mant = fp16In(9, 0)
@@ -335,15 +332,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val rsqRawVal   = frsqRom(rsqBaseAddr)
     val rsqRawNext  = frsqRom((rsqBaseAddr +& 1.U)(5, 0))
 
-    val srgbIdx     = Cat((exp - 1.U)(3, 0), mant(9, 6)) // 8-bit
-    val srgbRawVal  = srgbRom(srgbIdx)
-    val srgbRawNext = srgbRom((srgbIdx +& 1.U)(7, 0))
 
     // rcp/rsq LUT entries are 10-bit mantissa estimates; zero-extend to
     // Fp16Special's uniform 16-bit port (exact: delta=val-next is always
     // non-negative for these two monotonically-decreasing curves).
-    val rawVal  = Mux(isFsrgb, srgbRawVal,  Mux(isFrsq, Cat(0.U(6.W), rsqRawVal),  Cat(0.U(6.W), rcpRawVal)))
-    val rawNext = Mux(isFsrgb, srgbRawNext, Mux(isFrsq, Cat(0.U(6.W), rsqRawNext), Cat(0.U(6.W), rcpRawNext)))
+    val rawVal  = Mux(isFrsq, Cat(0.U(6.W), rsqRawVal),  Cat(0.U(6.W), rcpRawVal))
+    val rawNext = Mux(isFrsq, Cat(0.U(6.W), rsqRawNext), Cat(0.U(6.W), rcpRawNext))
     // Fixed at 3 regardless of cfg.fmaStages: this is the special-function
     // path, not the FMA path. Its operands come from holdA, which an extra FMA
     // stage makes available EARLIER (cRs2 moves up), and its result still has
@@ -358,7 +352,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     special.io.in      := fp16In
     special.io.lutVal  := valReg
     special.io.lutNext := nextReg
-    special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Mux(isFrsq, Fp16SpecialOp.Rsq, Fp16SpecialOp.Srgb))
+    special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Fp16SpecialOp.Rsq)
     if (wide) {
       val r = Fp16Fp32.widen(special.io.out)
       // 1/(m*2^E) = (1/m)*2^-E;  1/sqrt(m*2^E) = (1/sqrt(m'))*2^-(E'/2).
@@ -368,7 +362,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         (eOut <= 0.S)   -> Cat(r(31), 0.U(31.W)),                      // flush to zero
         (eOut >= 255.S) -> Cat(r(31), "hFF".U(8.W), 0.U(23.W))         // overflow to inf
       ))
-      Mux(isFsrgb || special32 || r(30, 23) === 255.U, r, scaledOut)
+      Mux(special32 || r(30, 23) === 255.U, r, scaledOut)
     } else special.io.out
   }
   // @doc:end
@@ -465,7 +459,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def wireWriteBack(
       fma_result: UInt, special_result: UInt,
-      is_frcp_reg: Bool, is_frsq_reg: Bool, is_fsrgb_reg: Bool,
+      is_frcp_reg: Bool, is_frsq_reg: Bool,
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
@@ -492,10 +486,10 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // this branch is only selected when mmio_write is true, which bounds
     // io.bus.address to the 32-word GPR region.
     val w_addr = Mux(pipe_write, regs.rd, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
-    // is_frcp_reg/is_frsq_reg/is_fsrgb_reg are mutually exclusive (decoded
+    // is_frcp_reg/is_frsq_reg are mutually exclusive (decoded
     // from distinct funct7 values); special_result already internally
     // selects the right op's result (see computeFp16Special's `op` mux).
-    val is_special_reg = is_frcp_reg || is_frsq_reg || is_fsrgb_reg
+    val is_special_reg = is_frcp_reg || is_frsq_reg
     val w_data = Mux(pipe_write,
       Mux(is_int_reg, int_result,
         Mux(is_special_reg, special_result, fma_result)),

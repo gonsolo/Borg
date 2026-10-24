@@ -6,31 +6,14 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** Consolidated FP16 reciprocal / reciprocal-sqrt / linear->sRGB unit.
-  *
-  * All three ops share the exact same LUT-interpolation core (see
-  * `@doc:rcp-interpolation` in the former Fp16Rcp): `correction = (delta *
-  * frac) >> 6`, only the direction (subtract for the decreasing rcp/rsq
-  * curves, add for the increasing sRGB curve), fraction selection, and the
-  * exponent/edge-case assembly differ. Previously three separate modules
-  * (Fp16Rcp, Fp16Rsq, Fp16Srgb) each carried their own copy of that
-  * interpolation datapath;
-  * measured standalone: 6,967 + 7,273 + 11,189 = 25,429 um^2 vs 15,363 um^2
-  * consolidated (-39.6%). All three ops execute in the same pipeline slot
-  * (busy_counter==3 capture, see BorgLane), so sharing one instance selected
-  * by `op` costs nothing in latency -- see BorgLane.computeFp16Special.
-  *
-  * lutVal/lutNext are carried at 16 bits uniformly; rcp/rsq's actual LUT
-  * entries are 10-bit mantissa estimates (zero-extended by the caller into
-  * the low 10 bits) since delta=lutVal-lutNext is always non-negative for
-  * those two (monotonically decreasing curves) -- promoting to 16 bits
-  * before subtracting is exact. sRGB's LUT entries are already full 16-bit
-  * fp16 output values.
+/** FP16 reciprocal and reciprocal square root: a LUT and linear interpolation,
+  * `correction = (delta * frac) >> 6`, shared by both ops (one instance, selected by `op`).
+  * The 10-bit LUT entries arrive zero-extended to 16 bits; delta = lutVal - lutNext is never
+  * negative for these decreasing curves. sRGB went to the tile path (SrgbCodec).
   */
 object Fp16SpecialOp {
   val Rcp  = 0.U(2.W)
   val Rsq  = 1.U(2.W)
-  val Srgb = 2.U(2.W)
 }
 
 class Fp16SpecialIO extends Bundle {
@@ -62,11 +45,10 @@ class Fp16Special extends Module {
 
   // --- Shared interpolation core ---
   // @doc:rcp-interpolation
-  // rcp/rsq: decreasing (lutVal >= lutNext). srgb: increasing (lutNext >= lutVal).
-  val decreasing = isRcp || isRsq
-  val delta      = Mux(decreasing, io.lutVal - io.lutNext, io.lutNext - io.lutVal)
+  // rcp/rsq: decreasing curves (lutVal >= lutNext).
+  val delta      = io.lutVal - io.lutNext
   val correction = (delta * frac) >> 6
-  val estMant16  = Mux(decreasing, io.lutVal - correction, io.lutVal +& correction)(15, 0)
+  val estMant16  = (io.lutVal - correction)(15, 0)
   val estMant10  = estMant16(9, 0)
   // @doc:end
 
@@ -94,9 +76,5 @@ class Fp16Special extends Module {
     isZeroOrSubnormal -> Cat(0.U(1.W), "b11111".U(5.W), 0.U(10.W))   // rsqrt(+0)=+Inf
   ))
 
-  // --- srgb: direct fp16 interpolation, clamp outside [0,1] domain ---
-  val srgbOne = "h3C00".U(16.W) // fp16 1.0
-  val srgbOut = Mux(sign || exp === 0.U, 0.U(16.W), Mux(exp >= 16.U, srgbOne, estMant16))
-
-  io.out := Mux(isRcp, rcpOut, Mux(isRsq, rsqOut, srgbOut))
+  io.out := Mux(isRcp, rcpOut, rsqOut)
 }

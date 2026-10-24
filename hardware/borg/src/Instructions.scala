@@ -80,7 +80,6 @@ object Instructions {
   def F2H(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_H_S(_, _))(rs1, rd, funct3)
   def H2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_S_H(_, _))(rs1, rd, funct3)
   def FRSQ(rs1: Int, rd: Int, funct3: Int = 0): BigInt = only(funct3 == 0, FRSQ_V2(rd, rs1))
-  def FSRGB(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSRGB, 0, rs1, rd, funct3)
   /** fine = true: DPdxFine/DPdyFine (each lane's own row/column); else coarse. */
   def DDX(rs1: Int, rd: Int, funct3: Int = 0, fine: Boolean = false): BigInt =
     only(funct3 == 0, DDX_V2(rd, rs1, if (fine) 1 else 0))

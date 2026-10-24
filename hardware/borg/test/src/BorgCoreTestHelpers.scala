@@ -203,12 +203,6 @@ object BorgCoreTestHelpers {
     utest.assert(idle)
   }
 
-  // Linear→sRGB encode (used by the fsrgb test to compute expected values).
-  def linearToSrgb(x: Float): Float = {
-    val c = math.max(0.0, math.min(1.0, x.toDouble))
-    (if (c <= 0.0031308) c * 12.92 else 1.055 * math.pow(c, 1.0 / 2.4) - 0.055).toFloat
-  }
-
 
     // FP32 datapath plan item 3: the shift amount was hardcoded to 4 bits
 

@@ -423,7 +423,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.f2h   := rv.fcvtHS
     flags.h2f   := rv.fcvtSH
     flags.frsq  := rv.frsq
-    flags.fsrgb := v1 && f7op === Opcodes.FUNCT7_FSRGB.U
     flags.ddx   := rv.ddx
     flags.ddy   := rv.ddy
     flags.fine  := Instructions.BF_RS2(instr) === 1.U     // DDX/DDY: fine (per row/column)
