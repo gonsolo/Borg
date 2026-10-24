@@ -374,6 +374,19 @@ object BorgComputeTests extends TestSuite {
       }
     }
 
+    utest.test("qballot_and_qshuf") {
+      import Opcodes._
+      // QBALLOT of (lane & 1): 0b1010 in every lane. QSHUF: lane i reads lane i ^ 3's 10 * lane.
+      val prog = words(ANDI(1, 30, 1), QBALLOT(2, 1), SLLI(3, 30, 3), SLLI(4, 30, 1), ADD(3, 3, 4),
+        XORI(5, 30, 3), QSHUF(6, 3, 5), st(30, 2), ADDI(7, 30, 8), st(7, 6))
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, Map(10 -> 0), (1, 1, 1), (4, 1, 1))
+        val b = (0 until 4).map(word(dram, _)); val sh = (8 until 12).map(word(dram, _))
+        println(s"  ballot $b  shuffle $sh")
+        utest.assert(b == Seq.fill(4)(BigInt(10)) && sh == Seq(30, 20, 10, 0).map(BigInt(_)))
+      }
+    }
+
     utest.test("amoadd_and_amocas_serialize_the_lanes") {
       import Opcodes._
       // r14 counter (0x2000, starts 0), r19 a second word (0x2010, starts 100); old values to 0x3000 / 0x3010 + 4 * lane.

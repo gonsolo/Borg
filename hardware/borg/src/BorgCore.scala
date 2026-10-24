@@ -297,6 +297,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // cannot execute concurrently with this instruction, so it is stable for
   // EXANY's whole multi-cycle execution window.
   lanes.foreach(_.io.execAny := execMask.orR)
+  // Subgroups: QBALLOT's mask, the same in every lane, and each lane's QSHUF source.
+  locally {
+    val a = VecInit(lanes.map(_.io.recARaw))
+    val ballot = VecInit(a.map(_ =/= 0.U)).asUInt & execMask
+    lanes.foreach(_.io.ballot := ballot.pad(4))
+    for (lane <- lanes) {
+      val sel = lane.io.recBRaw(1, 0)
+      lane.io.shuffled := (if (cfg.fragLanes == 1) a(0) else a(sel(log2Up(cfg.fragLanes) - 1, 0)))
+    }
+  }
   lanes.zipWithIndex.foreach { case (lane, i) =>
     lane.io.covMask.foreach(_ := io.laneCoverage.get(i))
     lane.io.dstWord.foreach(_ := io.laneDst.get(i))
@@ -441,6 +451,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
     flags.exany  := (if (cf) rv.exany else false.B)
+    flags.qballot := rv.qballot
+    flags.qshuf   := rv.qshuf
     flags.isrl   := rv.srl
     flags.isltu  := rv.sltu
     flags.ztest  := rv.ztest

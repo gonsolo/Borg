@@ -43,6 +43,8 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // Broadcast, not per-lane: whether ANY lane's execMask bit is set right
   // now -- see Opcodes.FUNCT7_EXANY.
   val execAny     = Input(Bool())
+  val ballot      = Input(UInt(4.W))                  // QBALLOT
+  val shuffled    = Input(UInt(cfg.totalBits.W))      // QSHUF: rs1 of the lane rs2 names
   // This lane's coverage mask, for SMASK.
   val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None
   // This lane's destination word, for TLD.
@@ -384,6 +386,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_f2h_reg  = RegInit(false.B)
     val is_h2f_reg  = RegInit(false.B)
     val is_exany_reg = RegInit(false.B)
+    val is_qballot_reg = RegInit(false.B); val is_qshuf_reg = RegInit(false.B)
     val is_smask_reg = RegInit(false.B)
     val is_tld_reg = RegInit(false.B)
     val tld_sel_reg = RegInit(false.B)            // TLD's word: funct3 bit 0
@@ -408,6 +411,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_f2h_reg  := opFlags.f2h
       is_h2f_reg  := opFlags.h2f
       is_exany_reg := opFlags.exany
+      is_qballot_reg := opFlags.qballot; is_qshuf_reg := opFlags.qshuf
     }
     val w     = config.totalBits          // 16
     val mantN = config.sig - 1            // 10 stored mantissa bits
@@ -448,12 +452,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_isltu_reg, isltu,
                  Mux(is_iseq_reg, iseq,
                  Mux(is_exany_reg, exany,
+                 Mux(is_qballot_reg, io.ballot.pad(w),
+                 Mux(is_qshuf_reg, io.shuffled,
                  Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_f2h_reg,  f2h, h2f)))))))))))))))))
+                 Mux(is_f2h_reg,  f2h, h2f)))))))))))))))))))
     val is_int = is_rvx_reg || is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_tld_reg || is_f2h_reg || is_h2f_reg
+                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_qballot_reg || is_qshuf_reg || is_smask_reg || is_tld_reg || is_f2h_reg || is_h2f_reg
     (result, is_int)
   }
 
