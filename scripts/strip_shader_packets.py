@@ -24,6 +24,7 @@ RX_GEOM_MAX_VERTS = 16
 RX_GEOM_MAX_TRIS = 12
 RX_TEX_DIM = 64
 RX_SHADER_MAX = 512
+RX_SHADER_MAX_BIG = 4096
 RX_PUSH_MAX_WORDS = 32
 
 # marker -> total packet length in bytes, mirroring borg_kernel.c's `need`.
@@ -35,6 +36,9 @@ LEN = {
     0xB0: 1 + 1 + 2 + RX_SHADER_MAX + 1,
     0xB1: 1,
     0xB2: 1 + 1 + 1 + RX_PUSH_MAX_WORDS * 4 + 1,
+    0xB3: 1 + 4 + 4 + 1,                      # blend
+    0xB4: 1 + 5 * 4 + 1,                      # depth, stencil, cull
+    0xC1: 1 + 1 + 2 + RX_SHADER_MAX_BIG + 1,  # a shader over RX_SHADER_MAX bytes
 }
 
 
@@ -57,7 +61,7 @@ def main():
         if i + n > len(data):
             sys.exit("strip_shader_packets: truncated 0x%02X packet at offset %d "
                      "(need %d, have %d)" % (marker, i, n, len(data) - i))
-        if marker == 0xB0:
+        if marker in (0xB0, 0xC1):
             dropped += 1
         else:
             out += data[i:i + n]
