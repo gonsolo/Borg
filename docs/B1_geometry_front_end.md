@@ -149,8 +149,9 @@ orientation of the visible part even when some `w < 0`; with
 `CULL_CFG.front_face_invert` clear, front is Vulkan's default
 counter-clockwise (`det M < 0`).
 
-The ROM writes the record with `SOUT` (stride 1) and leaves the corners'
-screen positions in r0-r5 and `det M` in r6. The walker culls a triangle when
+The ROM reads its inputs as the CSRs `uniform0..24`, writes the record with
+`SOUT` (stride 1), and hands the walker the corners' screen positions and
+`det M` through the CSRs `setup_screen0..5` and `setup_det`. The walker culls a triangle when
 `det M` is zero, when its facing is culled, or when every `W <= 0`, and bins
 the whole grid when some `W <= 0`. Otherwise the bounding box comes from the
 screen positions, with a pixel of slack for the reciprocal's rounding.
@@ -199,18 +200,19 @@ against a 1.0 clear at D32 (`far_and_near_plane_primitives_are_inside`).
 In a render (and on the MMIO pixel path with `DRAW_CFG.mode` set) the
 dispatcher's per-pixel trigger runs `BorgRasterRom.drawInstructions` instead
 of the three-plane edge test. It
-evaluates `E0, E1, E2, Zn, Zf` into r0-r4; the dispatcher snoops all five for
+reads the record as uniform CSRs and evaluates `E0, E1, E2, Zn, Zf` into r1-r4
+and r10; the dispatcher snoops all five for
 coverage, per sample at 4x MSAA (the far plane's sample thresholds are the
 depth plane's with the signs swapped). Pixel centres are built in FP32, exact
 at any framebuffer size.
 
 | Register | At fragment-shader start                                   |
 |----------|------------------------------------------------------------|
-| r0-r2    | `E0..E2`: the edge planes, unscaled (see [Watertight edges](#watertight-edges)) |
-| r3, r4   | `Zn = z_ndc` and `Zf = 1 - z_ndc`                           |
+| r1-r3    | `E0..E2`: the edge planes, unscaled (see [Watertight edges](#watertight-edges)) |
+| r4, r10  | `Zn = z_ndc` and `Zf = 1 - z_ndc`                           |
 | r5-r7    | perspective-correct barycentrics `λk = Ek / sum(E)`        |
 | r8       | `FragCoord.w = sum(E) * |1/det M| = 1/w`                    |
-| r9, r10  | clobbered                                                  |
+| r9       | clobbered                                                  |
 | r11-r14  | the depth at each MSAA sample, not written at one sample (see [Per-sample depth](#per-sample-depth)) |
 | r29      | `FragCoord.z`; the fragment's depth if the shader writes r29 |
 | r30, r31 | `FragCoord.xy`, the pixel centre                           |

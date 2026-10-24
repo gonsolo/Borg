@@ -155,8 +155,10 @@ LUTs, FFs, block RAM and Fmax.
 
 ## Order
 
-0. B8's step 7c: the raster ROM's state in CSRs and the setup words out of the window; then
-   opcodes 0x00 and 0x04 are empty and the uniform window goes.
+0. B8's step 7c, done 2026-10-24: opcodes 0x00 and 0x04 are empty and the window's operand
+   substitution is down to the CSR read port. Left for here: the dispatcher still snoops the
+   raster ROM's registers (r1-r4, r10, r11-r14, r29), and the window's storage stays as the
+   ROMs' uniform CSRs.
 1. After B8's steps 7 and 8 (no snooped registers): the step-1 pipeline on ULX3S and Default,
    behind `BorgConfig.pipelined`; Wafer keeps the v1 sequencing until its own step.
 2. borgc's scheduler gets the distance goal; measure.

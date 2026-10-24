@@ -1,9 +1,9 @@
 # ISA v2
 
-Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-12 except
-7c, and 15, done; 13, 14 open; 7c moved to B9). The v1 forms are gone except the ten that read
-the window or r0 until 7c (`FADD`, `FMUL`, `FMA`, `FNEG`, `ISHL`, `IAND`, `IOR`, `IXOR`, `ISEQ`,
-`SOUT`). An 8-bit tile's multi-pass resolve averages an sRGB attachment's stored codes. The private window below is not built: borgc keeps local
+Status: specification agreed 2026-10-22; on `feat/isa-v2-step1` steps 1-12 and 15 are done,
+13 and 14 deferred. The v1 forms are gone: opcodes 0x00 and 0x04 hold only HALT, the all-zero
+word, which RISC-V reserves as illegal. The setup and raster ROMs read the triangle's words as
+the CSRs `uniform0..31` (0x840), which go through the window's read port. An 8-bit tile's multi-pass resolve averages an sRGB attachment's stored codes. The private window below is not built: borgc keeps local
 arrays in registers and does not spill shaders that need helper lanes, so nothing uses it yet. The current ISA (v1) is
 `hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `fe1c9897`. The
 pipeline that follows it is B9.
@@ -148,7 +148,7 @@ reads and writes registers only where an instruction names them.
 | r30/r31 VertexIndex, InstanceIndex | CSR `vertex_index`, `instance_index` |
 | r30/r31 invocation IDs, u29-u31 WorkgroupID | CSR `local_index`, `local_id` (packed as v1), `group_id_x/y/z` |
 | r5-r7 barycentrics, r8 1/w | CSR `bary0`..`bary2`, `inv_w` |
-| r0-r4, r9-r14 raster ROM state, r29 FragCoord.z | rasterizer-internal; the shader reads `frag_z` |
+| r0-r4, r9-r14 raster ROM state, r29 FragCoord.z | rasterizer-internal (r1-r14 since 7c); the shader reads `frag_z` |
 | r24 alpha, r26-r28 colour, r29 depth | CSR writes `out_c0`..`out_c3` (R, G, B, A or raw words), `out_depth` |
 | r0-r3 gl_Position (vertex) | CSR writes `out_pos0`..`out_pos3` (0x808-0x80B), x..w |
 | r25 kill | CSR write `discard` (sticky) |
