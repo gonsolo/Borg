@@ -416,7 +416,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.negC  := rv.fsub || rv.fmsub || rv.fnmadd
     flags.negProd := rv.fnmadd || rv.fnmsub
     flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
-    flags.fstep := v1 && f7op === Opcodes.FUNCT7_FSTEP.U
     flags.frcp  := rv.frcp
     flags.iadd  := rv.add
     flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U || rv.sll

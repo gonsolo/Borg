@@ -96,7 +96,6 @@ object BorgTests extends TestSuite {
   case class FMA(rs3: Int) extends Op
   case object FNEG extends Op
   case object FMOV extends Op
-  case object FSTEP extends Op
   case object FRCP extends Op
 
   def encodeInstruction(config: FloatConfig, op: Op, rs1: Int, rs2: Int, rd: Int): BigInt = {
@@ -107,7 +106,6 @@ object BorgTests extends TestSuite {
       case FMA(r3) => Instructions.FMA(rs1, rs2, r3, rd)
       case FNEG    => Instructions.FNEG(rs1, rd)
       case FMOV    => Instructions.FMOV(rs1, rd)
-      case FSTEP   => Instructions.FSTEP(rs1, rd)
       case FRCP    => Instructions.FRCP(rs1, rd)
     }
     instVal
@@ -189,9 +187,6 @@ object BorgTests extends TestSuite {
       case FMOV =>
         (encodeInstruction(config, FMOV, rs1 = 1, rs2 = 0, rd = 2),   // x0 is zero for FSGNJ.S
           8, b_eff, f"mov $b_eff%8.2f")
-      case FSTEP =>
-        (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2), // rs1 edge, rs2 not used
-          8, if (a_eff > 0.0f) 1.0f else 0.0f, f"step($a_eff%8.2f)")
       case FRCP =>
         (encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2),
           8, 1.0f / a_eff, f"rcp($a_eff%8.2f)")
@@ -252,8 +247,6 @@ object BorgTests extends TestSuite {
             if (config != FloatConfig.FP16 || math.abs(a * b + c) <= FP16_MAX)
               runTest(borg, config, FMA(3), a, b, c)
           }
-        case FSTEP =>
-          runTest(borg, config, FSTEP, a, 0f)
         case FRCP =>
           runTest(borg, config, FRCP, a, 0f)
       }
@@ -300,18 +293,6 @@ object BorgTests extends TestSuite {
         runBatch(borg, config, MUL, pairs)
         runBatch(borg, config, FMA(3), pairs)
         // FP16 FNEG: host negates values (XOR sign bit) before loading into Borg registers
-
-        // FP16 FSTEP tests (inverted: <=0 -> 0.0, >0 -> 1.0)
-        println("\n--- FP16 FSTEP Tests ---")
-        // Negative -> 0.0
-        runTest(borg, config, FSTEP, -2.0f, 0f)
-        runTest(borg, config, FSTEP, -0.5f, 0f)
-        // Positive -> 1.0
-        runTest(borg, config, FSTEP, 1.0f, 0f)
-        runTest(borg, config, FSTEP, 0.001f, 0f)
-        // Zero -> 0.0 (zero is <= 0)
-        runTest(borg, config, FSTEP, 0.0f, 0f)
-        println("--- FP16 FSTEP Tests Passed ---\n")
 
         // Rotation shader test — mirrors borg_rotate.c exactly
         println("\n--- FP16 Rotation Shader Test ---")
@@ -431,11 +412,6 @@ object BorgTests extends TestSuite {
         // FNEG: -(-3.0) = 3.0
         runTest(borg, config, FNEG, -3.0f, 0f)
 
-        // FSTEP: -1.0 → 0.0
-        runTest(borg, config, FSTEP, -1.0f, 0f)
-        // FSTEP: +1.0 → 1.0
-        runTest(borg, config, FSTEP, 1.0f, 0f)
-
         println("=== Individual Instruction FP16 Tests Passed ===\n")
       }
     }
@@ -473,13 +449,6 @@ object BorgTests extends TestSuite {
         // FNEG(0.0) — hardware XORs sign bit
         runTest(borg, config, FNEG, 0.0f, 0f)
 
-        // --- FSTEP boundaries ---
-        // FSTEP(0.0) → 0.0 (zero is ≤ 0)
-        runTest(borg, config, FSTEP, 0.0f, 0f)
-        // FSTEP with small positive FP16 value → 1.0
-        runTest(borg, config, FSTEP, 0.01f, 0f)
-        // FSTEP with small negative → 0.0
-        runTest(borg, config, FSTEP, -0.01f, 0f)
 
         borg.io.data_write_n.poke(3.U)
         borg.io.data_read_n.poke(3.U)

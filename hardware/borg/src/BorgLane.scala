@@ -10,7 +10,7 @@ import chisel3.util._
   *
   * Holds everything that differs between SIMT lanes (each lane = one pixel of a
   * 2×2 quad): the triplicated register file, coordinate expansion (r30/r31), the
-  * FP16 ALU (FMA / FSTEP / FRCP), write-back, and the pipeline write-back snoop.
+  * FP16 ALU (FMA / FRCP), write-back, and the pipeline write-back snoop.
   *
   * Everything that is SHARED across lanes stays in [[BorgCore]] and is supplied
   * here as inputs: the decoded instruction (`regs`/`opFlags`), the pipeline
@@ -159,14 +159,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.recCRaw := recC_raw
 
   // --- ALU ---
-  val (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
-  val fstep_result = computeFstep(recA_raw)
+  val (fma_result, is_frcp_reg, is_frsq_reg, is_fsrgb_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
   val special_result = computeFp16Special(recA_raw, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
   val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
 
   // --- Write-back (+ memory/TEX override) ---
-  wireWriteBack(fma_result, fstep_result, special_result,
-                is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg,
+  wireWriteBack(fma_result, special_result,
+                is_frcp_reg, is_frsq_reg, is_fsrgb_reg,
                 int_result, is_int_reg, mmioD)
 
   io.regReadData := mmioD
@@ -241,13 +240,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     (holdA, holdB, holdC, mmioD)
   }
 
-  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool, Bool, Bool) = {
+  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool, Bool) = {
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
 
     val is_mul_reg = RegInit(false.B)
     val is_fma_reg = RegInit(false.B)
     val is_fneg_reg = RegInit(false.B)
-    val is_fstep_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
     val is_fsrgb_reg = RegInit(false.B)
@@ -263,7 +261,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // wireSampler), last-connect-wins over whatever this path produces.
       is_fma_reg := opFlags.fma
       is_fneg_reg := opFlags.fneg
-      is_fstep_reg := opFlags.fstep
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
       is_fsrgb_reg := opFlags.fsrgb
@@ -289,16 +286,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     // @doc:end
 
-    (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
+    (fma_result, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
   }
-
-  // @doc:fstep
-  private def computeFstep(recA_raw: UInt): UInt = {
-    val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
-    val neg_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
-    Mux(neg_or_zero, 0.U(config.totalBits.W), one_fn)
-  }
-  // @doc:end
 
   /** Reciprocal / reciprocal-sqrt / linear->sRGB, sharing one Fp16Special
     * instance (was 3 separate modules, each with its own copy of the
@@ -386,7 +375,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   /** Integer ALU (16-bit, on the raw register bits). Flags latch at `start` like
     * the FP ops; results are combinational on the operands, valid at write-back
-    * (busy_counter==1), same as fstep/frcp. Returns (result, is_integer_op). */
+    * (busy_counter==1), same as frcp. Returns (result, is_integer_op). */
   private def wireIntAlu(recA_raw: UInt, recB_raw: UInt, start: Bool): (UInt, Bool) = {
     val is_iadd_reg = RegInit(false.B)
     val is_ishl_reg = RegInit(false.B)
@@ -475,8 +464,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def wireWriteBack(
-      fma_result: UInt, fstep_result: UInt, special_result: UInt,
-      is_fstep_reg: Bool, is_frcp_reg: Bool, is_frsq_reg: Bool, is_fsrgb_reg: Bool,
+      fma_result: UInt, special_result: UInt,
+      is_frcp_reg: Bool, is_frsq_reg: Bool, is_fsrgb_reg: Bool,
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
@@ -509,8 +498,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_special_reg = is_frcp_reg || is_frsq_reg || is_fsrgb_reg
     val w_data = Mux(pipe_write,
       Mux(is_int_reg, int_result,
-        Mux(is_fstep_reg, fstep_result,
-          Mux(is_special_reg, special_result, fma_result))),
+        Mux(is_special_reg, special_result, fma_result)),
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeReg(w_addr, w_en, w_data)

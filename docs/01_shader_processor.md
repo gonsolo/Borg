@@ -84,13 +84,7 @@ for everything:
 
 {{snippet:hardware/borg/src/BorgLane.scala:fma-muxing}}
 
-The fifth operation, **FSTEP**, doesn't use the FMA at all.  It implements a
-step function used during rasterization to test whether a pixel is inside a
-triangle edge.  The result is simply 1.0 for positive inputs and 0.0 otherwise:
-
-{{snippet:hardware/borg/src/BorgLane.scala:fstep}}
-
-The sixth operation, **FRCP**, provides hardware FP16 reciprocal (1/x) via a
+The fifth operation, **FRCP**, provides hardware FP16 reciprocal (1/x) via a
 33-entry LUT with linear interpolation.  It enables single-instruction
 perspective division (W-divide) in the vertex shader.  FRCP shares its ROM
 lookup and interpolation hardware with the FRSQ (reciprocal-sqrt) and FSRGB

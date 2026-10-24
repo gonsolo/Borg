@@ -64,7 +64,6 @@ object Instructions {
   def MUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_FMUL, FMUL_S(_, _, _))(rs1, rs2, rd, funct3)
   def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r1(FUNCT7_FNEG, (d, a) => FSGNJN_S(d, a, a))(rs1, rd, funct3)
   def FMOV(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12((d, a) => FSGNJ_S(d, a, a))(rs1, rd, funct3)
-  def FSTEP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd, funct3)
   def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = only(funct3 == 0, FRCP_V2(rd, rs1))
   def IADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(Opcodes.ADD(_, _, _))(rs1, rs2, rd, funct3)
   def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r(FUNCT7_ISHL, SLL(_, _, _))(rs1, rs2, rd, funct3)
