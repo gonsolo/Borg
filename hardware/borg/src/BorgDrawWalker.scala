@@ -46,6 +46,7 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val coreTrigger = new CoreTriggerIO
   val coreStatus  = Flipped(new CoreStatusIO)
   val pipeWrite   = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
+  val csrWrite    = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val seqShaderActive = Output(Bool())
   val ids    = Output(new InvocationIdsIO(cfg))
@@ -372,11 +373,11 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  // Clip-space position: r0..r3 of each corner's lane (or run).
+  // Clip-space position: out_pos0..3 of each corner's lane (or run).
   when(state === sWaitVS) {
     for (lane <- 0 until cfg.fragLanes; comp <- 0 until 4) {
-      val pw = io.pipeWrite(lane)
-      when(pw.en && pw.addr === comp.U) {
+      val pw = io.csrWrite(lane)
+      when(pw.en && pw.addr === (Csr.OutPos0 + comp).U) {
         if (simt) { if (lane < 3) clip(lane)(comp) := pw.data(31, 0) }
         else clip(k)(comp) := pw.data(31, 0)
       }

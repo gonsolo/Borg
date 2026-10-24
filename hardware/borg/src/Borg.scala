@@ -1099,6 +1099,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       d.depthBiasConst := w(14); d.depthBiasSlope := w(15); d.depthD32 := depthD32Reg
     }
     s.io.pipeWriteLanes.foreach(_ := core.io.pipeWrite)
+    s.io.csrWriteLanes.foreach(_ := core.io.csrWrite)
     core.io.drawMode.foreach(_ := drawMode)
     core.io.drawSingle.foreach(_ := (cfg.samples == 1).B || singleSample)
     core.io.setupShort.foreach(_ := ((cfg.samples == 1).B || singleSample) && wordRegs.map(w => w(14) === 0.U && w(15) === 0.U).getOrElse(true.B))

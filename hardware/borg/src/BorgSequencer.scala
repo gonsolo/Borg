@@ -182,6 +182,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // (the current triangle's attributes, for FATTR).
   val draw       = if (cfg.drawEnabled) Some(Input(new DrawMmioIO)) else None
   val pipeWriteLanes = if (cfg.drawEnabled) Some(Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))) else None
+  val csrWriteLanes  = if (cfg.drawEnabled) Some(Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))) else None
   val ids        = if (cfg.drawEnabled) Some(Output(new InvocationIdsIO(cfg))) else None
   val record     = if (cfg.drawEnabled) Some(Output(new CoreRecordIO)) else None
   val topLeft    = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
@@ -372,6 +373,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     w.io.draw := io.draw.get
     w.io.coreStatus := io.coreStatus
     w.io.pipeWrite  := io.pipeWriteLanes.get
+    w.io.csrWrite   := io.csrWriteLanes.get
     w.io.dma.busy := io.dma.busy
     w.io.dma.snoop := io.dma.snoop
     w.io.dma.uniformSnoop := io.dma.uniformSnoop
