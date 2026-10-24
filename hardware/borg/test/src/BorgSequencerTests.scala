@@ -231,8 +231,8 @@ object BorgSequencerTests extends TestSuite {
           val fragPc = 1
           val frag = Seq(
             Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),                // r25 = 0 (index, no kill)
-            Instructions.ADD(rs1 = 12, rs2 = 25, rd = 29, funct3 = 1),      // r29 = depth = u12
-            Instructions.ADD(rs1 = 12, rs2 = 25, rd = 27, funct3 = 1),      // r27 = colour = u12
+            Opcodes.CSRRS(29, 0, Csr.Uniform0 + 12),      // r29 = depth = u12
+            Opcodes.CSRRS(27, 0, Csr.Uniform0 + 12),      // r27 = colour = u12
             if (useZTest) Instructions.ZTEST()
             else Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),            // same length, no test
             Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 27),   // mem[lsBase] = colour
@@ -287,7 +287,7 @@ object BorgSequencerTests extends TestSuite {
         val frag = Seq(
             Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),               // r25 = 0 (index, no kill)
             Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),                  // r5 = 0
-            Instructions.IOR(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1)) ++ // r6 = u12 = 1
+            Opcodes.CSRRS(6, 0, Csr.Uniform0 + 12)) ++ // r6 = u12 = 1
           Seq.fill(100)(Instructions.IADD(rs1 = 5, rs2 = 6, rd = 5)) ++   // r5 += 1, x100
           Seq(Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 5), BigInt(0))
         Predef.assert(frag.length + fragPc > suiteCfg.maxInstructions)
@@ -331,9 +331,9 @@ object BorgSequencerTests extends TestSuite {
         val frag = Seq(
             Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),
             Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),
-            Instructions.IOR(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1),
-            Instructions.IOR(rs1 = 13, rs2 = 25, rd = 7, funct3 = 1),
-            Instructions.IOR(rs1 = 14, rs2 = 25, rd = 8, funct3 = 1)) ++
+            Opcodes.CSRRS(6, 0, Csr.Uniform0 + 12),
+            Opcodes.CSRRS(7, 0, Csr.Uniform0 + 13),
+            Opcodes.CSRRS(8, 0, Csr.Uniform0 + 14)) ++
           (0 until adds).map(i => Instructions.IADD(rs1 = 5, rs2 = 6 + i % 3, rd = 5)) ++
           Seq(Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 5), BigInt(0))
         val expect = (0 until adds).map(i => consts(i % 3)).sum

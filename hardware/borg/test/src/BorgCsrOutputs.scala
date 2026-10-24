@@ -18,7 +18,7 @@ object CsrOutputs {
     if (w == 0) Nil
     else if (op == 4) { if (f2 == FUNCT2_TEX) rd until rd + 4 else if (f2 == FUNCT2_TEXA) Nil else Seq(rd) }
     else if (op == 0) { if (noDst(f7)) Nil else if (f7 == FUNCT7_FATTR) rd until rd + 3 else Seq(rd) }
-    else if (op == OPCODE_CSRRW) Nil
+    else if (op == OPCODE_CSRRW && ((w >> 12) & 7) == 1) Nil
     else Seq(rd)
   }
 
