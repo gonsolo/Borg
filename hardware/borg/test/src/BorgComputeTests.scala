@@ -222,18 +222,18 @@ object BorgComputeTests extends TestSuite {
       // write-back entirely (BorgCore's own doc), so only one lane's
       // read-modify-write is ever real at a time, and lane i+1's LOAD does
       // not even issue until lane i's STORE has landed in DRAM. r30 differs
-      // per lane, so ISEQ(r30, i) is genuinely a per-lane, not per-quad, mask.
+      // per lane, so r30 == i is genuinely a per-lane, not per-quad, mask.
       val prog = words(
-        Instructions.ISEQ(rs1 = 30, rs2 = 10, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Opcodes.XOR(1, 30, 10), Opcodes.SLTIU(1, 1, 1), Instructions.EXPUSH(rs1 = 1),
         ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
         st(14, 5), Instructions.EXPOP(),
-        Instructions.ISEQ(rs1 = 30, rs2 = 11, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Opcodes.XOR(1, 30, 11), Opcodes.SLTIU(1, 1, 1), Instructions.EXPUSH(rs1 = 1),
         ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
         st(14, 5), Instructions.EXPOP(),
-        Instructions.ISEQ(rs1 = 30, rs2 = 12, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Opcodes.XOR(1, 30, 12), Opcodes.SLTIU(1, 1, 1), Instructions.EXPUSH(rs1 = 1),
         ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
         st(14, 5), Instructions.EXPOP(),
-        Instructions.ISEQ(rs1 = 30, rs2 = 13, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Opcodes.XOR(1, 30, 13), Opcodes.SLTIU(1, 1, 1), Instructions.EXPUSH(rs1 = 1),
         ld(14, 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
         st(14, 5), Instructions.EXPOP()
       )
@@ -337,7 +337,7 @@ object BorgComputeTests extends TestSuite {
       val prog = words(
         Opcodes.TEXAD(rs1 = 10, rs2 = 10, rs3 = 10), Opcodes.TEXS(16, 12),
         Instructions.IADD(rs1 = 17, rs2 = 10, rd = 1),
-        Instructions.ISEQ(rs1 = 30, rs2 = 10, rd = 2), Instructions.EXPUSH(rs1 = 2), Instructions.EXELSE(),
+        Opcodes.XOR(2, 30, 10), Opcodes.SLTIU(2, 2, 1), Instructions.EXPUSH(rs1 = 2), Instructions.EXELSE(),
         Opcodes.ADDI(1, 17, 64),
         Opcodes.TEXD(20, 14, 14, 1),
         Instructions.EXPOP(),

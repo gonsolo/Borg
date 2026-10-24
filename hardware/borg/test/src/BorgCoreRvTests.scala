@@ -256,14 +256,13 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
-    utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
+    utest.test("x0_reads_zero_and_drops_writes") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
-        // r0 holds 5: a RISC-V read sees 0, a RISC-V write is dropped, v1 still uses r0.
-        val rd = run(core, Seq(ADD(1, 0, 0), ADDI(2, 0, 9), ADDI(0, 2, 1), Instructions.IOR(0, 0, 3),
-                               OR(4, 2, 0)), Map(0 -> 5))
-        println(s"  r1 ${rd(1)} r2 ${rd(2)} r0 ${rd(0)} r3 ${rd(3)} r4 ${rd(4)}")
-        utest.assert(rd(1) == 0 && rd(2) == 9 && rd(0) == 5 && rd(3) == 5 && rd(4) == 9)
+        // r0 holds 5: a read sees 0 and a write is dropped.
+        val rd = run(core, Seq(ADD(1, 0, 0), ADDI(2, 0, 9), ADDI(0, 2, 1), OR(4, 2, 0)), Map(0 -> 5))
+        println(s"  r1 ${rd(1)} r2 ${rd(2)} r0 ${rd(0)} r4 ${rd(4)}")
+        utest.assert(rd(1) == 0 && rd(2) == 9 && rd(0) == 5 && rd(4) == 9)
       }
     }
   }

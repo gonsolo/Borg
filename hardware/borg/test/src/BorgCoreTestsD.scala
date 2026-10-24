@@ -325,9 +325,9 @@ object BorgCoreTestsD extends TestSuite {
         // The regression anchor: the mask powers up all-ones and nothing
         // narrows it, so a program that predates these instructions behaves
         // exactly as it did.
-        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 15, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.ADD(0, 1, 2))
+        writeImem(core, 0, Instructions.ADD(15, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
 

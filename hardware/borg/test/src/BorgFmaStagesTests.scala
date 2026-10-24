@@ -82,20 +82,20 @@ object BorgFmaStagesTests extends TestSuite {
       // FMA is the op the extra stage actually splits, so it is the one that
       // matters most; ADD/MUL share the same datapath through the same regs.
       bothStages("fma(2.5, 4.0, 1.25)",
-        Seq(0 -> floatToBits(2.5f), 1 -> floatToBits(4.0f), 2 -> floatToBits(1.25f)),
-        Seq(Instructions.FMA(0, 1, 2, 3)), Seq(3))
+        Seq(9 -> floatToBits(2.5f), 1 -> floatToBits(4.0f), 2 -> floatToBits(1.25f)),
+        Seq(Instructions.FMA(9, 1, 2, 3)), Seq(3))
 
       bothStages("mul(3.5, -2.25)",
-        Seq(0 -> floatToBits(3.5f), 1 -> floatToBits(-2.25f)),
-        Seq(Instructions.MUL(0, 1, 3)), Seq(3))
+        Seq(9 -> floatToBits(3.5f), 1 -> floatToBits(-2.25f)),
+        Seq(Instructions.MUL(9, 1, 3)), Seq(3))
 
       bothStages("add(1.0, 0.0009765625)",   // tiny addend: exercises alignment
-        Seq(0 -> floatToBits(1.0f), 1 -> floatToBits(0.0009765625f)),
-        Seq(Instructions.ADD(0, 1, 3)), Seq(3))
+        Seq(9 -> floatToBits(1.0f), 1 -> floatToBits(0.0009765625f)),
+        Seq(Instructions.ADD(9, 1, 3)), Seq(3))
 
       bothStages("add(1e-7, -1e-7) -> zero", // cancellation: magR == 0 path
-        Seq(0 -> floatToBits(1e-7f), 1 -> floatToBits(-1e-7f)),
-        Seq(Instructions.ADD(0, 1, 3)), Seq(3))
+        Seq(9 -> floatToBits(1e-7f), 1 -> floatToBits(-1e-7f)),
+        Seq(Instructions.ADD(9, 1, 3)), Seq(3))
     }
 
     utest.test("back_to_back_instructions_do_not_overlap") {
@@ -105,11 +105,11 @@ object BorgFmaStagesTests extends TestSuite {
       // write-back cycle is unchanged but the result arrives later inside the
       // FMA, so an off-by-one here shows up as a stale operand.
       bothStages("chain mul->add->fma",
-        Seq(0 -> floatToBits(2.0f), 1 -> floatToBits(3.0f), 2 -> floatToBits(0.5f)),
+        Seq(9 -> floatToBits(2.0f), 1 -> floatToBits(3.0f), 2 -> floatToBits(0.5f)),
         Seq(
-          Instructions.MUL(0, 1, 3),   // r3 = 6.0
+          Instructions.MUL(9, 1, 3),   // r3 = 6.0
           Instructions.ADD(3, 2, 4),   // r4 = 6.5   (reads r3 written last instr)
-          Instructions.FMA(3, 4, 0, 5) // r5 = 6*6.5 + 2
+          Instructions.FMA(3, 4, 9, 5) // r5 = 6*6.5 + 2
         ),
         Seq(3, 4, 5))
     }

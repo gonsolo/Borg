@@ -61,8 +61,8 @@ object FrcpPrecisionTests extends TestSuite {
 
   def frcpViaCore(core: BorgCore, xBits: BigInt): BigInt = {
     resetCore(core)
-    writeReg(core, 0, xBits)
-    writeImem(core, 0, Instructions.FRCP(rs1 = 0, rd = 2))
+    writeReg(core, 9, xBits)
+    writeImem(core, 0, Instructions.FRCP(rs1 = 9, rd = 2))
     writeImem(core, 1, 0)
     startAndWait(core)
     readReg(core, 2)
@@ -71,16 +71,16 @@ object FrcpPrecisionTests extends TestSuite {
   def divViaCore(core: BorgCore, aBits: BigInt, bBits: BigInt): BigInt = {
     // Mirrors borgvk_compiler.c's lower_fdiv: a / b -> a * frcp(b), no refinement.
     resetCore(core)
-    writeReg(core, 0, bBits)
-    writeImem(core, 0, Instructions.FRCP(rs1 = 0, rd = 2))
+    writeReg(core, 9, bBits)
+    writeImem(core, 0, Instructions.FRCP(rs1 = 9, rd = 2))
     writeImem(core, 1, 0)
     startAndWait(core)
     val rcpB = readReg(core, 2)
 
     resetCore(core)
-    writeReg(core, 0, aBits)
+    writeReg(core, 9, aBits)
     writeReg(core, 1, rcpB)
-    writeImem(core, 0, Instructions.MUL(rs1 = 0, rs2 = 1, rd = 2))
+    writeImem(core, 0, Instructions.MUL(rs1 = 9, rs2 = 1, rd = 2))
     writeImem(core, 1, 0)
     startAndWait(core)
     readReg(core, 2)
