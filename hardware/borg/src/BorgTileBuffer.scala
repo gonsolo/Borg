@@ -61,6 +61,8 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
   val clear = Flipped(new TileClearIO(zBits))
+  // An sRGB attachment: narrow storage keeps its sRGB bytes rather than linear UNORM8.
+  val srgb  = Input(Bool())
 
   // --- Optional stencil plane (Step 50 item 10) --------------------------
   //
@@ -156,10 +158,12 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   val STORED_BITS  = if (narrowColor) 3 * colorBits + zBits else SAMPLE_BITS
 
   /** ColorZ(dataBits) -> the narrower stored bit pattern. */
-  def encodeStored(cz: ColorZ): UInt =
+  def encodeStored(cz: ColorZ, srgb: Bool = io.srgb): UInt =
     if (!narrowColor) cz.asUInt
-    else Cat(ColorQuantize.quantize8(cz.r), ColorQuantize.quantize8(cz.g),
-             ColorQuantize.quantize8(cz.b), cz.z)
+    else {
+      def q(h: UInt) = Mux(srgb, SrgbCodec.encode(h), ColorQuantize.quantize8(h))
+      Cat(q(cz.r), q(cz.g), q(cz.b), cz.z)
+    }
 
   /** The stored colour channels as raw integers, for the multi-pass
     * accumulator: averaging must happen on the UNORM8 values, never on the
@@ -181,9 +185,10 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       val r8 = bits(3 * colorBits + zBits - 1, 2 * colorBits + zBits)
       val g8 = bits(2 * colorBits + zBits - 1, colorBits + zBits)
       val b8 = bits(colorBits + zBits - 1, zBits)
-      cz.r := ColorQuantize.dequantize8(r8)
-      cz.g := ColorQuantize.dequantize8(g8)
-      cz.b := ColorQuantize.dequantize8(b8)
+      def d(v: UInt) = Mux(io.srgb, SrgbCodec.decode(v), ColorQuantize.dequantize8(v))
+      cz.r := d(r8)
+      cz.g := d(g8)
+      cz.b := d(b8)
       cz.z := bits(zBits - 1, 0)
     }
     cz
@@ -273,7 +278,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   )
   // Replicated across samples: a clear has no per-sample coverage, every sample
   // of every pixel gets the same value (matches the software MSAA clear path).
-  val clearWordReg = RegInit(encodeStored(clearInit))
+  val clearWordReg = RegInit(encodeStored(clearInit, false.B))
   val clearWord = clearWordReg
 
   // --- Clear logic ---
@@ -441,9 +446,11 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       val avgB = (accCh(accRead, 2) +& wb) >> shift
       val res = Wire(new ColorZ(dataBits, zBits))
       when(io.pass.get.resolve) {
-        res.r := ColorQuantize.dequantize8(avgR(colorBits - 1, 0))
-        res.g := ColorQuantize.dequantize8(avgG(colorBits - 1, 0))
-        res.b := ColorQuantize.dequantize8(avgB(colorBits - 1, 0))
+        // An sRGB attachment averages its stored sRGB bytes (no wider accumulator here).
+        def d(v: UInt) = Mux(io.srgb, SrgbCodec.decode(v), ColorQuantize.dequantize8(v))
+        res.r := d(avgR(colorBits - 1, 0))
+        res.g := d(avgG(colorBits - 1, 0))
+        res.b := d(avgB(colorBits - 1, 0))
         res.z := work.z
       }.otherwise {
         res := work

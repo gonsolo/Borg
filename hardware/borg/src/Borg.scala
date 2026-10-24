@@ -610,6 +610,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.extRead.foreach(_ := tile.io.extRead.get)
     tile.io.extWrite.foreach(_ := Mux(ldWrite, ld.io.write.ext, rast.io.extWrite.get))
     tile.io.extActive.foreach(_ := FlushFormat.is64(attFormat))
+    tile.io.srgb := attSrgb
     tile.io.extClear.foreach(_ := attClearExt)
 
     // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) --------------
