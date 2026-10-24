@@ -1,7 +1,7 @@
 # ISA v2
 
-Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-4, 7, 8, 10,
-12 and the first half of 11 done; 7c moved to B9). The current ISA (v1) is
+Status: specification agreed 2026-10-22; in progress on `feat/isa-v2-step1` (steps 1-4, 7a-b,
+8-12 and 15 done; 5, 6, 13, 14 and the v1 deletions open; 7c moved to B9). The current ISA (v1) is
 `hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `fe1c9897`. The
 pipeline that follows it is B9.
 
@@ -148,7 +148,7 @@ reads and writes registers only where an instruction names them.
 | r24 alpha, r26-r28 colour, r29 depth | CSR writes `out_c0`..`out_c3` (R, G, B, A or raw words), `out_depth` |
 | r25 kill | CSR write `discard` (sticky) |
 | r19 sample mask, `SMASK` | CSR `sample_mask` (read: coverage; write: output mask) |
-| `ATTIDX` | CSR `attachment` |
+| `ATTIDX` | CSR `attachment` (0xCCF; attachment + 4 * slice) |
 | r17-r19 and other constant presets, u20-u31 windows | none: immediates and constant-buffer loads |
 | r12-r14 workgroup base (borgc) | a register like any other |
 | root of the descriptors (v1: the base registers) | CSR `root` |
