@@ -18,7 +18,7 @@ pipeline that follows it is B9.
   `TEX_DESC_BASE`, `SAMPLER_DESC_BASE` and `LS_BASE` registers go.
 - **Loads, stores and atomics by address in every stage**, with a memory model that carries
   Vulkan's, and later buffer device address and the Vulkan 1.3 memory model.
-- **Subgroup operations** across the four lanes of a quad.
+- **Subgroup operations** across the four lanes of a quad, with Vulkan 1.1 (the goal is 1.0).
 - **A base-and-limit check** per context as minimal memory protection.
 - **One ISA, a configuration per target**: every instruction exists on every target; a target
   may run some of them in more cycles.
@@ -87,7 +87,7 @@ file has them (`hardware/borg/isa/rv_i`, named `.v2` until v1's forms go):
 | `FATTR` | 0x5B | R | 1 | 0x00 | rd (group of 3); rs2 and rs1 fields = attribute (as v1) |
 | `EXPUSH`, `EXELSE`, `EXPOP`, `EXANY` | 0x7B | R | 0 | 0x00..0x03 | as v1 |
 | `BARRIER` | 0x7B | R | 1 | 0x00 | — |
-| `QBALLOT`, `QSHUF` | 0x7B | R | 2 | 0x00, 0x01 | see "Subgroups" |
+| `QBALLOT`, `QSHUF` | 0x7B | R | 2 | 0x00, 0x01 | reserved for Vulkan 1.1, see "Subgroups" |
 
 `TEXS` sets the sampler descriptor and the control word for the `TEX`s after it: v1's word
 without the descriptor indices (operation, gather component, compare, LOD mode, offsets), since
@@ -267,7 +267,8 @@ one process's GPU memory as one carve-out (`B5`), which is what the board has.
 
 ## Subgroups
 
-The quad's 4 lanes are a subgroup of 4 in every stage.
+The quad's 4 lanes are a subgroup of 4 in every stage. Subgroups are core Vulkan 1.1, so this
+waits for 1.1; a first implementation (reverted, beaf400d) passed subgroupAdd, vote and barrier.
 
 | Operation | v2 |
 |---|---|
@@ -345,7 +346,7 @@ Order, cheapest and most independent first:
     and `TEX_DESC_BASE`, `SAMPLER_DESC_BASE` go.
 12. Atomics; then borgc's lane-serial atomics go.
 13. Base and limit.
-14. `QBALLOT`, `QSHUF`, and the subgroup feature bits in borgvk.
+14. `QBALLOT`, `QSHUF`, and the subgroup feature bits in borgvk: deferred to Vulkan 1.1.
 15. The custom ops move to their custom-0..3 encodings, and opcodes 0x00 and 0x04 are empty.
 
 Step 8 runs right after step 1, with the CSR access it needs from step 7: on 2026-10-22 both
