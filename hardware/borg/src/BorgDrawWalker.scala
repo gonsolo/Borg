@@ -45,7 +45,6 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus  = Flipped(new CoreStatusIO)
-  val pipeWrite   = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
   val csrWrite    = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val seqShaderActive = Output(Bool())
@@ -88,7 +87,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val restartAt = RegInit(0.U(32.W))
   private val sawRestart = RegInit(false.B)
   private val clip  = Reg(Vec(3, Vec(4, UInt(32.W))))   // X, Y, Z, W per corner
-  private val screen = Reg(Vec(6, UInt(32.W)))          // setup ROM r0..r5
+  private val screen = Reg(Vec(6, UInt(32.W)))          // setup_screen0..5
   private val det   = Reg(UInt(32.W))                   // setup ROM r6
   private val isBack = RegInit(false.B)
   private val stageIdx = RegInit(0.U(5.W))
@@ -383,10 +382,10 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
   }
-  // Setup ROM: screen corners r0..r5 and det M in r6.
-  when(state === sWaitSetup && io.pipeWrite(0).en) {
-    for (r <- 0 until 6) when(io.pipeWrite(0).addr === r.U) { screen(r) := io.pipeWrite(0).data(31, 0) }
-    when(io.pipeWrite(0).addr === 6.U) { det := io.pipeWrite(0).data(31, 0) }
+  // Setup ROM: screen corners and det M.
+  when(state === sWaitSetup && io.csrWrite(0).en) {
+    for (r <- 0 until 6) when(io.csrWrite(0).addr === (Csr.SetupScreen0 + r).U) { screen(r) := io.csrWrite(0).data(31, 0) }
+    when(io.csrWrite(0).addr === Csr.SetupDet.U) { det := io.csrWrite(0).data(31, 0) }
   }
 }
 

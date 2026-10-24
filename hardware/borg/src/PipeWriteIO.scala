@@ -28,6 +28,7 @@ object Csr {
   val OutC0 = 0x800; val OutC1 = 0x801; val OutC2 = 0x802; val OutC3 = 0x803
   val OutDepth = 0x804; val Discard = 0x805; val SampleMask = 0x806
   val OutPos0 = 0x808  // gl_Position x..w at 0x808..0x80B
+  val SetupScreen0 = 0x810; val SetupDet = 0x816  // the setup ROM's results for the draw walker
   val Root = 0xCC0
   val Uniform0 = 0x840  // the per-draw and per-triangle words, uniform k at 0x840 + k (k < 32)
   // System values (B8 step 7), read-only.

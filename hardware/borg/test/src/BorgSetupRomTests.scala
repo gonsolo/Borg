@@ -38,7 +38,7 @@ object BorgSetupRomTests extends TestSuite {
   }
 
   def runSetup(core: BorgCore, t: Tri, mem: scala.collection.mutable.Map[BigInt, BigInt],
-               bias: (Double, Double, Double) = (0, 0, 0)): Unit = {
+               bias: (Double, Double, Double) = (0, 0, 0)): Map[Int, BigInt] = {
     def u(i: Int, f: Double): Unit = writeCore(core, 432 + 4 * i, floatToBits(f.toFloat))
     u(BorgSetupRom.uBiasSlope, bias._1); u(BorgSetupRom.uBiasConst, bias._2); u(BorgSetupRom.uRFloor, bias._3)
     for (k <- 0 until 3) {
@@ -54,7 +54,10 @@ object BorgSetupRomTests extends TestSuite {
     core.clock.step(1)
     core.io.coreTrigger.valid.poke(false.B); core.io.coreTrigger.isSetup.poke(false.B)
     var started = false; var done = false; var cycles = 0
+    val csrs = scala.collection.mutable.Map[Int, BigInt]()
     while (!done && cycles < 20000) {
+      val cw = core.io.csrWrite(0)
+      if (cw.en.peek().litToBoolean) csrs(cw.addr.peek().litValue.toInt) = cw.data.peek().litValue
       if (core.io.gpuMem.get.wr.peek().litToBoolean) {
         mem(core.io.gpuMem.get.addr.peek().litValue) = core.io.gpuMem.get.wdata.peek().litValue
         core.io.gpuMem.get.ready.poke(true.B)
@@ -66,6 +69,7 @@ object BorgSetupRomTests extends TestSuite {
     }
     core.io.gpuMem.get.ready.poke(false.B)
     Predef.assert(done, "setup ROM never finished")
+    csrs.toMap
   }
 
   /** Run the draw-mode raster ROM for one pixel; returns r0..r8 and r29. */
@@ -187,7 +191,7 @@ object BorgSetupRomTests extends TestSuite {
         var worst = 0.0
         for ((t, n) <- tris.zipWithIndex) {
           val mem = scala.collection.mutable.Map[BigInt, BigInt]()
-          runSetup(core, t, mem)
+          val out = runSetup(core, t, mem)
           val (planes, det, screen) = reference(t)
           def word(i: Int): Double =
             bitsToFloat(mem.getOrElse(BigInt(recordBase + 4 * i), BigInt(0x7fc00000))).toDouble
@@ -209,11 +213,11 @@ object BorgSetupRomTests extends TestSuite {
           }
           Predef.assert(word(Record.DepthScale) == 0.5 && word(Record.DepthOffset) == 0.25 && word(Record.One) == 1.0)
           Predef.assert(math.abs(word(Record.InvDet) - 1 / math.abs(det)) <= 1e-5 / math.abs(det), s"tri $n |1/det|")
-          val hwDet = bitsToFloat(readReg(core, 6)).toDouble
+          val hwDet = bitsToFloat(out(Csr.SetupDet)).toDouble
           Predef.assert(math.signum(hwDet) == math.signum(det), s"tri $n det sign")
           Predef.assert(math.abs(hwDet - det) <= 1e-5 * math.abs(det), s"tri $n det $hwDet vs $det")
           if (t.c.forall(_(3) > 0)) for (k <- 0 until 3) {
-            val (x, y) = (bitsToFloat(readReg(core, 2 * k)), bitsToFloat(readReg(core, 2 * k + 1)))
+            val (x, y) = (bitsToFloat(out(Csr.SetupScreen0 + 2 * k)), bitsToFloat(out(Csr.SetupScreen0 + 2 * k + 1)))
             Predef.assert(math.abs(x - screen(k)._1) < 1e-3 && math.abs(y - screen(k)._2) < 1e-3,
                           s"tri $n corner $k at ($x, $y), expected ${screen(k)}")
           }

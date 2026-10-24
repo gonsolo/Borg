@@ -30,15 +30,11 @@ package borg
   *   u22, u23 depth bias slope and constant factors (FP32)
   *   u24      r's floor: 2^-15 for D16, 0 for D32_SFLOAT
   *
-  * Outputs:
-  *   r0..r5   screen x, y of corners 0..2 (the bounding box; meaningless
+  * The inputs are read as CSRs uniform0..24. Outputs:
+  *   setup_screen0..5  screen x, y of corners 0..2 (the bounding box; meaningless
   *            when some W <= 0, where the walker bins the whole viewport)
-  *   r6       det M (the walker culls on its sign and on zero)
+  *   setup_det         det M (the walker culls on its sign and on zero)
   *   record   via SOUT, stride 1 (see [[BorgSetupRom.Record]])
-  *
-  * r30/r31 read 0 here (a sequencer-run program), and r31 is the zero the
-  * register copies below add. Temporaries never use r0..r6, whose final
-  * values the walker snoops.
   */
 private[borg] object BorgSetupRom {
   /** Record word indices (SOUT indices; the record's first 32 words are what
@@ -76,17 +72,22 @@ private[borg] object BorgSetupRom {
 
   private val program: (Seq[BigInt], Int) = {
     import Instructions._
-    // funct3: which operand is a uniform (1 = rs1, 2 = rs2, 3 = rs3).
-    val U1 = 1; val U2 = 2; val U3 = 3
-    val zero = 31
+    import Opcodes.{CSRRS, CSRRW, FADD_S, ADDI, LUI, SUB, XOR, SLTIU}
+    val uu = 1; val rOne = 2          // a uniform word read by CSR; 1.0
+    val rS = Seq(3, 4, 5, 6, 7, 22)   // screen x, y of corners 0..2, from after the planes
     val rW  = Seq(9, 10, 11);  val rX  = Seq(12, 13, 14); val rY = Seq(15, 16, 17)
     val rNW = Seq(18, 19, 20)
     val rSignMask = 21; val rDetSign = 22; val rAbsInv = 23
     val rSx = 7; val rSy = 8          // until the corners are transformed
     val rInvDet = 7; val t = 8        // after
+    val rDet = 6
     val (ra, rb, rc) = (24, 25, 26)   // the plane being built
     val (za, zb, zc) = (27, 28, 29)   // Zn, accumulated over the three planes
     val p = scala.collection.mutable.ArrayBuffer[BigInt]()
+    def ld(rd: Int, k: Int): Unit = p += CSRRS(rd, 0, Csr.Uniform0 + k)
+    // A copy through FADD with +0.0, as v1's window copy (-0.0 becomes +0.0).
+    def ldAdd(rd: Int, k: Int): Unit = { ld(uu, k); p += FADD_S(rd, uu, 0) }
+    def seq(rd: Int, a: Int, b: Int): Unit = { p += XOR(rd, a, b); p += SLTIU(rd, rd, 1) }
 
     // 1/x: the ~11-bit FRCP estimate plus Newton steps, r = r*(2 - x*r),
     // written r + r*(1 - x*r) so it needs only 1.0. One step gives ~22 bits
@@ -96,19 +97,20 @@ private[borg] object BorgSetupRom {
     def rcp(x: Int, negX: Int, r: Int, tmp: Int, steps: Int = 1): Unit = {
       p += FRCP(rs1 = x, rd = r)
       for (_ <- 0 until steps) {
-        p += FMA(rs1 = negX, rs2 = r, rs3 = uOne, rd = tmp, funct3 = U3)
+        p += FMA(rs1 = negX, rs2 = r, rs3 = rOne, rd = tmp)
         p += FMA(rs1 = r, rs2 = tmp, rs3 = r, rd = r)
       }
     }
     // The two MSAA sample deltas of plane (a, b): d0 = -0.125a - 0.375b,
     // d1 = 0.375a - 0.125b; samples 2 and 3 are their negations.
+    def delta(a: Int, b: Int, d: Int): Unit = {
+      val (pa, pb) = if (d == 0) (uM0125, uM0375) else (uP0375, uM0125)
+      ld(uu, pb); p += MUL(rs1 = uu, rs2 = b, rd = t)
+      ld(uu, pa); p += FMA(rs1 = uu, rs2 = a, rs3 = t, rd = t)
+    }
     def covDelta(k: Int, a: Int, b: Int): Unit = {
-      p += MUL(rs1 = uM0375, rs2 = b, rd = t, funct3 = U1)
-      p += FMA(rs1 = uM0125, rs2 = a, rs3 = t, rd = t, funct3 = U1)
-      p += SOUT(rs2 = t, index = Record.covDelta(k))
-      p += MUL(rs1 = uM0125, rs2 = b, rd = t, funct3 = U1)
-      p += FMA(rs1 = uP0375, rs2 = a, rs3 = t, rd = t, funct3 = U1)
-      p += SOUT(rs2 = t, index = Record.covDelta(k) + 1)
+      delta(a, b, 0); p += SOUT(rs2 = t, index = Record.covDelta(k))
+      delta(a, b, 1); p += SOUT(rs2 = t, index = Record.covDelta(k) + 1)
     }
 
     // Depth bias, Vulkan's o = m * slope + r * constant, folded into the
@@ -125,72 +127,64 @@ private[borg] object BorgSetupRom {
     val rBiasedOffset = 26
     def depthBias(): Unit = {
       val (c1, maxFin, m, zmax, a, b, c, d, rr) = (12, 13, 14, 15, 16, 17, 18, 19, 20)
-      def abs(src: Int, dst: Int, f: Int = 0): Unit = {       // src may be dst
-        p += IAND(rs1 = src, rs2 = rSignMask, rd = d, funct3 = f)
-        p += IXOR(rs1 = src, rs2 = d, rd = dst, funct3 = f)
+      def abs(src: Int, dst: Int): Unit = {       // src may be dst
+        p += IAND(rs1 = src, rs2 = rSignMask, rd = d)
+        p += IXOR(rs1 = src, rs2 = d, rd = dst)
       }
       // dst = cond ? y : x, cond an integer 0/1 in `k`; clobbers k and d.
       def pick(k: Int, x: Int, y: Int, dst: Int): Unit = {
-        p += ISUB(rs1 = zero, rs2 = k, rd = k)
+        p += SUB(k, 0, k)
         p += IXOR(rs1 = x, rs2 = y, rd = d)
         p += IAND(rs1 = d, rs2 = k, rd = d)
         p += IXOR(rs1 = x, rs2 = d, rd = dst)
       }
       def maxU(x: Int, y: Int, dst: Int): Unit = { p += ISLTU(rs1 = x, rs2 = y, rd = c); pick(c, x, y, dst) }
       def minU(x: Int, y: Int, dst: Int): Unit = { p += ISLTU(rs1 = y, rs2 = x, rd = c); pick(c, x, y, dst) }
-      p += ISEQ(rs1 = zero, rs2 = zero, rd = c1)                          // integer 1
-      p += ISHL(rs1 = uOne, rs2 = c1, rd = maxFin, funct3 = U1)           // 0x7F000000
-      p += IOR(rs1 = maxFin, rs2 = uOne, rd = maxFin, funct3 = U2)        // 0x7F800000, +inf
-      p += ISUB(rs1 = maxFin, rs2 = c1, rd = maxFin)                      // largest finite
+      p += ADDI(c1, 0, 1)                                                 // integer 1
+      p += LUI(maxFin, 0x7F800)                                           // +inf
+      p += ADDI(maxFin, maxFin, 0xFFF)                                    // largest finite
       // m
       abs(za, a); abs(zb, b); maxU(a, b, m)
-      abs(uDepthScale, a, U1)
+      ld(a, uDepthScale); abs(a, a)
       p += MUL(rs1 = m, rs2 = a, rd = m)
       minU(m, maxFin, m)
       // The largest |FragCoord.z| over the corners.
       for (k <- 0 until 3) {
-        p += FMA(rs1 = za, rs2 = 2 * k, rs3 = zc, rd = a)
-        p += FMA(rs1 = zb, rs2 = 2 * k + 1, rs3 = a, rd = a)
-        p += MUL(rs1 = a, rs2 = uDepthScale, rd = a, funct3 = U2)
-        p += ADD(rs1 = a, rs2 = uDepthOffset, rd = a, funct3 = U2)
+        p += FMA(rs1 = za, rs2 = rS(2 * k), rs3 = zc, rd = a)
+        p += FMA(rs1 = zb, rs2 = rS(2 * k + 1), rs3 = a, rd = a)
+        ld(uu, uDepthScale); p += MUL(rs1 = a, rs2 = uu, rd = a)
+        ld(uu, uDepthOffset); p += ADD(rs1 = a, rs2 = uu, rd = a)
         if (k == 0) abs(a, zmax) else { abs(a, a); maxU(zmax, a, zmax) }
       }
       // A corner with W <= +0 (as a signed integer, below 1): the far plane.
       p += ISLT(rs1 = rW(0), rs2 = c1, rd = b)
       for (k <- 1 until 3) { p += ISLT(rs1 = rW(k), rs2 = c1, rd = a); p += IOR(rs1 = b, rs2 = a, rd = b) }
-      p += ADD(rs1 = uOne, rs2 = zero, rd = a, funct3 = U1)
+      p += FADD_S(a, rOne, 0)
       pick(b, zmax, a, zmax)
       minU(zmax, a, zmax)                    // depth is at most the far plane
       // r = max(floor, ulp(zmax))
       p += IADD(rs1 = zmax, rs2 = c1, rd = rr)
       p += FNEG(rs1 = zmax, rd = a)
       p += ADD(rs1 = rr, rs2 = a, rd = rr)
-      p += ADD(rs1 = uRFloor, rs2 = zero, rd = a, funct3 = U1)
+      ldAdd(a, uRFloor)
       maxU(a, rr, rr)
       // offset + m * slope + r * constant
-      p += MUL(rs1 = uBiasConst, rs2 = rr, rd = rr, funct3 = U1)
-      p += FMA(rs1 = uBiasSlope, rs2 = m, rs3 = rr, rd = rr, funct3 = U1)
-      p += ADD(rs1 = uDepthOffset, rs2 = rr, rd = rBiasedOffset, funct3 = U1)
+      ld(uu, uBiasConst); p += MUL(rs1 = uu, rs2 = rr, rd = rr)
+      ld(uu, uBiasSlope); p += FMA(rs1 = uu, rs2 = m, rs3 = rr, rd = rr)
+      ld(uu, uDepthOffset); p += ADD(rs1 = uu, rs2 = rr, rd = rBiasedOffset)
     }
 
     // Corners into registers, with the viewport folded in.
-    p += ADD(rs1 = uSx, rs2 = zero, rd = rSx, funct3 = U1)
-    p += ADD(rs1 = uSy, rs2 = zero, rd = rSy, funct3 = U1)
-    for (k <- 0 until 3) p += ADD(rs1 = uW(k), rs2 = zero, rd = rW(k), funct3 = U1)
+    ld(rOne, uOne)
+    ldAdd(rSx, uSx); ldAdd(rSy, uSy)
+    for (k <- 0 until 3) ldAdd(rW(k), uW(k))
     for (k <- 0 until 3) {
-      p += MUL(rs1 = rW(k), rs2 = uOx, rd = ra, funct3 = U2)
-      p += FMA(rs1 = uX(k), rs2 = rSx, rs3 = ra, rd = rX(k), funct3 = U1)
-      p += MUL(rs1 = rW(k), rs2 = uOy, rd = ra, funct3 = U2)
-      p += FMA(rs1 = uY(k), rs2 = rSy, rs3 = ra, rd = rY(k), funct3 = U1)
+      ld(uu, uOx); p += MUL(rs1 = rW(k), rs2 = uu, rd = ra)
+      ld(uu, uX(k)); p += FMA(rs1 = uu, rs2 = rSx, rs3 = ra, rd = rX(k))
+      ld(uu, uOy); p += MUL(rs1 = rW(k), rs2 = uu, rd = ra)
+      ld(uu, uY(k)); p += FMA(rs1 = uu, rs2 = rSy, rs3 = ra, rd = rY(k))
     }
     for (k <- 0 until 3) p += FNEG(rs1 = rW(k), rd = rNW(k))
-
-    // Screen positions for the bounding box: X'/W, Y'/W.
-    for (k <- 0 until 3) {
-      rcp(rW(k), rNW(k), ra, rb)
-      p += MUL(rs1 = rX(k), rs2 = ra, rd = 2 * k)
-      p += MUL(rs1 = rY(k), rs2 = ra, rd = 2 * k + 1)
-    }
 
     // Edge plane k = (column i) x (column j), i and j the other two corners,
     // with its sign flipped when det M < 0 so that inside is always >= 0.
@@ -219,16 +213,14 @@ private[borg] object BorgSetupRom {
       if (k == 0) {
         // det M = column 0 . (column 1 x column 2): its sign is the facing,
         // |1/det| scales the planes' sum into 1/w.
-        p += MUL(rs1 = rX(0), rs2 = ra, rd = 6)
-        p += FMA(rs1 = rY(0), rs2 = rb, rs3 = 6, rd = 6)
-        p += FMA(rs1 = rW(0), rs2 = rc, rs3 = 6, rd = 6)
-        // The sign bit: -1.0 XOR 1.0. (FNEG of 0 is +0 -- it goes through
-        // the FMA -- so -0.0 cannot supply it.)
-        p += FNEG(rs1 = uOne, rd = rSignMask, funct3 = U1)
-        p += IXOR(rs1 = rSignMask, rs2 = uOne, rd = rSignMask, funct3 = U2)
-        p += IAND(rs1 = 6, rs2 = rSignMask, rd = rDetSign)
-        p += FNEG(rs1 = 6, rd = t)
-        rcp(6, t, rInvDet, rAbsInv, steps = 2)             // rAbsInv is free until below
+        p += MUL(rs1 = rX(0), rs2 = ra, rd = rDet)
+        p += FMA(rs1 = rY(0), rs2 = rb, rs3 = rDet, rd = rDet)
+        p += FMA(rs1 = rW(0), rs2 = rc, rs3 = rDet, rd = rDet)
+        p += CSRRW(0, rDet, Csr.SetupDet)
+        p += LUI(rSignMask, 0x80000)
+        p += IAND(rs1 = rDet, rs2 = rSignMask, rd = rDetSign)
+        p += FNEG(rs1 = rDet, rd = t)
+        rcp(rDet, t, rInvDet, rAbsInv, steps = 2)          // rAbsInv is free until below
         p += IAND(rs1 = rInvDet, rs2 = rSignMask, rd = rAbsInv)
         p += IXOR(rs1 = rInvDet, rs2 = rAbsInv, rd = rAbsInv)           // |1/det|
       }
@@ -237,13 +229,23 @@ private[borg] object BorgSetupRom {
       p += SOUT(rs2 = rb, index = Record.plane(k) + 1)
       p += SOUT(rs2 = rc, index = Record.plane(k) + 2)
       // Zn = sum(Zk * Ek) / |det| (the normalized planes carry det's sign)
+      ld(uu, uZ(k))
       for ((acc, src) <- Seq(za -> ra, zb -> rb, zc -> rc)) {
-        if (k == 0) p += MUL(rs1 = uZ(0), rs2 = src, rd = acc, funct3 = U1)
-        else        p += FMA(rs1 = uZ(k), rs2 = src, rs3 = acc, rd = acc, funct3 = U1)
+        if (k == 0) p += MUL(rs1 = uu, rs2 = src, rd = acc)
+        else        p += FMA(rs1 = uu, rs2 = src, rs3 = acc, rd = acc)
       }
       covDelta(k, ra, rb)
     }
     for (acc <- Seq(za, zb, zc)) p += MUL(rs1 = acc, rs2 = rAbsInv, rd = acc)
+
+    // Screen positions for the bounding box: X'/W, Y'/W.
+    for (k <- 0 until 3) {
+      rcp(rW(k), rNW(k), ra, rb)
+      p += MUL(rs1 = rX(k), rs2 = ra, rd = rS(2 * k))
+      p += MUL(rs1 = rY(k), rs2 = ra, rd = rS(2 * k + 1))
+    }
+    for (r <- 0 until 6) p += CSRRW(0, rS(r), Csr.SetupScreen0 + r)
+
     // A primitive IN the far plane (Z = W at every corner: a skybox) gets
     // the exact plane Zn = 1. Rebuilt from rounded coefficients it came out
     // 1 +- an ulp with tiny per-sample slopes, so samples failed Zf >= 0 --
@@ -251,17 +253,17 @@ private[borg] object BorgSetupRom {
     // 1 + ulp failed LEQUAL against a 1.0 clear. (Z = 0 is exact already.)
     locally {
       val (f, g, m) = (12, 13, 14)
-      p += ISEQ(rs1 = uZ(0), rs2 = rW(0), rd = f, funct3 = U1)
+      ld(uu, uZ(0)); seq(f, uu, rW(0))
       for (k <- 1 until 3) {
-        p += ISEQ(rs1 = uZ(k), rs2 = rW(k), rd = g, funct3 = U1)
+        ld(uu, uZ(k)); seq(g, uu, rW(k))
         p += IAND(rs1 = f, rs2 = g, rd = f)
       }
-      p += ISUB(rs1 = zero, rs2 = f, rd = m)                        // all ones if so
+      p += SUB(m, 0, f)                                             // all ones if so
       for (acc <- Seq(za, zb)) {                                    // a, b = 0
         p += IAND(rs1 = acc, rs2 = m, rd = g)
         p += IXOR(rs1 = acc, rs2 = g, rd = acc)
       }
-      p += IXOR(rs1 = zc, rs2 = uOne, rd = g, funct3 = U2)          // c = 1.0
+      p += IXOR(rs1 = zc, rs2 = rOne, rd = g)                       // c = 1.0
       p += IAND(rs1 = g, rs2 = m, rd = g)
       p += IXOR(rs1 = zc, rs2 = g, rd = zc)
     }
@@ -269,15 +271,15 @@ private[borg] object BorgSetupRom {
     // plane Zn = Z/W. Rebuilt from the edge planes, a one-pixel triangle came out 2^-20 off.
     locally {
       val (f, g, m, z, r) = (12, 13, 14, 15, 16)
-      p += ADD(rs1 = uZ(0), rs2 = zero, rd = z, funct3 = U1)
-      p += ISEQ(rs1 = uZ(1), rs2 = z, rd = f, funct3 = U1)
-      p += ISEQ(rs1 = uZ(2), rs2 = z, rd = g, funct3 = U1)
+      ldAdd(z, uZ(0))
+      ld(uu, uZ(1)); seq(f, uu, z)
+      ld(uu, uZ(2)); seq(g, uu, z)
       p += IAND(rs1 = f, rs2 = g, rd = f)
       for (k <- 1 until 3) {
-        p += ISEQ(rs1 = rW(0), rs2 = rW(k), rd = g)
+        seq(g, rW(0), rW(k))
         p += IAND(rs1 = f, rs2 = g, rd = f)
       }
-      p += ISUB(rs1 = zero, rs2 = f, rd = m)
+      p += SUB(m, 0, f)
       rcp(rW(0), rNW(0), r, g, steps = 2)
       p += MUL(rs1 = z, rs2 = r, rd = z)
       for (acc <- Seq(za, zb)) {
@@ -292,23 +294,20 @@ private[borg] object BorgSetupRom {
     p += SOUT(rs2 = zb, index = Record.plane(3) + 1)
     p += SOUT(rs2 = zc, index = Record.plane(3) + 2)
     p += SOUT(rs2 = rAbsInv, index = Record.InvDet)
-    p += SOUT(rs2 = uDepthScale,  index = Record.DepthScale,  funct3 = U2)
-    p += SOUT(rs2 = uDepthOffset, index = Record.DepthOffset, funct3 = U2)   // unbiased
-    p += SOUT(rs2 = uOne,         index = Record.One,         funct3 = U2)
+    ld(uu, uDepthScale);  p += SOUT(rs2 = uu, index = Record.DepthScale)
+    ld(uu, uDepthOffset); p += SOUT(rs2 = uu, index = Record.DepthOffset)   // unbiased
+    p += SOUT(rs2 = rOne, index = Record.One)
     // A single-sample draw without depth bias stops here (BorgCore, setupShort).
     val shortPc = p.length
     depthBias()
     p += SOUT(rs2 = rBiasedOffset, index = Record.DepthOffset)
     covDelta(3, za, zb)
     // The same two deltas scaled into framebuffer depth, for per-sample depth.
-    p += MUL(rs1 = uM0375, rs2 = zb, rd = t, funct3 = U1)
-    p += FMA(rs1 = uM0125, rs2 = za, rs3 = t, rd = t, funct3 = U1)
-    p += MUL(rs1 = t, rs2 = uDepthScale, rd = t, funct3 = U2)
-    p += SOUT(rs2 = t, index = Record.SampleDepth)
-    p += MUL(rs1 = uM0125, rs2 = zb, rd = t, funct3 = U1)
-    p += FMA(rs1 = uP0375, rs2 = za, rs3 = t, rd = t, funct3 = U1)
-    p += MUL(rs1 = t, rs2 = uDepthScale, rd = t, funct3 = U2)
-    p += SOUT(rs2 = t, index = Record.SampleDepth + 1)
+    for (d <- 0 until 2) {
+      delta(za, zb, d)
+      ld(uu, uDepthScale); p += MUL(rs1 = t, rs2 = uu, rd = t)
+      p += SOUT(rs2 = t, index = Record.SampleDepth + d)
+    }
     p += BigInt(0)                                                  // HALT
     (p.toSeq, shortPc)
   }
