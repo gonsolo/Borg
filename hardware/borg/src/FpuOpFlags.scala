@@ -9,7 +9,6 @@ class FpuOpFlags extends Bundle {
   val fma    = Bool()
   val mul    = Bool()
   val fneg   = Bool()
-  val fmov   = Bool()
   val fstep  = Bool()
   val frcp   = Bool()
   // Integer ALU ops (16-bit, operate on the raw register bits).
@@ -23,8 +22,6 @@ class FpuOpFlags extends Bundle {
   val ixor   = Bool()
   val islt   = Bool()
   val iseq   = Bool()
-  val i2f    = Bool()
-  val f2i    = Bool()
   val f2h    = Bool()   // FP32 -> FP16 (round to nearest even)
   val h2f    = Bool()   // FP16 -> FP32 (exact)
   val frsq   = Bool()
@@ -36,14 +33,8 @@ class FpuOpFlags extends Bundle {
   // memory FSM freezes busy_counter at 4 and write-back happens at 1.
   val load   = Bool()
   val store  = Bool()
-  // Control flow. `branch` is brz||brnz and exists so BorgLane can suppress
-  // write-back without decoding either: a branch packs its target into the
-  // rd field, so an ALU write-back would clobber whatever register that
-  // bit pattern happens to name.
-  val brz    = Bool()
-  val brnz   = Bool()
+  // Control flow: BEQ..BGEU and JAL. BorgLane suppresses write-back on it.
   val branch = Bool()
-  val jmp    = Bool()   // JMP: unconditional, by a signed 18-bit offset
   // Execution-mask ops. Like `branch`, `execOp` exists so BorgLane can
   // suppress write-back for all three without decoding each: none of them
   // has a destination register.
@@ -64,7 +55,6 @@ class FpuOpFlags extends Bundle {
   val tex     = Bool()
   val texa    = Bool()
   val smask   = Bool()   // SMASK (drawEnabled)
-  val attidx  = Bool()   // ATTIDX (drawEnabled)
   val tld     = Bool()   // TLD (drawEnabled)
   val fine    = Bool()   // DDX/DDY: fine derivatives (rs2 = 1)
   val isrl    = Bool()   // logical shift right (RISC-V SRL)

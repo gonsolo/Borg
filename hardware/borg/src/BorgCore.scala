@@ -306,7 +306,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   lanes.foreach(_.io.execAny := execMask.orR)
   lanes.zipWithIndex.foreach { case (lane, i) =>
     lane.io.covMask.foreach(_ := io.laneCoverage.get(i))
-    lane.io.attIndex.foreach(_ := io.attIndex.get)
     lane.io.dstWord.foreach(_ := io.laneDst.get(i))
   }
 
@@ -417,27 +416,24 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.negC  := rv.fsub || rv.fmsub || rv.fnmadd
     flags.negProd := rv.fnmadd || rv.fnmsub
     flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
-    flags.fmov  := v1 && f7op === Opcodes.FUNCT7_FMOV.U
     flags.fstep := v1 && f7op === Opcodes.FUNCT7_FSTEP.U
-    flags.frcp  := v1 && f7op === Opcodes.FUNCT7_FRCP.U || rv.frcp
-    flags.iadd  := v1 && f7op === Opcodes.FUNCT7_IADD.U || rv.add
+    flags.frcp  := rv.frcp
+    flags.iadd  := rv.add
     flags.ishl  := v1 && f7op === Opcodes.FUNCT7_ISHL.U || rv.sll
-    flags.ishr  := v1 && f7op === Opcodes.FUNCT7_ISHR.U || rv.sra
-    flags.imul  := v1 && f7op === Opcodes.FUNCT7_IMUL.U || rv.mul
-    flags.isub  := v1 && f7op === Opcodes.FUNCT7_ISUB.U || rv.sub
+    flags.ishr  := rv.sra
+    flags.imul  := rv.mul
+    flags.isub  := rv.sub
     flags.iand  := v1 && f7op === Opcodes.FUNCT7_IAND.U || rv.and
     flags.ior   := v1 && f7op === Opcodes.FUNCT7_IOR.U || rv.or
     flags.ixor  := v1 && f7op === Opcodes.FUNCT7_IXOR.U || rv.xor
-    flags.islt  := v1 && f7op === Opcodes.FUNCT7_ISLT.U || rv.slt
+    flags.islt  := rv.slt
     flags.iseq  := v1 && f7op === Opcodes.FUNCT7_ISEQ.U
-    flags.i2f   := v1 && f7op === Opcodes.FUNCT7_I2F.U
-    flags.f2i   := v1 && f7op === Opcodes.FUNCT7_F2I.U
-    flags.f2h   := v1 && f7op === Opcodes.FUNCT7_F2H.U || rv.fcvtHS
-    flags.h2f   := v1 && f7op === Opcodes.FUNCT7_H2F.U || rv.fcvtSH
-    flags.frsq  := v1 && f7op === Opcodes.FUNCT7_FRSQ.U || rv.frsq
+    flags.f2h   := rv.fcvtHS
+    flags.h2f   := rv.fcvtSH
+    flags.frsq  := rv.frsq
     flags.fsrgb := v1 && f7op === Opcodes.FUNCT7_FSRGB.U
-    flags.ddx   := v1 && f7op === Opcodes.FUNCT7_DDX.U || rv.ddx
-    flags.ddy   := v1 && f7op === Opcodes.FUNCT7_DDY.U || rv.ddy
+    flags.ddx   := rv.ddx
+    flags.ddy   := rv.ddy
     flags.fine  := Instructions.BF_RS2(instr) === 1.U     // DDX/DDY: fine (per row/column)
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
@@ -445,31 +441,27 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.load  := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_LOAD.U || rv.load || rv.amo else false.B)
     flags.store := (if (cfg.hasMemoryOps) v1 && f7op === Opcodes.FUNCT7_STORE.U || rv.store else false.B)
     val cf = cfg.hasControlFlow
-    flags.brz    := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRZ.U else false.B)
-    flags.brnz   := (if (cf) v1 && f7op === Opcodes.FUNCT7_BRNZ.U else false.B)
-    flags.jmp    := v1 && f7op === Opcodes.FUNCT7_JMP.U
-    flags.branch := flags.brz || flags.brnz || flags.jmp || rv.br || rv.jal
-    flags.expush := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPUSH.U || rv.expush else false.B)
-    flags.exelse := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXELSE.U || rv.exelse else false.B)
-    flags.expop  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXPOP.U || rv.expop else false.B)
+    flags.branch := rv.br || rv.jal
+    flags.expush := (if (cf) rv.expush else false.B)
+    flags.exelse := (if (cf) rv.exelse else false.B)
+    flags.expop  := (if (cf) rv.expop else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
-    flags.barrier := (if (cfg.computeEnabled) v1 && f7op === Opcodes.FUNCT7_BARRIER.U || rv.barrier else false.B)
+    flags.barrier := (if (cfg.computeEnabled) rv.barrier else false.B)
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
-    flags.exany  := (if (cf) v1 && f7op === Opcodes.FUNCT7_EXANY.U || rv.exany else false.B)
-    flags.isrl   := v1 && f7op === Opcodes.FUNCT7_ISRL.U || rv.srl
-    flags.isltu  := v1 && f7op === Opcodes.FUNCT7_ISLTU.U || rv.sltu
-    flags.ztest  := v1 && f7op === Opcodes.FUNCT7_ZTEST.U || rv.ztest
+    flags.exany  := (if (cf) rv.exany else false.B)
+    flags.isrl   := rv.srl
+    flags.isltu  := rv.sltu
+    flags.ztest  := rv.ztest
     val draw = cfg.drawEnabled
     flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U || rv.sout else false.B)
-    flags.fattr  := (if (draw) v1 && f7op === Opcodes.FUNCT7_FATTR.U || rv.fattr else false.B)
+    flags.fattr  := (if (draw) rv.fattr else false.B)
     val smp = cfg.samplerEnabled
     flags.tex    := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEX.U || rv.texd else false.B)
     flags.texd   := (if (smp) rv.texd else false.B)
     flags.texs   := (if (smp) rv.texs else false.B)
     flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
-    flags.attidx := (if (draw) v1 && f7op === Opcodes.FUNCT7_ATTIDX.U else false.B)
-    flags.tld    := (if (draw) v1 && f7op === Opcodes.FUNCT7_TLD.U || rv.tld else false.B)
+    flags.tld    := (if (draw) rv.tld else false.B)
     flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U || rv.texad else false.B)
     flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U)))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
@@ -1254,32 +1246,25 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * scalar build pays nothing for it.
     */
   private def wireBranch(condOperands: Seq[UInt], condOperandsB: Seq[UInt]): Unit = {
-    // Raw-bits comparison: FP16 -0.0 is 0x8000 and therefore non-zero, the
-    // same convention the discard register already uses.
-    val isZero = condOperands.map(_ === 0.U)
     // ISA v2: BEQ..BGEU decide on the lowest active lane, JAL always jumps.
     val rv = RvInt(fetchedInstruction)
     val rvConds = condOperands.zip(condOperandsB).map { case (a, b) => rv.cond(a, b) }
     val rvLead  = PriorityMux(execMask.asBools, rvConds)
-    val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head) || opFlags.jmp ||
-                 (rv.br && rvLead) || rv.jal
-    // PC-relative: BRZ/BRNZ by a signed 10-bit offset, JMP by a signed 18-bit one.
-    val brOffset  = Cat(regs.rs2, regs.rd).asSInt
-    val jmpOffset = Cat(opFlags.funct3, regs.rs2, regs.rs1, regs.rd).asSInt
-    val offset    = Mux(rv.jal, rv.jalOff, Mux(rv.br, rv.brOff, Mux(opFlags.jmp, jmpOffset.pad(20), brOffset.pad(20))))
+    val takeIt = (rv.br && rvLead) || rv.jal
+    val offset = Mux(rv.jal, rv.jalOff, rv.brOff)
 
     when(is_busy && busy_counter === cfg.cOperands.U) {
       brTakenReg  := opFlags.branch && takeIt
       brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
       val rvSplit = rvConds.zip(execMask.asBools).map { case (c, on) => on && c =/= rvLead }.reduce(_ || _)
-      when((opFlags.brz || opFlags.brnz) && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _) || rv.br && rvSplit) {
+      when(rv.br && rvSplit) {
         branchDivergent := true.B
         if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
       }
       if (BorgDebug.trace) {
         when(opFlags.branch) {
           printf("[BR] pc=%d taken=%d target=%d\n", programCounter, takeIt,
-                 Cat(regs.rs2, regs.rd))
+                 offset)
         }
       }
     }

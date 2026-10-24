@@ -45,7 +45,6 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val execAny     = Input(Bool())
   // This lane's coverage mask, for SMASK.
   val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None
-  val attIndex    = if (cfg.drawEnabled) Some(Input(UInt(3.W))) else None
   // This lane's destination word, for TLD.
   val dstWord     = if (cfg.drawEnabled) Some(Input(Vec(2, UInt(32.W)))) else None
   val busyCounter = Input(UInt(cfg.busyCounterWidth.W))
@@ -248,7 +247,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_mul_reg = RegInit(false.B)
     val is_fma_reg = RegInit(false.B)
     val is_fneg_reg = RegInit(false.B)
-    val is_fmov_reg = RegInit(false.B)
     val is_fstep_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
@@ -265,7 +263,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // wireSampler), last-connect-wins over whatever this path produces.
       is_fma_reg := opFlags.fma
       is_fneg_reg := opFlags.fneg
-      is_fmov_reg := opFlags.fmov
       is_fstep_reg := opFlags.fstep
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
@@ -280,7 +277,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
         val c = Mux(is_deriv_reg, io.crossC,
                         Mux(is_fma_reg, recC_raw,
-                        Mux(is_mul_reg || is_fneg_reg || is_fmov_reg, 0.U(config.totalBits.W), recB_raw)))
+                        Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw)))
         fma.io.c := c ^ Cat(negC_reg, 0.U((config.totalBits - 1).W))
         fma.io.negate := is_fneg_reg || negProd_reg
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
@@ -401,13 +398,10 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_ixor_reg = RegInit(false.B)
     val is_islt_reg = RegInit(false.B)
     val is_iseq_reg = RegInit(false.B)
-    val is_i2f_reg  = RegInit(false.B)
-    val is_f2i_reg  = RegInit(false.B)
     val is_f2h_reg  = RegInit(false.B)
     val is_h2f_reg  = RegInit(false.B)
     val is_exany_reg = RegInit(false.B)
     val is_smask_reg = RegInit(false.B)
-    val is_attidx_reg = RegInit(false.B)
     val is_tld_reg = RegInit(false.B)
     val tld_sel_reg = RegInit(false.B)            // TLD's word: funct3 bit 0
     val is_isrl_reg = RegInit(false.B); val is_isltu_reg = RegInit(false.B)
@@ -416,7 +410,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_rvx_reg := opFlags.rvx; rvx_op_reg := opFlags.rvxOp
       is_isrl_reg := opFlags.isrl; is_isltu_reg := opFlags.isltu
       is_smask_reg := opFlags.smask
-      is_attidx_reg := opFlags.attidx
       is_tld_reg := opFlags.tld
       tld_sel_reg := opFlags.funct3(0)
       is_iadd_reg := opFlags.iadd
@@ -429,8 +422,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_ixor_reg := opFlags.ixor
       is_islt_reg := opFlags.islt
       is_iseq_reg := opFlags.iseq
-      is_i2f_reg  := opFlags.i2f
-      is_f2i_reg  := opFlags.f2i
       is_f2h_reg  := opFlags.f2h
       is_h2f_reg  := opFlags.h2f
       is_exany_reg := opFlags.exany
@@ -456,28 +447,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val iseq = Mux(recA_raw === recB_raw, 1.U(w.W), 0.U(w.W))
     val exany = Mux(io.execAny, 1.U(w.W), 0.U(w.W))
 
-    // i2f: signed int16 → fp16. |a|, normalize: MSB → implicit 1, exp = msb+bias,
-    // mantissa = the mantN bits below the MSB. Truncates for |a| >= 2^(mantN+1).
-    val sgnI    = recA_raw(w - 1)
-    val mag     = Mux(sgnI, (~recA_raw).asUInt + 1.U, recA_raw)(w - 1, 0)
-    val msb     = Log2(mag)
-    val expI    = (msb +& bias.U)(config.exp - 1, 0)
-    val shifted = (mag << ((w - 1).U - msb))(w - 1, 0)   // MSB at bit w-1
-    val mantI   = shifted(w - 2, w - 1 - mantN)          // mantN bits below MSB
-    val i2f     = Mux(mag === 0.U, 0.U(w.W), Cat(sgnI, expI, mantI))
-
-    // f2i: fp16 → signed int16, truncate toward zero. value = signif * 2^(e-mantN).
-    val sgnF    = recA_raw(w - 1)
-    val expF    = recA_raw(w - 2, mantN)                 // exponent field
-    // 1.mant, zero-padded to w bits so the shifts index cleanly.
-    val signif  = Cat(0.U((w - mantN - 1).W), 1.U(1.W), recA_raw(mantN - 1, 0))
-    val e       = expF.zext - bias.S
-    val magF    = Mux(e < 0.S, 0.U(w.W),
-                  Mux(e >= mantN.S, (signif << (e - mantN.S).asUInt)(w - 1, 0),
-                      (signif >> (mantN.S - e).asUInt)(w - 1, 0)))
-    val f2i     = Mux(expF === 0.U, 0.U(w.W),
-                      Mux(sgnF, (~magF).asUInt + 1.U, magF)(w - 1, 0))
-
     // F2H/H2F: the boundary conversions of Fp16Fp32 (one narrow is already shared with the special functions).
     val f2h = if (w > 16) Fp16Fp32.narrow(recA_raw).pad(w) else recA_raw
     val h2f = if (w > 16) Fp16Fp32.widen(recA_raw(15, 0)) else recA_raw
@@ -497,14 +466,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_iseq_reg, iseq,
                  Mux(is_exany_reg, exany,
                  Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_attidx_reg, io.attIndex.map(_.pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_f2h_reg,  f2h,
-                 Mux(is_h2f_reg,  h2f,
-                 Mux(is_i2f_reg,  i2f, f2i))))))))))))))))))))
+                 Mux(is_f2h_reg,  f2h, h2f)))))))))))))))))
     val is_int = is_rvx_reg || is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_tld_reg || is_i2f_reg || is_f2i_reg || is_f2h_reg || is_h2f_reg
+                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_tld_reg || is_f2h_reg || is_h2f_reg
     (result, is_int)
   }
 
