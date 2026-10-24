@@ -103,13 +103,6 @@ object Instructions {
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt =
     if (rv(funct3, rs1, rs2, rs3, rd)) FMADD_S(rd, rs1, rs2, rs3) else encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
-  /** TEX: sample; rs3 names the register holding the control word. */
-  def TEX(rd: Int, rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = {
-    require(rd <= 28, s"TEX writes rd..rd+3, so rd <= 28: $rd")
-    encodeR4Type(rs3, FUNCT2_TEX, rs2, rs1, rd, funct3)
-  }
-  /** TEXA: w/layer, LOD/bias and depth reference for the next TEX. */
-  def TEXA(rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, FUNCT2_TEXA, rs2, rs1, 0, funct3)
   def SMASK(rd: Int): BigInt = encodeRType(FUNCT7_SMASK, 0, 0, rd)
   def ATTIDX(rd: Int): BigInt = CSRRS(rd, 0, Csr.Attachment)
   def TLD(rd: Int, word: Int = 0): BigInt = only(word < 2, TLD_V2(rd, word))

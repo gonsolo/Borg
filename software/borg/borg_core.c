@@ -241,9 +241,7 @@ void borg_set_texture(int tex_width, int tex_height) {
                      (uint32_t)BORG_TEX_FORMAT_R8G8B8A8_UNORM << 14, (uint32_t)tex_width * 4 };
   tex_desc_store(d);
   for (int w = 0; w < 4; w++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + (uint32_t)w * 4, g_sampler_desc[w]);
-  // Written after the tables: a write to either register also drops the cached descriptors.
-  BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);
-  BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
+  BREG_W(desc_flush, 0);   // after the tables: drops the cached descriptors
 }
 
 static uint32_t g_tex_lvl[12];   // byte offsets of levels 1..12, from the 0xC0 packet
@@ -253,8 +251,7 @@ void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
   for (int i = 4; i < 16; i++) d[i] = g_tex_lvl[i - 4];
   tex_desc_store(d);
   for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + g_samp_slot * 16 + (uint32_t)i * 4, samp[i]);
-  BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);
-  BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
+  BREG_W(desc_flush, 0);
 }
 
 void borg_write_texels(uint32_t off, const uint8_t *data, uint32_t n) {
@@ -412,8 +409,7 @@ void borg_core_render(int frame) {
 
   BREG_W(draw_vs_const, DRAW_VS_CONST_SPI);
   BREG_W(draw_fs_const, DRAW_FS_CONST_SPI);
-  BREG_W(tex_desc_base,     TEX_DESC_TABLE_ADDR);
-  BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
+  BREG_W(desc_flush, 0);
   // One sample (bit 6) unless the pipeline has four; at one sample the raster ROM skips the per-sample depths.
   BREG_W(sample_mask_cfg, borg_sample_cfg());
   BREG_W(cull_cfg, borg_cull_cfg & 7);
@@ -543,7 +539,7 @@ void borg_core_list_draw(void) {
   LREG(st, n, seq_vert_addr, g_sh[0].code); LREG(st, n, seq_vert_len, blob_instrs(g_sh[0].blob));
   LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, blob_instrs(g_sh[1].blob) > 63 ? 63 : blob_instrs(g_sh[1].blob));
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
-  LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
+  LREG(st, n, desc_flush, 0);
   int root_i = n;
   LREG(st, n, root, draw_ls_base(1));   // the table's address replaces it once the block is new
   LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
@@ -576,9 +572,9 @@ void borg_core_list_draw(void) {
   LREG(pr, m, draw_vertex_count, g_draw_vertex_count); LREG(pr, m, draw_instance_count, g_dp.instance_count);
   LREG(pr, m, draw_first_vertex, g_dp.first_vertex); LREG(pr, m, draw_first_instance, g_dp.first_instance);
   LREG(pr, m, draw_vertex_offset, (uint32_t)g_dp.vertex_offset); LREG(pr, m, draw_index_base, g_dp.index_base);
+  LREG(pr, m, desc_flush, 0);
   // The vertex shader's attribute descriptors are slots BORG_VATTR_SLOT0.. of ITS table: the
   // state block's table is the fragment shader's, which Pass 2 writes back.
-  LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
   LREG(pr, m, root, root_table(list_alloc(16), draw_ls_base(0), g_list.vtab_addr - BORG_VATTR_SLOT0 * 64,
                                SAMPLER_DESC_TABLE_ADDR));
   uint32_t params = list_block(pr, m);
@@ -853,7 +849,7 @@ int borg_core_packet(const uint8_t *p) {
     BDRAM_W(d + 8, (fmt << 14) | (swz & 0xFFF00000u));
     BDRAM_W(d + 12, pitch);
     for (int i = 4; i < 16; i++) BDRAM_W(d + (uint32_t)i * 4, 0);
-    BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);   // drops the unit's cached descriptor
+    BREG_W(desc_flush, 0);   // drops the unit's cached descriptor
     return BC_VATTR;
   }
   case 0xBA: { // draw: topology, index type, restart, counts, first vertex/instance, vertex offset, index base

@@ -1107,17 +1107,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     core.io.record.foreach(_ := s.io.record.get)
 
-    // The texture unit's descriptor tables. A write to either forgets the
-    // descriptors the unit has cached.
-    val texDescReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
-    val sampDescReg = RegInit(0.U(GpuMemIO.AddrBits.W))
-    val descWrite = bus.is_writing &&
-      (bus.address === BorgGpuRegs.tex_desc_base_offset || bus.address === BorgGpuRegs.sampler_desc_base_offset)
-    when(bus.is_writing && bus.address === BorgGpuRegs.tex_desc_base_offset)     { texDescReg  := bus.data_in }
-    when(bus.is_writing && bus.address === BorgGpuRegs.sampler_desc_base_offset) { sampDescReg := bus.data_in }
-    core.io.texDescBase.foreach(_ := texDescReg)
-    core.io.sampDescBase.foreach(_ := sampDescReg)
-    core.io.descWritten.foreach(_ := descWrite)
+    // A write to DESC_FLUSH forgets the descriptors the texture unit has cached.
+    core.io.descWritten.foreach(_ := bus.is_writing && bus.address === BorgGpuRegs.desc_flush_offset)
 
     when(bus.is_writing && bus.address === BorgGpuRegs.sample_mask_cfg_offset) { smCfg := bus.data_in(6, 0) }
     rast.io.sampleCfg.mask       := smCfg(cfg.samples - 1, 0)

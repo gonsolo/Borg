@@ -129,10 +129,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // One sample: the raster ROM stops before the per-sample depths.
   val drawSingle = if (cfg.drawEnabled) Some(Input(Bool())) else None
   val setupShort = if (cfg.drawEnabled) Some(Input(Bool())) else None   // single sample, no depth bias
-  // The texture unit's descriptor tables (TEX_DESC_BASE, SAMPLER_DESC_BASE),
-  // and a pulse when either is written (forgets cached descriptors).
-  val texDescBase  = if (cfg.samplerEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
-  val sampDescBase = if (cfg.samplerEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
+  // A pulse that forgets the texture unit's cached descriptors (DESC_FLUSH).
   val descWritten  = if (cfg.samplerEnabled) Some(Input(Bool())) else None
   // Per lane, the samples the current fragment covers (SMASK).
   val laneCoverage = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))) else None
@@ -402,13 +399,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // ISA v2 (B8): RISC-V OP, OP-IMM, LUI and AUIPC run on the v1 integer ALU.
     val rv = RvInt(instr)
     val f7op    = Instructions.BF_F7_OP(instr)
-    // R4-type sub-opcode (only meaningful when flags.fma is set): FMADD is
-    // funct2=0; TEX/TEXA are funct2=2/3 (decoded below, gated on
-    // cfg.samplerEnabled) -- see Opcodes.FUNCT2_TEX/FUNCT2_TEXA.
-    // funct2=1 (the retired FTEX) is never reused -- see Instructions.scala.
+    // v1 R4-type: FMADD is funct2 = 0; the other funct2 values (FTEX, v1 TEX/TEXA) are retired.
     val funct2  = instr(26, 25)
     flags.mul   := v1 && f7op === Opcodes.FUNCT7_FMUL.U || rv.fmul
-    flags.fma   := r4 || rv.r4
+    flags.fma   := r4 && funct2 === 0.U || rv.r4
     flags.negC  := rv.fsub || rv.fmsub || rv.fnmadd
     flags.negProd := rv.fnmadd || rv.fnmsub
     flags.fneg  := v1 && f7op === Opcodes.FUNCT7_FNEG.U
@@ -452,12 +446,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.sout   := (if (draw) v1 && f7op === Opcodes.FUNCT7_SOUT.U || rv.sout else false.B)
     flags.fattr  := (if (draw) rv.fattr else false.B)
     val smp = cfg.samplerEnabled
-    flags.tex    := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEX.U || rv.texd else false.B)
-    flags.texd   := (if (smp) rv.texd else false.B)
+    flags.tex    := (if (smp) rv.texd else false.B)
     flags.texs   := (if (smp) rv.texs else false.B)
     flags.smask  := (if (draw) v1 && f7op === Opcodes.FUNCT7_SMASK.U else false.B)
     flags.tld    := (if (draw) rv.tld else false.B)
-    flags.texa   := (if (smp) r4 && funct2 === Opcodes.FUNCT2_TEXA.U || rv.texad else false.B)
+    flags.texa   := (if (smp) rv.texad else false.B)
     flags.funct3 := Mux(v1 || r4, Instructions.BF_FUNCT3(instr), Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U)))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
@@ -778,13 +771,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val auxW = Reg(Vec(N, UInt(32.W))); val auxLod = Reg(Vec(N, UInt(32.W))); val auxRef = Reg(Vec(N, UInt(32.W)))
     val is_tex_reg  = RegInit(false.B)
     val is_texa_reg = RegInit(false.B)
-    val is_texd_reg = RegInit(false.B); val is_texs_reg = RegInit(false.B)
+    val is_texs_reg = RegInit(false.B)
     // TEXS: the sampler descriptor address and the control word for the TEX after it.
     val sAddrReg = RegInit(0.U(GpuMemIO.AddrBits.W)); val sCtlReg = RegInit(0.U(32.W))
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
       is_tex_reg  := opFlags.tex
       is_texa_reg := opFlags.texa
-      is_texd_reg := opFlags.texd; is_texs_reg := opFlags.texs
+      is_texs_reg := opFlags.texs
     }
     val sIdle :: sWait :: sWB :: sAck :: Nil = Enum(4)
     val st = RegInit(sIdle)
@@ -795,7 +788,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     def finish(): Unit = {
       st := sIdle
-      is_tex_reg := false.B; is_texa_reg := false.B; is_texd_reg := false.B; is_texs_reg := false.B
+      is_tex_reg := false.B; is_texa_reg := false.B; is_texs_reg := false.B
       busy_counter := 0.U
       programCounter := programCounter + 1.U
       texResumeDelay := true.B
@@ -803,12 +796,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     sampler.io.req.valid := false.B
     val lead = (ops: Seq[UInt]) => PriorityMux(execMask.asBools, ops)
-    val ctlV1 = lead(cOps)
-    sampler.io.req.bits.ctl := Mux(is_texd_reg, sCtlReg, ctlV1)
-    sampler.io.req.bits.texAddr := Mux(is_texd_reg, lead(cOps),
-      io.texDescBase.get + (SamplerCtl.texIdx(ctlV1) << 6))(GpuMemIO.AddrBits - 1, 0)
-    sampler.io.req.bits.sampAddr := Mux(is_texd_reg, sAddrReg,
-      io.sampDescBase.get + (SamplerCtl.sampIdx(ctlV1) << 4))(GpuMemIO.AddrBits - 1, 0)
+    sampler.io.req.bits.ctl := sCtlReg
+    sampler.io.req.bits.texAddr := lead(cOps)(GpuMemIO.AddrBits - 1, 0)
+    sampler.io.req.bits.sampAddr := sAddrReg
     for (i <- 0 until N) {
       sampler.io.req.bits.active(i) := execMask(i)
       val a = sampler.io.req.bits.lane(i)

@@ -61,7 +61,6 @@ class FpuOpFlags extends Bundle {
   val funct3 = UInt(3.W)
   val rvNoWrite = Bool()  // a RISC-V instruction writing x0, or a CSR access (no reads yet)
   val csrw    = Bool()     // CSRRW
-  val texd    = Bool()     // TEX at a descriptor address (B8 step 11)
   val texs    = Bool()     // TEXS: sampler descriptor address and control word
   val rvx     = Bool()     // a Zmmul/Zicond/Zbb op (B8 step 3), rvxOp says which
   val rvxOp   = UInt(6.W)

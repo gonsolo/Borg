@@ -1716,11 +1716,12 @@ addrmap borg_gpu {
     draw_word_reg_t draw_fs_const;
     draw_fs_const->nogen = true;
 
-    // ---- Texture unit descriptor tables (docs/B2_texture_unit.md) ----
-    draw_word_reg_t tex_desc_base;
-    tex_desc_base->nogen = true;
-    draw_word_reg_t sampler_desc_base;
-    sampler_desc_base->nogen = true;
+    // ---- Texture unit: a write forgets the cached descriptors (was TEX_DESC_BASE);
+    //      the next word was SAMPLER_DESC_BASE and is reserved. ----
+    draw_word_reg_t desc_flush;
+    desc_flush->nogen = true;
+    draw_word_reg_t rsvd_sampler_desc_base;
+    rsvd_sampler_desc_base->nogen = true;
 
     // ---- Sample mask test, alpha to coverage, shader sample mask ----
     // [3:0] static sample mask (reset all ones), [4] alpha to coverage,

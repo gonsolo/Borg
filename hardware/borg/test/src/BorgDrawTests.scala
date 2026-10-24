@@ -187,7 +187,7 @@ object BorgDrawTests extends TestSuite {
                          BorgGpuRegs.depth_scale_offset -> 1.0, BorgGpuRegs.depth_offset_offset -> 0.0))
         reg(r, f32(v))
       reg(BorgGpuRegs.draw_vs_const_offset, vsConst); reg(BorgGpuRegs.draw_fs_const_offset, fsConst)
-      reg(BorgGpuRegs.tex_desc_base_offset, texDesc); reg(BorgGpuRegs.sampler_desc_base_offset, sampDesc)
+      reg(BorgGpuRegs.desc_flush_offset, 0)
       reg(BorgGpuRegs.sample_mask_cfg_offset, sampleMaskCfg)
       for ((r, v) <- extra) reg(r, v)
       syncRom()
@@ -320,12 +320,16 @@ object BorgDrawTests extends TestSuite {
     for ((w, i) <- Seq[BigInt](2 << 3 | 2 << 6, 0, 0, 0).zipWithIndex) rig.rom(rig.sampDesc + 4 * i) = w
     // u = varying 0, v = varying 1, both screen / 8: texel centres at pixel centres.
     rig.rom(rig.fsConst + 4) = BigInt(SamplerCtl.LodExplicit) << 21         // u21: TEX control word
+    rig.rom(rig.fsConst + 20) = BigInt(rig.texDesc); rig.rom(rig.fsConst + 24) = BigInt(rig.sampDesc)   // u25, u26
     val fs2 = Seq(
       FATTR(rd = 10, index = 0),
       MUL(rs1 = 5, rs2 = 10, rd = 13), FMA(rs1 = 6, rs2 = 11, rs3 = 13, rd = 13), FMA(rs1 = 7, rs2 = 12, rs3 = 13, rd = 13),
       FATTR(rd = 10, index = 1),
       MUL(rs1 = 5, rs2 = 10, rd = 14), FMA(rs1 = 6, rs2 = 11, rs3 = 14, rd = 14), FMA(rs1 = 7, rs2 = 12, rs3 = 14, rd = 14),
-      TEX(rd = 20, rs1 = 13, rs2 = 14, rs3 = 21, funct3 = 3),                 // rs3 from the constant window
+      IXOR(rs1 = 9, rs2 = 9, rd = 15), IOR(rs1 = 15, rs2 = 21, rd = 15, funct3 = 2),
+      IXOR(rs1 = 9, rs2 = 9, rd = 16), IOR(rs1 = 16, rs2 = 26, rd = 16, funct3 = 2),
+      IXOR(rs1 = 9, rs2 = 9, rd = 17), IOR(rs1 = 17, rs2 = 25, rd = 17, funct3 = 2),
+      Opcodes.TEXS(16, 15), Opcodes.TEXD(20, 13, 14, 17),
       ADD(rs1 = 20, rs2 = 20, rd = 26, funct3 = 2), ADD(rs1 = 21, rs2 = 20, rd = 27, funct3 = 2),
       ADD(rs1 = 22, rs2 = 20, rd = 28, funct3 = 2), ADD(rs1 = 23, rs2 = 20, rd = 24, funct3 = 2),
       BigInt(0))
