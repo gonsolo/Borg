@@ -44,6 +44,7 @@ class RvInt(instr: UInt) {
   val expush = is(Opcodes.MATCH_EXPUSH_V2, Opcodes.MASK_EXPUSH_V2); val exelse = is(Opcodes.MATCH_EXELSE_V2, Opcodes.MASK_EXELSE_V2)
   val expop  = is(Opcodes.MATCH_EXPOP_V2, Opcodes.MASK_EXPOP_V2); val exany = is(Opcodes.MATCH_EXANY_V2, Opcodes.MASK_EXANY_V2)
   val barrier = is(Opcodes.MATCH_BARRIER_V2, Opcodes.MASK_BARRIER_V2)
+  val fexp2  = is(Opcodes.MATCH_FEXP2, Opcodes.MASK_FEXP2); val flog2 = is(Opcodes.MATCH_FLOG2, Opcodes.MASK_FLOG2)
   /** Zaamo AMO*.W and Zacas AMOCAS.W (B8 step 12) at rs1; AMOCAS compares with rd. */
   val amo    = opc === Opcodes.OPCODE_AMOADD_W.U && f3 === 2.U
   val amoOp  = instr(31, 27)

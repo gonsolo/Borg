@@ -349,6 +349,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   if (cfg.samplerEnabled)
     wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
 
+  // --- FEXP2/FLOG2: one unit, the lanes in turn, on the same port ---
+  wireExpLog(lanes.map(_.io.recARaw), lanes.map(_.io.memWrite))
+
   // --- Branch evaluation and execution mask ---
   if (cfg.hasControlFlow) {
     wireBranch(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw))
@@ -851,6 +854,48 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.gpuMem.get.addr  := sampler.io.gpuMem.addr
       io.gpuMem.get.wr    := false.B
       io.gpuMem.get.wlen  := 1.U
+    }
+  }
+
+  /** FEXP2 and FLOG2: freeze at the operands like TEX, feed the lanes to [[BorgExpLog]] one per
+    * cycle, write each result back through the lane's memory write port, then resume. */
+  private def wireExpLog(aOps: Seq[UInt], memWrites: Seq[MemWritePort]): Unit = {
+    val N = cfg.fragLanes
+    val unit = Module(new BorgExpLog)
+    val isOp = RegInit(false.B); val isLog = RegInit(false.B)
+    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+      val rv = RvInt(fetchedInstruction)
+      isOp := rv.fexp2 || rv.flog2; isLog := rv.flog2
+    }
+    val active = RegInit(false.B)
+    val issue = RegInit(0.U(log2Up(N + 1).W)); val back = RegInit(0.U(log2Up(N + 1).W))
+    val rdReg = RegInit(0.U(5.W))
+    when(is_busy && busy_counter === cfg.cOperands.U && isOp && !active) {
+      active := true.B; issue := 0.U; back := 0.U; rdReg := regs.rd
+      busy_counter := busy_counter
+    }
+    val wide = (v: UInt) => if (config.totalBits > 16) v.pad(32) else Fp16Fp32.widen(v(15, 0))
+    unit.io.log := isLog
+    unit.io.in.valid := active && issue < N.U
+    unit.io.in.bits  := wide(VecInit(aOps)(issue((log2Up(N) max 1) - 1, 0)))
+    when(active) {
+      busy_counter := busy_counter
+      when(issue < N.U) { issue := issue + 1.U }
+    }
+    when(active && unit.io.out.valid) {
+      val r = if (config.totalBits > 16) unit.io.out.bits else Fp16Fp32.narrow(unit.io.out.bits).pad(config.totalBits)
+      memWrites.zipWithIndex.foreach { case (mw, i) =>
+        mw.en   := i.U === back && execMask(i)
+        mw.addr := rdReg
+        mw.data := r
+      }
+      back := back + 1.U
+      when(back === (N - 1).U) {
+        active := false.B; isOp := false.B
+        busy_counter := 0.U
+        programCounter := programCounter + 1.U
+        texResumeDelay := true.B
+      }
     }
   }
 

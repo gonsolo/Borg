@@ -245,6 +245,15 @@ object BorgCoreRvTests extends TestSuite {
       }
     }
 
+    utest.test("fexp2_and_flog2_write_their_lanes") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        val rd = run(core, Seq(FLOG2(2, 1), FEXP2(3, 2), FLOG2(4, 3), ADDI(5, 4, 0)), Map(1 -> u(0x41000000L)))
+        println(s"  log2(8) ${rd(2)} exp2 ${rd(3)} log2 again ${rd(4)}")
+        utest.assert(rd(2) == u(0x40400000L) && rd(3) == u(0x41000000L) && rd(4) == u(0x40400000L) && rd(5) == u(0x40400000L))
+      }
+    }
+
     utest.test("x0_reads_zero_and_drops_writes_for_riscv_only") {
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
