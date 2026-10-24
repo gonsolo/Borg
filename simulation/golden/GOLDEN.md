@@ -18,7 +18,9 @@ geometry/shaders/textures now arrive from borgvk at runtime.
 `borgvk_capture.bin` is one frame of the unmodified Vulkan-Tools vkcube as borgvk
 puts it on the wire (current capture: FP32 datapath, ISA v2 shaders, TEX
 sampling with RGBA8 0xAF rows, 2026-10-24, 22836 B; the blend and stencil
-captures are from `scenes/*/vkcube-*` the same way):
+captures are from `scenes/*/vkcube-*` the same way; re-baselined when `FSRGB` went: cube.frag's
+`linearToSrgb` is exact now, and the R5G6B5 readback turns those sub-code changes into single
+5- or 6-bit steps in 87, 6 and 66 values):
 
 ```bash
 BORGVK_SIM=/bin/true BORGVK_SIM_FW=software/borg/kernel.bin \
