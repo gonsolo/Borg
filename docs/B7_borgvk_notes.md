@@ -1794,7 +1794,7 @@ texelFetch reads it through the texture unit. Only 32-bit single-channel formats
 
 **line 867, in `send_buffer_texture`, above `static bool`**
 
-VkFormat of a vertex attribute -> the texture unit's format code (software/borg/borg_tex_format.h
+VkFormat of a vertex attribute -> the texture unit's format code (borg_tex_format.h
 BORG_TEX_FORMAT_*), the component swizzle bits of its descriptor, and how many bytes the
 typed fetch reads. Three-component formats are fetched as four with alpha forced to one (the
 Vulkan default), which reads the next vertex's first bytes: the upload keeps slack for it.

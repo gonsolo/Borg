@@ -50,8 +50,8 @@ operands gets one of them copied into a register first.
 
 borgc does not hand-encode instructions. The ISA is one file in riscv-opcodes
 format, `hardware/borg/isa/opcodes`, and `scripts/isa_gen.py` generates
-borgc's `opcodes.rs` from it, the same way it generates the hardware's decoder
-constants and the C header. Branches are PC-relative (`BRZ`/`BRNZ` by a signed
+borgc's `opcodes.rs` from it at build time, from mesa's copy in `src/borg/isa`,
+the same way it generates the hardware's decoder constants and the C header. Branches are PC-relative (`BRZ`/`BRNZ` by a signed
 10-bit word offset, `JMP` by 18 bits), so a program runs wherever it is loaded;
 a branch out of `BRNZ`'s reach becomes a `BRZ` over a `JMP`.
 

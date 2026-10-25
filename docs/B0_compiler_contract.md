@@ -13,7 +13,7 @@ firmware use `TEX` and the descriptor tables (see
 
 The source of truth for every encoding below is
 `hardware/borg/isa/opcodes` (riscv-opcodes format, fields in `fields.csv`);
-`make isa` generates `software/borg/borg_isa.h` and the decoder constants from it.
+`make rdl` generates `borg_isa.h` and mill the decoder constants from it.
 
 ## All shaders: program length and the instruction cache
 

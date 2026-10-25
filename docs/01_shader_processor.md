@@ -140,9 +140,10 @@ tex     rd rs1 rs2 rs3 f3   26..25=2 6..0=0x04
 brnz    rs1 offset f3       31..25=0x28 6..0=0x00
 ```
 
-`scripts/isa_gen.py` (`make isa`) generates the Scala decoder constants
-(`Opcodes.scala`), the C header `borg_isa.h` and the compiler's `opcodes.rs`
-from it, and `make isa-check` fails when a generated file is out of date. The
+`scripts/isa_gen.py` generates the Scala decoder constants (`Opcodes.scala`,
+by mill), the C header `borg_isa.h` (by `make rdl`, into `out/hardware/borg/rdl`)
+and, from mesa's byte-exact copy in `src/borg/isa` (`make isa-copy-check`), the
+compiler's `opcodes.rs` at build time; none of them is tracked. The
 Scala assembler used by the tests builds on the generated constructors:
 
 {{snippet:hardware/borg/src/Instructions.scala:isa-encoders}}

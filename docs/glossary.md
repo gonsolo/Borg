@@ -26,7 +26,7 @@ the same thing, the **bold** term is preferred in technical writing.
 | Term | Meaning |
 |------|---------|
 | **SPIR-B** | Borg's binary shader format (analogous to SPIR-V). Produced by borgc (the Mesa NIR→Borg compiler). Loaded at runtime by `borg_spirb.c`. *Not* "SPIR-V" — Borg uses its own encoding. |
-| **opcode file** | `hardware/borg/isa/opcodes` with `fields.csv`: the ISA in riscv-opcodes format. `scripts/isa_gen.py` (`make isa`) generates the Scala decoder constants, `borg_isa.h` and borgc's `opcodes.rs` from it. |
+| **opcode file** | `hardware/borg/isa/opcodes` with `fields.csv`: the ISA in riscv-opcodes format. `scripts/isa_gen.py` generates the Scala decoder constants, `borg_isa.h` and borgc's `opcodes.rs` from it at build time. `tex_formats.txt` next to it is the texel format table. |
 | **borgc** | The Rust NIR→Borg compiler in-tree under `mesa/src/borg/compiler/`. Compiles Vulkan SPIR-V shaders to SPIR-B for the Mesa driver. |
 | **SPIR-V** | Khronos standard IR. Mesa's `vk_spirv_to_nir` converts SPIR-V to NIR; borgc then lowers NIR to SPIR-B. |
 
