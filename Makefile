@@ -21,6 +21,7 @@ help:
 	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
 	@echo -e "  ------------------------------------------------------------------------------"
 	@echo -e "  isa-copy-check:\t\tFail if mesa's copy of the ISA spec differs."
+	@echo -e "  no-generated-check:\t\tFail if a generated file is tracked."
 	@echo -e "  rdl:\t\t\t\tGenerate the register block, borg_isa.h and borg_tex_format.h."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
@@ -261,6 +262,13 @@ isa-copy-check:
 	@for f in $$(ls mesa/src/borg/isa | grep -v '^meson.build$$'); do \
 	  echo " $(notdir $(ISA_COPY)) " | grep -q " $$f " || { echo "mesa/src/borg/isa/$$f has no original"; exit 1; }; done
 
+# Generated files are built, not tracked, in Borg and in mesa's src/borg.
+no-generated-check:
+	@! git grep --no-recurse-submodules -lE '^(//|#) GENERATED from' || \
+	  { echo "tracked generated files (above)"; exit 1; }
+	@! git -C mesa grep -lE '^(//|#) GENERATED from' -- src/borg || \
+	  { echo "tracked generated files in mesa (above)"; exit 1; }
+
 clean:
 	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
 	rm -rf $(RDL_C_OUT)
@@ -288,7 +296,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl isa-copy-check \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl isa-copy-check no-generated-check \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-chisel-borg test-chisel-core test-borgvk rust-project \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \

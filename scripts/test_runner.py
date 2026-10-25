@@ -99,6 +99,8 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               depends_on="chisel › borg"),
         Suite("isa    › mesa copy",
               f"make -C '{root}' isa-copy-check"),
+        Suite("repo   › no generated files",
+              f"make -C '{root}' no-generated-check"),
         Suite("software › borgvk",
               f"make -C '{root}' test-borgvk"),
         Suite("software",
