@@ -346,23 +346,32 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val issueGate = WireDefault(true.B)
 
   // Stencil rides the fill like depth: the read that returns an entry's
-  // colour returns its stencil too. capIdx still names that entry at v3 on
+  // colour returns its stencil too. capIdx still names that entry at vCap on
   // both paths (the MSAA path advances it only when the resolve retires).
   // Resolved: sample 0, as depth. Per sample: the sample being flushed.
-  sVec.foreach(v => when(v3) { v(capIdx(3, 0)) := io.stencil.get(Mux(msReg, sampleIdx, 0.U)) })
+  // vCap: the single-sample path captures two cycles after v3, behind the sRGB encoder's tables.
+  val capLat = if (samples == 1) 2 else 0
+  def late[T <: Data](x: T): T = ShiftRegister(x, capLat)
+  val vCap = ShiftRegister(v3, capLat, false.B, true.B)
+  sVec.foreach { v =>
+    val s = late(io.stencil.get(Mux(msReg, sampleIdx, 0.U)))
+    when(vCap) { v(capIdx(3, 0)) := s }
+  }
 
   /** After the depth burst (or the colour burst, without depth). */
   def afterDepth: UInt =
     if (hasStencil) Mux(io.stencilEn.get, sBurstS, sNextSample) else sNextSample
 
   if (samples == 1) {
-    // Single-sample path: one fp16ToUnorm per channel, one cycle, fully
+    // Single-sample path: one fp16ToUnorm or sRGB encoder per channel, fully
     // pipelined issuance. Kept as the regression anchor for non-MSAA builds
     // (every shipped config is MSAA now; the samples==1 tests keep it honest).
-    when(v3) {
-      val e = io.read.data(0)
-      def enc(h: UInt): UInt = Mux(srgbReg, SrgbCodec.encode(h), fp16ToUnorm(h, 8))
-      stagePixel(capIdx(3, 0), enc(e.r), enc(e.g), enc(e.b), alphaOf(0), io.ext.map(_(0)).getOrElse(0.U))
+    val e = io.read.data(0)
+    def enc(h: UInt): UInt = Mux(srgbReg, SrgbCodec.encode(h, piped = true), fp16ToUnorm(late(h), 8))
+    val (r8, g8, b8) = (enc(e.r), enc(e.g), enc(e.b))
+    val (a8, ext, z) = (late(alphaOf(0)), late(io.ext.map(_(0)).getOrElse(0.U(32.W))), late(e.z))
+    when(vCap) {
+      stagePixel(capIdx(3, 0), r8, g8, b8, a8, ext)
       // Depth rides the same capture: io.read.data(0) is already valid here
       // for the colour conversion, and .z is simply another field of it, so
       // this adds a quantizer and a register write -- no extra read, no
@@ -372,7 +381,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       // depth resolve: VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, the only depth
       // resolve mode v3dv supports and the one V3D's tile-store hardware
       // selects (decimate_mode = SAMPLE_0). See the class doc comment.
-      zVec.foreach(_(capIdx(3, 0)) := e.z)
+      zVec.foreach(_(capIdx(3, 0)) := z)
       capIdx := capIdx + 1.U
     }
   } else {

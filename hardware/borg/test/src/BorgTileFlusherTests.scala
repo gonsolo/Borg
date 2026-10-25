@@ -576,7 +576,7 @@ object BorgTileFlusherTests extends TestSuite {
     // distinct per-pixel ramp and alpha differs per SAMPLE at 4x MSAA, so a
     // swapped byte, a dropped half, or alpha taken from one sample instead of
     // averaged all fail.
-    def wideFlush(samples: Int, format: Int): Unit = {
+    def wideFlush(samples: Int, format: Int, srgb: Boolean = false): Unit = {
       simulate(new BorgTileFlusher(16, samples, hasDepthFlush = true, hasAlpha = true)) { dut =>
         def sAlpha(e: Int, smp: Int): Int = (e * 13 + smp * 40) & 0xFF
         var cycle = 0
@@ -603,6 +603,7 @@ object BorgTileFlusherTests extends TestSuite {
         dut.reset.poke(false.B)
         dut.io.start.poke(false.B)
         dut.io.format.poke(format.U)
+        dut.io.srgb.poke(srgb.B)
         dut.io.tileBase.poke(0x2000.U)
         dut.io.depthBase.get.poke(0x9000.U)
         dut.io.depthEn.get.poke(true.B)
@@ -637,8 +638,9 @@ object BorgTileFlusherTests extends TestSuite {
         val bytes = bursts.take(2).flatMap(_._2).flatMap(h => Seq(h & 0xFF, (h >> 8) & 0xFF))
         var errors = 0
         for (e <- 0 until 16) {
-          val r = fp16ToUnorm(entR(e), 8); val g = fp16ToUnorm(entG(e), 8)
-          val b = fp16ToUnorm(entB(e), 8)
+          def c(h: Int): Int = if (!srgb) fp16ToUnorm(h, 8) else if (h < 0x400) 0
+            else math.round(SrgbCodecTests.srgb(math.min(java.lang.Float.float16ToFloat(h.toShort).toDouble, 1.0)) * 255).toInt
+          val (r, g, b) = (c(entR(e)), c(entG(e)), c(entB(e)))
           val a = (0 until samples).map(sAlpha(e, _)).sum / samples
           val exp = if (format == FlushFormat.BGRA8) Seq(b, g, r, a) else Seq(r, g, b, a)
           val got = bytes.slice(4 * e, 4 * e + 4)
@@ -657,6 +659,9 @@ object BorgTileFlusherTests extends TestSuite {
     }
     utest.test("bgra8 flush swaps R and B only") {
       wideFlush(1, FlushFormat.BGRA8)
+    }
+    utest.test("srgb rgba8 flush encodes every channel") {
+      wideFlush(1, FlushFormat.RGBA8, srgb = true)
     }
     utest.test("msaa 4x rgba8 flush averages alpha across samples") {
       wideFlush(4, FlushFormat.RGBA8)
