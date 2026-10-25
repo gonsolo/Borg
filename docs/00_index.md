@@ -80,5 +80,8 @@ depending on your goal:
 12. [GPU Memory](B5_gpu_memory.md) — Design: VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
 13. [borgc design notes](B6_borgc_notes.md) — Why the Rust shader compiler does what it does
 14. [borgvk design notes](B7_borgvk_notes.md) — Why the Vulkan driver does what it does
-15. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
-16. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
+15. [ISA v2](B8_isa_v2.md) — The shader ISA as a RISC-V subset (RV32I, Zfinx, Zmmul, Zbb, Zicond) plus custom GPU ops
+16. [Pipeline](B9_pipeline.md) — Design: an in-order pipeline with interlocks, then several quads in flight
+17. [borgc in SSA](B10_borgc_ssa.md) — Design: basic blocks and SSA in the compiler, exec masks and the linear CFG
+18. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
+19. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
