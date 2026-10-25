@@ -5,7 +5,8 @@
 
     isa_gen.py ISA_DIR [--c F] [--scala F --package P --object O] [--rust F]
 
-ISA_DIR holds fields.csv and the opcode files: hardware/borg/isa for the Borg shader ISA,
+ISA_DIR holds fields.csv, the opcode files and optionally csrs.csv (riscv-opcodes' format:
+number, "name" per line): hardware/borg/isa for the Borg shader ISA,
 hardware/hutt/isa for Hutt's RISC-V subset (riscv-opcodes' own extension files). Python reads the
 source directly: encode(ISA_DIR, "store", rs1=0, rs2=1).
 
@@ -110,6 +111,22 @@ def load(d):
     return fields, consts, ops, pseudo
 
 
+def load_csrs(d):
+    path, csrs = pathlib.Path(d) / "csrs.csv", []
+    if not path.exists():
+        return csrs
+    for n, line in enumerate(open(path), 1):
+        line = line.split("#", 1)[0].strip()
+        if line:
+            num, name = (t.strip() for t in line.split(","))
+            csrs.append((int(num, 0), name.strip('"')))
+    for k in (0, 1):
+        seen = [c[k] for c in csrs]
+        if len(set(seen)) != len(seen):
+            sys.exit(f"csrs.csv: {sorted(x for x in seen if seen.count(x) > 1)[0]} twice")
+    return csrs
+
+
 def const_value(op, hi, lo):
     """The value of word bits hi..lo when fixed bits wholly inside them cover them."""
     inner = [(h, l) for h, l, _ in op["fixed"] if h <= hi and l >= lo]
@@ -131,7 +148,7 @@ def header(d, comment):
     return [f"{comment} GENERATED from {d.relative_to(ROOT)} by scripts/isa_gen.py; do not edit."]
 
 
-def gen_c(d, fields, consts, ops, pseudo):
+def gen_c(d, fields, consts, ops, pseudo, csrs):
     o = ["// SPDX-FileCopyrightText: © 2026 Andreas Wendleder",
          "// SPDX-License-Identifier: GPL-3.0-or-later"] + header(d, "//") + ["",
          "#pragma once", "#include <stdint.h>", ""]
@@ -147,6 +164,9 @@ def gen_c(d, fields, consts, ops, pseudo):
     o.append("")
     o.append("/* X(NAME) for every instruction. */")
     o.append("#define BORG_OPCODES(X) " + " ".join(f"X({op['ident']})" for op in ops))
+    if csrs:
+        o.append("")
+    o += [f"#define BORG_CSR_{name.upper()} {num:#05x}U" for num, name in csrs]
     return "\n".join(o) + "\n"
 
 
@@ -157,7 +177,7 @@ def scala_arg(a):
     return f"`{a}`" if a in SCALA_KEYWORDS else a
 
 
-def gen_scala(d, fields, consts, ops, pseudo, package, obj):
+def gen_scala(d, fields, consts, ops, pseudo, csrs, package, obj):
     o = ["// SPDX-FileCopyrightText: © 2026 Andreas Wendleder",
          "// SPDX-License-Identifier: CERN-OHL-S-2.0"] + header(d, "//") + ["",
          f"package {package}", "",
@@ -183,14 +203,20 @@ def gen_scala(d, fields, consts, ops, pseudo, package, obj):
                           [place(fields, a, f"{scala_arg(a)}.toLong", "L") for a in op["args"]])
         o.append(f"  def {op['ident']}({params}): BigInt = BigInt({body})")
     o.append("}")
+    if csrs:
+        o += ["", "object Csr {"] + [f"  val {snake_camel(name)} = {num:#05x}" for num, name in csrs] + ["}"]
     return "\n".join(o) + "\n"
+
+
+def snake_camel(name):
+    return "".join(p[:1].upper() + p[1:] for p in name.split("_"))
 
 
 def camel(name):
     return "".join(p[:1].upper() + p[1:] for p in name.split("."))
 
 
-def gen_rust(d, fields, consts, ops, pseudo):
+def gen_rust(d, fields, consts, ops, pseudo, csrs):
     o = ["// Copyright © 2026 Andreas Wendleder",
          "// SPDX-License-Identifier: MIT"] + header(d, "//") + ["",
          "#![allow(dead_code)]", "",
@@ -225,6 +251,7 @@ def gen_rust(d, fields, consts, ops, pseudo):
     o += ["        }", "    }", "}", ""]
     for p in pseudo:
         o.append(f"pub(crate) const {p['ident']}: u32 = {p['match']:#010x};")
+    o += [f"pub(crate) const CSR_{name.upper()}: u32 = {num:#05x};" for num, name in csrs]
     return "\n".join(o) + "\n"
 
 
@@ -263,9 +290,10 @@ def main():
     a = ap.parse_args()
     d = pathlib.Path(a.isa).resolve()
     fields, consts, ops, pseudo = load(d)
-    outs = ((a.c, lambda: gen_c(d, fields, consts, ops, pseudo)),
-            (a.scala, lambda: gen_scala(d, fields, consts, ops, pseudo, a.package, a.object)),
-            (a.rust, lambda: gen_rust(d, fields, consts, ops, pseudo)))
+    csrs = load_csrs(d)
+    outs = ((a.c, lambda: gen_c(d, fields, consts, ops, pseudo, csrs)),
+            (a.scala, lambda: gen_scala(d, fields, consts, ops, pseudo, csrs, a.package, a.object)),
+            (a.rust, lambda: gen_rust(d, fields, consts, ops, pseudo, csrs)))
     for path, gen in outs:
         if path:
             pathlib.Path(path).write_text(gen())

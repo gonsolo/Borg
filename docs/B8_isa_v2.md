@@ -122,7 +122,8 @@ to integer).
 **Zhinxmin**: `FCVT.S.H`, `FCVT.H.S`, replacing `H2F` and `F2H`.
 
 **Zicsr**, `CSRRS` and `CSRRW` on the system-value CSRs only, in the custom user range
-0x800-0x8FF (read-write) and 0xCC0-0xCFF (read-only).
+0x800-0x8FF (read-write) and 0xCC0-0xCFF (read-only). The numbers: `hardware/borg/isa/csrs.csv`,
+generated into Scala (`Csr`), C (`BORG_CSR_*`) and borgc (`CSR_*`).
 
 **Branches.** `BEQ`..`BGEU` and `JAL` move the whole quad; as in v1 the condition comes from the
 lowest active lane and a sticky status bit records lanes that disagreed. Divergent control flow
