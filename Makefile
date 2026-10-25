@@ -20,6 +20,7 @@ help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
 	@echo -e "  ------------------------------------------------------------------------------"
+	@echo -e "  isa-copy-check:\t\tFail if mesa's copy of the ISA spec differs."
 	@echo -e "  rdl:\t\t\t\tGenerate the register block, borg_isa.h and borg_tex_format.h."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
@@ -252,6 +253,14 @@ rdl: $(RDL_SRC)
 	@python3-borg-rdl scripts/isa_gen.py hardware/borg/isa --c $(RDL_C_OUT)/borg_isa.h
 	@python3-borg-rdl scripts/tex_format_gen.py hardware/borg/isa/tex_formats.txt --c $(RDL_C_OUT)/borg_tex_format.h
 
+# mesa/src/borg/isa is a byte-exact copy of hardware/borg/isa and its two generators.
+ISA_COPY := $(wildcard hardware/borg/isa/*) scripts/isa_gen.py scripts/tex_format_gen.py
+isa-copy-check:
+	@for f in $(ISA_COPY); do cmp -s $$f mesa/src/borg/isa/$$(basename $$f) || \
+	  { echo "mesa/src/borg/isa/$$(basename $$f) differs from $$f"; exit 1; }; done
+	@for f in $$(ls mesa/src/borg/isa | grep -v '^meson.build$$'); do \
+	  echo " $(notdir $(ISA_COPY)) " | grep -q " $$f " || { echo "mesa/src/borg/isa/$$f has no original"; exit 1; }; done
+
 clean:
 	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
 	rm -rf $(RDL_C_OUT)
@@ -279,7 +288,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl isa-copy-check \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-chisel-borg test-chisel-core test-borgvk rust-project \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
