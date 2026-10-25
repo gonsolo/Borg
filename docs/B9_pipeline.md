@@ -1,9 +1,9 @@
 # Pipeline
 
-Status: design for review, 2026-10-22, not implemented. It builds on ISA v2 (B8) and starts once
-B8's migration has removed the register roles the hardware snoops at write-back (steps 7 and 8):
-a pipeline that writes several instructions' results in flight cannot also watch register
-numbers for outputs.
+Status: design for review, 2026-10-22, updated 2026-10-25 after B8, not implemented. It builds
+on ISA v2 (B8, on main since 2026-10-25). A pipeline that writes several instructions' results in
+flight cannot also watch register numbers: B8 removed every such role except the dispatcher's
+snoop of the raster ROM's registers, which goes first (Order, step 0).
 
 ## Today
 
@@ -30,6 +30,12 @@ DP16KD, 75 of 156 MULT18X18D, 321 LUTRAM blocks (TRELLIS_DPR16X4). The core cloc
 (`lanes_3.special_result`, its correction multiplier). On Wafer the FMA is the limiter, hence
 `fmaStages = 4` at 8 MHz.
 
+ULX3S vkcube SoC after B8 (2026-10-25, nextpnr): 72,607 LUTs (86%) against 62,695 on main
+before it, 12,269 FFs, 68 MULT18X18D (56 before), 34 DP16KD; the core clock 18.30 MHz against
+16.93 (target 25). ISA v2 costs vkcube 15.7% more cycles per frame (2.56 M to 2.96 M): constants
+by LUI and ADDI, uniforms by a CSR read, gl_Position by CSR writes. The pipeline is where that
+comes back.
+
 ## Step 1: an in-order pipeline with interlocks, one quad
 
 ### Stages
@@ -52,10 +58,10 @@ Lanes stay in lockstep: all four go through each stage together.
 | Write port | One write port per lane. Every arithmetic result takes `fmaStages` cycles: the integer path is padded to the FMA's length, so two results never meet at W. Variable-latency units (special functions, memory, TEX) take W in a slot the issue logic reserves. |
 | Branches | `BEQ`..`BGEU` and `JAL` resolve in X1 on the lowest active lane (as v1); F stops after a branch until it resolves, so nothing is flushed. Cost: 2 cycles per taken or untaken branch. |
 | Exec mask | `EXPUSH`, `EXELSE`, `EXPOP` update the mask in X1; D holds the next instruction until then (one bubble). Each instruction carries the mask it issued with to W, so a masked lane never writes. |
-| `EXANY`, `QBALLOT`, `QSHUF`, `DDX`, `DDY` | read all lanes' operand in D (as the DDX path does today); no new hazard |
+| `EXANY`, `DDX`, `DDY` (and `QBALLOT`, `QSHUF` with Vulkan 1.1) | read all lanes' operand in D (as the DDX path does today); no new hazard |
 | Memory (`LW`, `SW`, AMOs) | The memory unit serves the lanes in turn as v1; D stalls until it is done (blocking). Loads write back through a reserved slot. Program order holds without further work. |
 | TEX | Blocking, as v1: D stalls until the texture unit has written all four lanes. |
-| CSR reads | System values are constant per quad: no hazard. CSR writes (outputs) happen at W in order. |
+| CSR reads | System values are constant per quad, `uniform0..31` constant per draw: no hazard. CSR writes (fragment outputs, `out_pos`, the setup ROM's `setup_screen`/`setup_det` the walker captures) happen at W in order. |
 | `BARRIER`, `ZTEST`, the end of the program | D waits until the pipeline is empty. |
 | I-cache miss | F stalls. |
 
@@ -139,11 +145,28 @@ register files.
 | Step 2: register files to block RAM | −250 to −500 LUTs (the step-1 copies), +12 DP16KD |
 | **Step 2 total** | **+750 to +1,300**, 12 DP16KD |
 
-With B8 (+4,500 to +8,000) that is +6,000 to +10,800 of the about 12,300 LUTs free in the
-2026-10-07 Linux build. The vkcube SoC was at 95% in September; ISA v2 and the pipeline have to
-pay for themselves there with what they remove (the v1 decode, the uniform window, the
-pseudo-registers and snooping), measured step by step. A step over its budget gets its RTL
-redesigned; the four fragment lanes stay.
+B8 as measured (2026-10-25, vkcube SoC, yosys `synth_ecp5 -abc9` LUT4 cells, CCU2C apart):
+
+| B8 step | LUT4 | MULT18X18D |
+|---|---|---|
+| RV32I OP, OP-IMM, LUI, AUIPC; loads, SW, CSRRS; branches, JAL | +1,197 | |
+| Fragment outputs by CSR writes, no snooping | −573 | |
+| Zmmul, Zicond, Zbb subset | +2,935 | +4 |
+| Zfinx, Zhinxmin | +277 (+286 CCU2C) | |
+| AMO*.W, AMOCAS.W | +838 | |
+| Sampler descriptors by address | +390 | |
+| FEXP2 and FLOG2 (`BorgExpLog`) | +3,063 | +5 |
+| sRGB attachments in the tile path (`SrgbCodec`) | +4,136 | +3 |
+| FSRGB dropped from the lanes | −2,614 | |
+| v1 decode, TEX/TEXA, CSR and ROM moves, the rest | −847 | |
+| **Total** (47,511 to 56,313) | **+8,802** | **+12** |
+
+nextpnr counts 72,607 LUTs after B8, 11,033 free. The pipeline (+1,550 to +2,800) fits. The
+largest B8 item to win back is the sRGB tile path: `SrgbCodec.encode` (two 256-entry tables, a
+multiply, a 257-entry boundary table) sits at the tile buffer's clear register and write port and
+at both flusher paths, three channels each, and a narrow tile's flush decodes its stored sRGB
+bytes only to encode them again. A step over its budget gets its RTL redesigned; the four
+fragment lanes stay.
 
 ## Measuring
 
@@ -155,12 +178,12 @@ LUTs, FFs, block RAM and Fmax.
 
 ## Order
 
-0. B8's step 7c, done 2026-10-24: opcodes 0x00 and 0x04 are empty and the window's operand
-   substitution is down to the CSR read port. Left for here: the dispatcher still snoops the
-   raster ROM's registers (r1-r4, r10, r11-r14, r29), and the window's storage stays as the
-   ROMs' uniform CSRs.
-1. After B8's steps 7 and 8 (no snooped registers): the step-1 pipeline on ULX3S and Default,
-   behind `BorgConfig.pipelined`; Wafer keeps the v1 sequencing until its own step.
+0. The raster ROM's results by CSR writes, as the setup ROM's (`setup_screen`, `setup_det`):
+   the dispatcher stops snooping its registers (`BorgRasterRom.planeRegs`: r1-r4, r10; the draw
+   ROM's barycentrics r5-r8, sample depths r11-r14 and r29). B8's step 7c left this. The window's
+   storage stays as the ROMs' `uniform0..31` CSRs.
+1. The step-1 pipeline on ULX3S and Default, behind `BorgConfig.pipelined`; Wafer keeps the v1
+   sequencing until its own step.
 2. borgc's scheduler gets the distance goal; measure.
 3. Wafer: overlapped operand reads.
 4. Step 2 on ULX3S: block-RAM register files, then 2 quads, then 4.
