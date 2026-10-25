@@ -121,7 +121,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val codeBase    = if (cfg.shaderICacheEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   val icacheFlush = if (cfg.shaderICacheEnabled) Some(Input(Bool())) else None
 
-  // Draw front end: where SOUT and FATTR go (see Opcodes.FUNCT7_SOUT).
+  // Draw front end: where SOUT and FATTR go (see Opcodes.MATCH_SOUT_V2).
   val record = if (cfg.drawEnabled) Some(Input(new CoreRecordIO)) else None
   // DRAW_CFG's mode: the raster ROM runs the draw front end's program.
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None

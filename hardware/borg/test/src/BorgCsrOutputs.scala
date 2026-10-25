@@ -9,15 +9,11 @@ object CsrOutputs {
   import Opcodes._
   private val outs = Seq(26 -> Csr.OutC0, 27 -> Csr.OutC1, 28 -> Csr.OutC2, 24 -> Csr.OutC3,
                          29 -> Csr.OutDepth, 25 -> Csr.Discard, 19 -> Csr.SampleMask)
-  private val noDst = Set(FUNCT7_STORE, FUNCT7_SOUT, FUNCT7_BRZ, FUNCT7_BRNZ, FUNCT7_JMP, FUNCT7_EXPUSH,
-                          FUNCT7_EXELSE, FUNCT7_EXPOP, FUNCT7_BARRIER, FUNCT7_ZTEST)
 
   /** The registers an instruction word writes. */
   def writes(w: BigInt): Seq[Int] = {
-    val (op, rd, f7, f2) = ((w & 0x7f).toInt, ((w >> 7) & 31).toInt, ((w >> 25) & 0x7f).toInt, ((w >> 25) & 3).toInt)
+    val (op, rd) = ((w & 0x7f).toInt, ((w >> 7) & 31).toInt)
     if (w == 0) Nil
-    else if (op == 4) { if (f2 == FUNCT2_TEX) rd until rd + 4 else if (f2 == FUNCT2_TEXA) Nil else Seq(rd) }
-    else if (op == 0) { if (noDst(f7)) Nil else if (f7 == FUNCT7_FATTR) rd until rd + 3 else Seq(rd) }
     else if (op == OPCODE_CSRRW && ((w >> 12) & 7) == 1) Nil
     else Seq(rd)
   }

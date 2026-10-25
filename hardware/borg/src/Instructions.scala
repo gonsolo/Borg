@@ -21,29 +21,12 @@ object Instructions {
   val BF_RS2    = field(FIELD_RS2)
   val BF_RS3    = field(FIELD_RS3)
   val BF_RD     = field(FIELD_RD)
-  val BF_OP     = BitField(6, 0)
-  val BF_FUNCT3 = field(FIELD_F3)
-  val BF_FUNCT7 = BitField(31, 25)
-  val BF_F7_OP  = BF_FUNCT7
-  val BITS_OPCODE_FMA_BIT = 2
-
-  val OPCODE_ALU = OPCODE_FADD
-  val OPCODE_FMA = OPCODE_FMADD
 
   /** A 10-bit SOUT/FATTR component index split over two register fields. */
   def indexFields(index: Int): (Int, Int) = {
     require(index >= 0 && index < 1024, s"component index out of range: $index")
     ((index >> 5) & 0x1f, index & 0x1f)
   }
-
-  // --- Base Instruction Encoders ---
-  // Long, not Int: funct7 values >= 0x40, and R4-type rs3 >= 16, set bit 31,
-  // which overflows an Int shift into a negative literal.
-  def encodeRType(funct7: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_ALU): BigInt =
-    BigInt((funct7.toLong << BF_FUNCT7.lo) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
-
-  def encodeR4Type(rs3: Int, funct2: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_FMA): BigInt =
-    BigInt((rs3.toLong << BF_RS3.lo) | (funct2 << 25) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
 
   // @doc:isa-encoders
   // ISA v2 only: no window operand (funct3 = 0) and no r0, which is x0 in these forms.
