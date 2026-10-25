@@ -324,6 +324,21 @@ The 178 Timeouts are mostly long shaders (`glsl.operator` 62, `glsl.matrix` 61, 
 89 chunks of 50 hit the 900 s chunk limit; the 2,884 cases without a result (from those and crashed chunks) were run one by one with 120 s each, and
 the cases that ran out of it are the Timeouts. NotPresent: 36 `renderpasses.renderpass1` and 4 `pipeline.monolithic` cases.
 
+## The compiler corpora on ISA v2 (tier 1, 2026-10-25)
+
+Both corpora on `feat/isa-v2-step1` (B8 steps 1-12, 15 and 7c):
+
+| Corpus | Cases | Pass | Fail | Other |
+|---|---|---|---|---|
+| Graphics (`check.sh`) | 2,293 | 731 | 5 | 4 Timeout, 1,553 NotSupported |
+| Compute (`SET=compute check.sh`) | 3,990 | 3,820 | 168 | 2 Timeout |
+
+Graphics gained 5 and lost 2, both vertex-stage Timeouts: these cases were always slow (`max.highp_int_vertex`
+takes 402 s on main, 448 M cycles) and pass in chunks only; on ISA v2 it takes 548 s (540 M cycles, +20%, and the
+larger RTL simulates 11% slower), so their chunks now hit the 900 s limit. Run alone, all 8 such cases pass.
+Compute gained 109; the 4 `precision_fconvert.f32_to_u32` cases it lost (f2u went through the signed `FCVT.W.S`
+since the Zfinx switch) pass again with `FCVT.WU.S`, counted above.
+
 ## `binding_model` in full (tier 1 on GitHub Actions, 2026-10-22)
 
 All of `dEQP-VK.binding_model` after the descriptor fixes (Borg `304e6e35`, mesa `d7061c6f`), run as 16 shards on
