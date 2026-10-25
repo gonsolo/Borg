@@ -200,7 +200,7 @@ object BorgSequencerTests extends TestSuite {
         def colourTile(t: Int) = (0 until 32).map(i => d.half.getOrElse(d.fbBase + 64 * t + 2 * i, -1))
         val tiles = (0 until 4).map(t => (depthTile(t), colourTile(t)))
         for (((z, c), t) <- tiles.zipWithIndex)
-          println(s"  tile $t: depth ${if (z.contains(-1)) "MISSING" else z.distinct.size + " distinct"}, " +
+          println(s"  tile $t: depth ${if (z.contains(-1)) "MISSING" else s"${z.distinct.size} distinct"}, " +
                   s"colour ${if (c.contains(-1)) "MISSING" else "written"}")
         Predef.assert(tiles.forall { case (z, c) => !z.contains(-1) && !c.contains(-1) },
           "every tile must flush its own colour and depth")
