@@ -382,7 +382,7 @@ class Hutt(
                      AluOp.DivW, AluOp.DivuW, AluOp.RemW, AluOp.RemuW)
     .map(_ === alu.io.op).reduce(_ || _)
 
-  val branchTaken = HuttBranchTaken(d.funct3, rs1Val, rs2Val)
+  val branchTaken = riscv.Rv.branchTaken(d.funct3, rs1Val, rs2Val)
   val pcPlus4   = pc + 4.U
   val branchTgt = pc + d.bImm
   val jalTgt    = pc + d.jImm
@@ -704,21 +704,7 @@ class Hutt(
   val loadRd     = Reg(UInt(5.W))
   val isLoadOp   = Reg(Bool())
 
-  def extendLoad(funct3: UInt, raw: UInt): UInt = {
-    def sext(from: Int): UInt =
-      if (xlen <= from) raw(xlen - 1, 0) else Cat(Fill(xlen - from, raw(from - 1)), raw(from - 1, 0))
-    def zext(from: Int): UInt =
-      if (xlen <= from) raw(xlen - 1, 0) else Cat(0.U((xlen - from).W), raw(from - 1, 0))
-    MuxLookup(funct3, raw)(Seq(
-      "b000".U -> sext(8),
-      "b001".U -> sext(16),
-      "b010".U -> sext(32),
-      "b011".U -> raw,
-      "b100".U -> zext(8),
-      "b101".U -> zext(16),
-      "b110".U -> zext(32)
-    ))
-  }
+  def extendLoad(funct3: UInt, raw: UInt): UInt = riscv.Rv.loadExtend(funct3, raw, xlen)
 
   // -- IO defaults -----------------------------------------------------------
   io.instr.req.valid  := false.B
@@ -1285,17 +1271,7 @@ class Hutt(
             state := sFetchReq
           }.otherwise {
             val amoOp2 = rs2Val
-            amoNewVal := MuxLookup(d.amoFunct5, loadedVal)(Seq(
-              AmoFunct5.Swap -> amoOp2,
-              AmoFunct5.Add  -> (loadedVal + amoOp2),
-              AmoFunct5.Xor  -> (loadedVal ^ amoOp2),
-              AmoFunct5.And  -> (loadedVal & amoOp2),
-              AmoFunct5.Or   -> (loadedVal | amoOp2),
-              AmoFunct5.Min  -> Mux(loadedVal.asSInt < amoOp2.asSInt, loadedVal, amoOp2),
-              AmoFunct5.Max  -> Mux(loadedVal.asSInt > amoOp2.asSInt, loadedVal, amoOp2),
-              AmoFunct5.Minu -> Mux(loadedVal < amoOp2, loadedVal, amoOp2),
-              AmoFunct5.Maxu -> Mux(loadedVal > amoOp2, loadedVal, amoOp2)
-            ))
+            amoNewVal := riscv.Rv.amoResult(d.amoFunct5, loadedVal, amoOp2, other = loadedVal)
             state := sAmoStoreReq
           }
         }

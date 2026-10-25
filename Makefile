@@ -49,7 +49,7 @@ help:
 # BorgOnlyTop has no such parameter; its clock is the signoff constraint
 # CLOCK_PERIOD in asic/wafer.space/librelane/config.yaml (125 ns = 8 MHz).
 
-HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
+HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/riscv/src hardware/memory/src \
                         fpga/ulx3s/soc/src asic/wafer/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 

@@ -5,4 +5,5 @@ import build.IsaModule
 object `package` extends IsaModule {
   def isaPackage = "hutt"
   def isaObject = "HuttOpcodes"
+  override def moduleDeps = Seq(build.hardware.riscv)
 }

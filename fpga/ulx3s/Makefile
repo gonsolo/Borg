@@ -44,6 +44,7 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
               $(wildcard ../../hardware/borg/src/link/*.scala) \
               $(wildcard ../../hardware/borg/src/generated/*.scala) \
               $(wildcard ../../hardware/hutt/src/*.scala) \
+              $(wildcard ../../hardware/riscv/src/*.scala) \
               $(wildcard ../../hardware/memory/src/*.scala) \
               $(wildcard ../../hardware/peri/src/*.scala) \
               $(wildcard ../../hardware/peri/src/uart/*.scala) \

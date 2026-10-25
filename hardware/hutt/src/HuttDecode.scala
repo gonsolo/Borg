@@ -28,17 +28,8 @@ object Opcode {
 /** A-extension funct5 selectors (instr[31:27]). */
 object AmoFunct5 {
   import HuttOpcodes._
-  val Add  = FUNCT5_AMOADD_W.U(5.W)
-  val Swap = FUNCT5_AMOSWAP_W.U(5.W)
   val Lr   = FUNCT5_LR_W.U(5.W)
   val Sc   = FUNCT5_SC_W.U(5.W)
-  val Xor  = FUNCT5_AMOXOR_W.U(5.W)
-  val Or   = FUNCT5_AMOOR_W.U(5.W)
-  val And  = FUNCT5_AMOAND_W.U(5.W)
-  val Min  = FUNCT5_AMOMIN_W.U(5.W)
-  val Max  = FUNCT5_AMOMAX_W.U(5.W)
-  val Minu = FUNCT5_AMOMINU_W.U(5.W)
-  val Maxu = FUNCT5_AMOMAXU_W.U(5.W)
 }
 
 /** ALU operation selector.  The `*W` variants are RV64 word ops (32-bit result
@@ -112,15 +103,11 @@ object HuttDecode {
     d.funct7 := instr(31, 25)
 
     // Sign-extended immediates per the RISC-V base encoding (to XLEN bits).
-    val signBit = instr(31)
-    d.iImm := Cat(Fill(xlen - 12, signBit), instr(31, 20))
-    d.sImm := Cat(Fill(xlen - 12, signBit), instr(31, 25), instr(11, 7))
-    d.bImm := Cat(Fill(xlen - 13, signBit), instr(31), instr(7), instr(30, 25), instr(11, 8), 0.U(1.W))
-    // LUI/AUIPC: the 20-bit upper immediate sits at bits [31:12]; on RV64 it is
-    // sign-extended above bit 31.
-    d.uImm := (if (xlen <= 32) Cat(instr(31, 12), 0.U(12.W))
-               else Cat(Fill(xlen - 32, instr(31)), instr(31, 12), 0.U(12.W)))
-    d.jImm := Cat(Fill(xlen - 21, signBit), instr(31), instr(19, 12), instr(20), instr(30, 21), 0.U(1.W))
+    d.iImm := riscv.Rv.immI(instr, xlen)
+    d.sImm := riscv.Rv.immS(instr, xlen)
+    d.bImm := riscv.Rv.immB(instr, xlen)
+    d.uImm := riscv.Rv.immU(instr, xlen)
+    d.jImm := riscv.Rv.immJ(instr, xlen)
 
     d.isLui    := d.opcode === Opcode.Lui
     d.isAuipc  := d.opcode === Opcode.Auipc

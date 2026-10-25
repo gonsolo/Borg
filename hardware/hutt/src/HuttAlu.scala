@@ -217,26 +217,3 @@ object HuttAluDecode {
     op
   }
 }
-
-/** Branch condition evaluator for BEQ/BNE/BLT/BGE/BLTU/BGEU.
-  *
-  * funct3 encoding (per RV32I):
-  *   - 000 BEQ, 001 BNE, 100 BLT, 101 BGE, 110 BLTU, 111 BGEU
-  */
-object HuttBranchTaken {
-  def apply(funct3: UInt, a: UInt, b: UInt): Bool = {
-    val eq  = a === b
-    val lts = a.asSInt < b.asSInt
-    val ltu = a < b
-    val taken = WireDefault(false.B)
-    switch(funct3) {
-      is(FUNCT3_BEQ.U) { taken := eq }
-      is(FUNCT3_BNE.U) { taken := !eq }
-      is(FUNCT3_BLT.U) { taken := lts }
-      is(FUNCT3_BGE.U) { taken := !lts }
-      is(FUNCT3_BLTU.U) { taken := ltu }
-      is(FUNCT3_BGEU.U) { taken := !ltu }
-    }
-    taken
-  }
-}
