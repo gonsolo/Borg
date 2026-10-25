@@ -980,8 +980,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val lsAddr = Cat(rvAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W))
     def rvLoadData(w: UInt): UInt = {
       val sh = (w >> Cat(rvAddr(1, 0), 0.U(3.W)))(31, 0)
-      MuxLookup(rvWidth, w)(Seq(0.U -> sh(7, 0).asSInt.pad(32).asUInt, 1.U -> sh(15, 0).asSInt.pad(32).asUInt,
-                                 4.U -> sh(7, 0).pad(32), 5.U -> sh(15, 0).pad(32)))
+      riscv.Rv.loadExtend(rvWidth, sh, 32, full = Some(w))   // LW: the aligned word
     }
 
     // SOUT/FATTR: a component index from the instruction, not a register.
@@ -1087,7 +1086,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         when(is_load_reg) {
           memDataReg := Mux(rvMem, rvLoadData(io.gpuMem.get.data.pad(32)), io.gpuMem.get.data)(config.totalBits - 1, 0)
           memState   := Mux(isAmo, sAmoWr, sMemWB)
-          amoNew     := RvInt.amoResult(amoOp, io.gpuMem.get.data.pad(32)(31, 0), curData.pad(32), curCmp.pad(32))
+          amoNew     := riscv.Rv.amoResult(amoOp, io.gpuMem.get.data.pad(32)(31, 0), curData.pad(32),
+                                           other = curData.pad(32), cmp = Some(curCmp.pad(32)))
         }.otherwise {
           finishLane()                  // a store has nothing to write back
         }

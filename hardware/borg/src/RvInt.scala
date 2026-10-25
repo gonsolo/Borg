@@ -50,7 +50,7 @@ class RvInt(instr: UInt) {
   val amo    = opc === Opcodes.OPCODE_AMOADD_W.U && f3 === 2.U
   val amoOp  = instr(31, 27)
   val amocas = amo && amoOp === 5.U
-  val memImm = Mux(amo, 0.U(32.W), Mux(store, Cat(instr(31, 25), instr(11, 7)), instr(31, 20)).asSInt.pad(32).asUInt)
+  val memImm = Mux(amo, 0.U(32.W), Mux(store, riscv.Rv.immS(instr, 12), riscv.Rv.immI(instr, 12)).asSInt.pad(32).asUInt)
   /** Zmmul, Zicond and the Zbb subset (B8 step 3): MUL runs as IMUL, the rest by rvxOp. */
   val mul = op && f7 === 1.U && f3 === 0.U
   private val rs2f = instr(24, 20)
@@ -101,10 +101,9 @@ class RvInt(instr: UInt) {
   /** BEQ..BGEU and JAL (rd = x0: no return address yet); offsets in words. */
   val br    = opc === Opcodes.OPCODE_BEQ.U && f3 =/= 2.U && f3 =/= 3.U
   val jal   = opc === Opcodes.OPCODE_JAL.U
-  val brOff  = (Cat(instr(31), instr(7), instr(30, 25), instr(11, 8), 0.U(1.W)).asSInt >> 2).pad(20)
-  val jalOff = (Cat(instr(31), instr(19, 12), instr(20), instr(30, 21), 0.U(1.W)).asSInt >> 2).pad(20)
-  def cond(a: UInt, b: UInt): Bool = MuxLookup(f3, false.B)(Seq(0.U -> (a === b), 1.U -> (a =/= b),
-    4.U -> (a.asSInt < b.asSInt), 5.U -> (a.asSInt >= b.asSInt), 6.U -> (a < b), 7.U -> (a >= b)))
+  val brOff  = (riscv.Rv.immB(instr, 13).asSInt >> 2).pad(20)
+  val jalOff = (riscv.Rv.immJ(instr, 21).asSInt >> 2).pad(20)
+  def cond(a: UInt, b: UInt): Bool = riscv.Rv.branchTaken(f3, a, b)
   private val base  = op && f7 === 0.U || opImm
   private val shift = (op || opImm) && f7 === 0.U
   val add  = base && f3 === 0.U || lui || auipc || csrrs && !csrMask
@@ -127,12 +126,6 @@ class RvInt(instr: UInt) {
 
 object RvInt {
   def apply(instr: UInt): RvInt = new RvInt(instr)
-
-  /** The value an AMO writes, from the old word, rs2 and (AMOCAS) the compare value. */
-  def amoResult(op: UInt, old: UInt, x: UInt, cmp: UInt): UInt = MuxLookup(op, x)(Seq(
-    0x00.U -> (old + x), 0x04.U -> (old ^ x), 0x0C.U -> (old & x), 0x08.U -> (old | x),
-    0x10.U -> Mux(old.asSInt < x.asSInt, old, x), 0x14.U -> Mux(old.asSInt < x.asSInt, x, old),
-    0x18.U -> Mux(old < x, old, x), 0x1C.U -> Mux(old < x, x, old), 0x05.U -> Mux(old === cmp, x, old)))
   val Mulh = 1; val Mulhsu = 2; val Mulhu = 3; val CzeroEqz = 4; val CzeroNez = 5; val Andn = 6; val Orn = 7
   val Xnor = 8; val Min = 9; val Minu = 10; val Max = 11; val Maxu = 12; val SextB = 13; val SextH = 14
   val ZextH = 15; val Clz = 16; val Ctz = 17; val Cpop = 18; val Rol = 19; val Ror = 20; val Rev8 = 21
