@@ -13,55 +13,9 @@
 void putc_uart(int c);
 void puts_uart(const char *s);
 
-// @doc:fpu-helpers
-// --- Borg FPU helpers ---
-void borg_run(uint32_t start_pc) {
-  // We MUST wait for the GPU to be fully idle before resetting it for FPU use.
-  while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))
-    ;
-
-  BORG_GPU->control = CONTROL_REG_T__RESET_PIPELINE_bm | (start_pc << CONTROL_REG_T__START_PC_bp);
-  (void)BORG_GPU->status;
-  BORG_GPU->control = CONTROL_REG_T__START_bm;
-  int timeout = 100000;
-  // Wait until it becomes idle again
-  while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm) && timeout > 0)
-    timeout--;
-}
-
-borg_float_t borg_float_add(borg_float_t a, borg_float_t b) {
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
-  BORG_GPU->gpr[1] = a;
-  BORG_GPU->gpr[2] = b;
-  borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0];
-}
-
-borg_float_t borg_float_mul(borg_float_t a, borg_float_t b) {
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FMUL(0, 1, 2, 0);
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
-  BORG_GPU->gpr[1] = a;
-  BORG_GPU->gpr[2] = b;
-  borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0];
-// @doc:end
-}
-
-borg_float_t borg_float_fmadd(borg_float_t a, borg_float_t b, borg_float_t c) {
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FMADD(0, 1, 2, 3, 0);
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
-  BORG_GPU->gpr[1] = a;
-  BORG_GPU->gpr[2] = b;
-  BORG_GPU->gpr[3] = c;
-  borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0];
-}
-
 void borg_check_float_width(void) {
   // Read a GPR back: the register file stores cfg.totalBits bits, so FP16
-  // hardware returns 0x0000FFFF here. The GPU is idle at boot; gpr[0] is
-  // scratch for the FPU helpers above.
+  // hardware returns 0x0000FFFF here. The GPU is idle at boot; gpr[0] is scratch.
   BORG_GPU->gpr[0] = 0xFFFFFFFFu;
   uint32_t got = BORG_GPU->gpr[0];
   BORG_GPU->gpr[0] = 0;

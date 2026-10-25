@@ -29,17 +29,6 @@ values, and control execution:
 
 The Borg peripheral is accessed at `0x08000C00` (BORG_BASE). It exposes 32 general-purpose float registers (r0–r31, FP32), 72 instruction memory words, a control/status register, and a full RDL-generated register block covering tile buffer, texture, sequencer, DMA, and flush control. DRAM provides shared memory between the Hutt CPU and the GPU.
 
-## FPU Helper Functions
-
-The driver provides convenience functions that program the instruction memory
-and invoke the FPU for single operations:
-
-{{snippet:software/borg/borg_fpu.c:fpu-helpers}}
-
-Each helper loads a one-instruction shader, writes the operands to registers,
-triggers execution, and reads back the result. The `borg_run()` function handles
-the start/poll/wait protocol.
-
 ## How a Draw Runs
 
 The CPU no longer drives shaders per triangle. It writes a draw's state and

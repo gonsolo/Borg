@@ -26,12 +26,6 @@ typedef uint16_t fp16_t;
 struct spirb_shader_t;
 typedef struct spirb_shader_t spirb_shader_t;
 
-// --- Borg FPU wrappers (one instruction run on the shader core) ---
-void borg_run(uint32_t start_pc);
-borg_float_t borg_float_add(borg_float_t a, borg_float_t b);
-borg_float_t borg_float_mul(borg_float_t a, borg_float_t b);
-borg_float_t borg_float_fmadd(borg_float_t a, borg_float_t b, borg_float_t c);
-
 // --- Datapath float constants ---
 #define BORG_FLOAT_ZERO 0x00000000u
 #define BORG_FLOAT_HALF 0x3F000000u  // 0.5
@@ -73,10 +67,6 @@ void borg_check_float_width(void);
 // never DMA'd or MMIO-uploaded (BORG_IMEM_RAST_OFFSET/LEN removed accordingly).
 #define BORG_IMEM_VERT_OFFSET 0
 #define BORG_IMEM_FRAG_OFFSET 1
-// The scalar-FPU helper REWRITES its 2-word program (op + HALT) before every
-// borg_run, so it needs no persistent slot.  It shares offset 0 with the
-// vertex shader (mutually exclusive in time: Pass 1 vs. direct CPU calls).
-#define BORG_IMEM_ADD_OFFSET  0
 #define BORG_IMEM_DEPTH       72
 
 // Instruction count for hardware sequencer DMA shader reload (Step 31.2).
