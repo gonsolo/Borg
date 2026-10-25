@@ -1,7 +1,7 @@
 # ISA v2
 
 Status: specification agreed 2026-10-22; on `feat/isa-v2-step1` steps 1-12 and 15 are done,
-13 and 14 deferred. The v1 forms are gone: opcodes 0x00 and 0x04 hold only HALT, the all-zero
+13 and 14 deferred, 16 open. The v1 forms are gone: opcodes 0x00 and 0x04 hold only HALT, the all-zero
 word, which RISC-V reserves as illegal. The setup and raster ROMs read the triangle's words as
 the CSRs `uniform0..31` (0x840), which go through the window's read port. An 8-bit tile's multi-pass resolve averages an sRGB attachment's stored codes. The private window below is not built: borgc keeps local
 arrays in registers and does not spill shaders that need helper lanes, so nothing uses it yet. The current ISA (v1) is
@@ -350,6 +350,9 @@ Order, cheapest and most independent first:
 13. Base and limit: deferred until the self-hosted driver needs isolation.
 14. `QBALLOT`, `QSHUF`, and the subgroup feature bits in borgvk: deferred to Vulkan 1.1.
 15. The custom ops move to their custom-0..3 encodings, and opcodes 0x00 and 0x04 are empty.
+16. Open, after B9 and a profile: custom ops with a uniform operand (a 5-bit `uniform0..31`
+    index in place of a register), as Mali's FAU operands, so a uniform no longer needs a `CSRRS`
+    first. v2 grew graphics shaders from 6,767 to 8,938 instructions, 854 of them CSR reads.
 
 Step 8 runs right after step 1, with the CSR access it needs from step 7: on 2026-10-22 both
 ULX3S builds miss their clock in the output snoop (vkcube SoC 16.9 MHz against 25, Linux build
