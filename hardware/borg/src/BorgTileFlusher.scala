@@ -363,9 +363,8 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     if (hasStencil) Mux(io.stencilEn.get, sBurstS, sNextSample) else sNextSample
 
   if (samples == 1) {
-    // Single-sample path: one fp16ToUnorm or sRGB encoder per channel, fully
-    // pipelined issuance. Kept as the regression anchor for non-MSAA builds
-    // (every shipped config is MSAA now; the samples==1 tests keep it honest).
+    // Single-sample path (the ULX3S cube build): one fp16ToUnorm or sRGB
+    // encoder per channel, fully pipelined issuance.
     val e = io.read.data(0)
     def enc(h: UInt): UInt = Mux(srgbReg, SrgbCodec.encode(h, piped = true), fp16ToUnorm(late(h), 8))
     val (r8, g8, b8) = (enc(e.r), enc(e.g), enc(e.b))
