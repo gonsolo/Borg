@@ -21,20 +21,26 @@ object SrgbCodec {
     else (0 until 0x7C00).find(h => math.round(srgb(java.lang.Float.float16ToFloat(h.toShort).toDouble) * 255) >= k).get
   }
 
-  def decode(c: UInt): UInt = VecInit(decodeTable.map(_.U(16.W)))(c)
+  /** `piped`: the table read sits behind a register (block RAM on the FPGA), one cycle late. */
+  def decode(c: UInt, piped: Boolean = false): UInt = {
+    val d = VecInit(decodeTable.map(_.U(16.W)))(c)
+    if (piped) RegNext(d) else d
+  }
 
   /** Round-to-nearest sRGB code of a linear FP16 value, clamped to [0, 1]: FSRGB's interpolated
-    * table, then one step either way against the exact code boundaries. */
-  def encode(h: UInt): UInt = {
-    val exp = h(14, 10); val mant = h(9, 0)
+    * table, then one step either way against the exact code boundaries. `piped`: both table
+    * reads sit behind registers (block RAM on the FPGA), the code arrives two cycles late. */
+  def encode(h: UInt, piped: Boolean = false): UInt = {
+    def stage(x: UInt): UInt = if (piped) RegNext(x) else x
     val lut = VecInit(BorgLutTables.srgbLut.map(_.U(16.W)))
-    val idx = Cat((exp - 1.U)(3, 0), mant(9, 6))
-    val (v, n) = (lut(idx), lut((idx +& 1.U)(7, 0)))
-    val est = (v +& (((n - v) * mant(5, 0)) >> 6))(15, 0)
-    val guess = ColorQuantize.quantize8(Mux(exp >= 16.U, "h3C00".U(16.W), est))
+    val idx = Cat((h(14, 10) - 1.U)(3, 0), h(9, 6))
+    val (v, n, h1) = (stage(lut(idx)), stage(lut((idx +& 1.U)(7, 0))), stage(h))
+    val est = (v +& (((n - v) * h1(5, 0)) >> 6))(15, 0)
+    val guess = ColorQuantize.quantize8(Mux(h1(14, 10) >= 16.U, "h3C00".U(16.W), est))
     val bound = VecInit(boundary.map(_.U(16.W)))
-    val mag = h(14, 0)
-    val code = Mux(mag < bound(guess), guess - 1.U, Mux(mag >= bound(guess +& 1.U), guess + 1.U, guess))
-    Mux(h(15) || exp === 0.U, 0.U(8.W), Mux(mag >= "h3C00".U, 255.U(8.W), code(7, 0)))
+    val (lo, hi, g, h2) = (stage(bound(guess)), stage(bound(guess +& 1.U)), stage(guess), stage(h1))
+    val mag = h2(14, 0)
+    val code = Mux(mag < lo, g - 1.U, Mux(mag >= hi, g + 1.U, g))
+    Mux(h2(15) || h2(14, 10) === 0.U, 0.U(8.W), Mux(mag >= "h3C00".U, 255.U(8.W), code(7, 0)))
   }
 }

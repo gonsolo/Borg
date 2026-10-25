@@ -9,12 +9,15 @@ import utest._
 
 class SrgbCodecIO extends Bundle {
   val h = Input(UInt(16.W)); val c = Input(UInt(8.W)); val enc = Output(UInt(8.W)); val dec = Output(UInt(16.W))
+  val encPiped = Output(UInt(8.W)); val decPiped = Output(UInt(16.W))
 }
 
 class SrgbCodecDut extends Module {
   val io = IO(new SrgbCodecIO)
   io.enc := SrgbCodec.encode(io.h)
   io.dec := SrgbCodec.decode(io.c)
+  io.encPiped := SrgbCodec.encode(io.h, piped = true)
+  io.decPiped := SrgbCodec.decode(io.c, piped = true)
 }
 
 /** The encoder against exact rounding for every non-negative finite FP16 value; decode then
@@ -38,6 +41,20 @@ object SrgbCodecTests extends TestSuite {
           utest.assert(dut.io.enc.peek().litValue.toInt == c)
         }
         println(s"  encode: $bad of ${0x7C00} FP16 values off")
+        utest.assert(bad == 0)
+      }
+    }
+    utest.test("piped_codec_matches_two_and_one_cycles_later") {
+      simulate(new SrgbCodecDut) { dut =>
+        var bad = 0
+        val (enc, dec) = (Array.fill(3)(-1), Array.fill(2)(BigInt(-1)))
+        for (h <- 0 until 0x10000) {
+          dut.io.h.poke(h.U); dut.io.c.poke((h & 0xFF).U)
+          enc(h % 3) = dut.io.enc.peek().litValue.toInt; dec(h % 2) = dut.io.dec.peek().litValue
+          if (h >= 2 && dut.io.encPiped.peek().litValue.toInt != enc((h - 2) % 3)) bad += 1
+          if (h >= 1 && dut.io.decPiped.peek().litValue != dec((h - 1) % 2)) bad += 1
+          dut.clock.step()
+        }
         utest.assert(bad == 0)
       }
     }
