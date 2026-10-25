@@ -15,7 +15,7 @@ import chisel3.util._
   *   4. If inside: chains to fragment shader at `fragPcReg`, which samples
   *      texels via TEX/TEXA (docs/B2_texture_unit.md) when it needs to --
   *      entirely within BorgCore, this dispatcher is not involved.
-  *   5. Pushes snooped fragment RGBZ to the tile buffer.
+  *   5. Pushes the fragment outputs (CSR writes) to the tile buffer.
   *   6. Releases the CPU stall.
   *
   * Phase FSM (Step 10.6.2 / Step 25.3d):
@@ -133,28 +133,28 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
     Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
 
   // Draw front end (docs/B1_geometry_front_end.md): the raster ROM also
-  // writes the near and far planes Zn and Zf to r4/r10, which coverage tests
-  // like the three edges, and FragCoord.z to r29, which is the fragment's
-  // depth unless the shader writes its own.
+  // writes the near and far planes Zn and Zf (rast_zn, rast_zf), which coverage
+  // tests like the three edges, and FragCoord.z (rast_frag_z), the fragment's
+  // depth unless the shader writes out_depth.
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
   // Draw mode: which edges are top or left edges -- a sample exactly on an
   // edge is covered only for those (see BorgTileSequencer.topLeft).
   val topLeft = if (cfg.drawEnabled) Some(Input(Vec(3, Bool()))) else None
   // SAMPLE_MASK_CFG: the pipeline's static sample mask, alpha-to-coverage,
-  // and the shader's own mask (gl_SampleMask, written to r19).
+  // and the shader's own mask (gl_SampleMask, written to sample_mask).
   val sampleCfg = Input(new SampleMaskConfig(cfg.samples))
   // Per lane: the samples the triangle covers (after the static mask) --
-  // gl_SampleMaskIn, read by the SMASK instruction.
+  // gl_SampleMaskIn, read as the CSR sample_mask.
   val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
   // The colour attachment this pass renders is a RAW format (FlushFormat):
-  // the fragment's r26 is stored as raw bytes, unblended, and each lane's
+  // the fragment's out_c0 is stored as raw bytes, unblended, and each lane's
   // destination word is read before the shader starts, for TLD.
   val rawColor = Input(Bool())
   // An sRGB attachment: the shader blends, TLD reads linear FP16 (R | G << 16, B | A << 16).
   val srgbColor = Input(Bool())
   val laneDst  = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
   // RAW64's word 1: the tile's extension plane (read with the colour, and
-  // written from r27 whenever the colour is).
+  // written from out_c1 whenever the colour is).
   val extRead  = if (cfg.drawEnabled && cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
   val extWrite = if (cfg.drawEnabled && cfg.hasBlend) Some(Output(UInt(32.W))) else None
 }
@@ -163,7 +163,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 class SampleMaskConfig(val samples: Int) extends Bundle {
   val mask        = UInt(samples.W)   // VkPipelineMultisampleStateCreateInfo::pSampleMask
   val alphaToCov  = Bool()            // alphaToCoverageEnable
-  val shaderMask  = Bool()            // the fragment shader writes gl_SampleMask to r19
+  val shaderMask  = Bool()            // the fragment shader writes gl_SampleMask to sample_mask
   /** rasterizationSamples = 1: coverage and every mask come from sample 0
     * and hold for all samples, which the walker has put at the pixel centre. */
   val single      = Bool()
@@ -310,20 +310,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // --- Stall ---
   val auto_run_stall = RegInit(false.B)
 
-  // --- Per-lane fragment output snoop ---
-  // Hardware ABI: A=r24, Kill=r25, R=r26, G=r27, B=r28, Z=r29.
-  //
-  // r24 (alpha) extends the ABI block downwards and exists only in a
-  // cfg.hasBlend build -- an alpha output is meaningless without a blend
-  // stage to consume it, and borgc's fragment allocator must reserve r24
-  // in lockstep or it will hand the register to an unrelated temporary
-  // (exactly the collision class that killed the r21-r24 read-back port).
-  //
-  // The same applies to the hand-written shaders in software/borg: any of
-  // them that uses r24 as a scratch register would silently feed garbage
-  // alpha to the blend unit. Harmless today only because blending is off by
-  // default, so frag_a is never read -- not because the registers are
-  // actually free. Check before enabling blending with a hand shader.
+  // --- Per-lane fragment outputs: the CSR writes out_c0..3 (R, G, B, A),
+  // out_depth, discard and sample_mask (docs/B8_isa_v2.md). Alpha exists only
+  // in a cfg.hasBlend build.
   val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
@@ -335,33 +324,31 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // adding the register backwards-compatible for existing shaders.
   val frag_a =
     if (cfg.hasBlend) Some(RegInit(VecInit(Seq.fill(N)(0x3C00.U(16.W))))) else None
-  // RAW formats (io.rawColor): r26 whole, the bytes the attachment stores.
+  // RAW formats (io.rawColor): out_c0 whole, the bytes the attachment stores.
   // The word rides the tile's UNORM8 channels -- byte k in channel k, byte 3
   // in the alpha plane -- which round-trip exactly, so it needs the alpha
   // plane (hasBlend) and nothing else.
   val rawSupported = cfg.drawEnabled && cfg.hasBlend
   val frag_raw = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))
-  val frag_raw1 = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))     // r27, RAW64's word 1
+  val frag_raw1 = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))     // out_c1, RAW64's word 1
   val dstWord  = RegInit(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W))))))
   io.laneDst := dstWord
   io.extWrite.foreach(_ := 0.U)
   private val rawActive = io.rawColor && rawSupported.B
   private val dstActive = rawActive || io.srgbColor && rawSupported.B
 
-  // discard: r25 is a hardware-ABI "kill" register, not a new ISA opcode. The
-  // compiler lowers GLSL/SPIR-V `discard`/`discard_if(cond)` (already reduced
-  // to a plain boolean value by NIR's own nir_lower_discard_if pass, no branch
-  // needed) to any existing op that writes `cond` to r25. Sticky OR across the
-  // whole fragment shader invocation, since a discarded fragment must stay
-  // discarded even if later code in the same invocation writes r25 again with
-  // a false condition — matches GLSL's "discard doesn't necessarily terminate
-  // execution, but the fragment is never written" semantics. Reset once per
+  // discard: the compiler writes `discard_if(cond)`'s condition to the CSR
+  // discard. Sticky OR across the whole fragment shader invocation, since a
+  // discarded fragment must stay discarded even if later code in the same
+  // invocation writes a false condition — matches GLSL's "discard doesn't
+  // necessarily terminate execution, but the fragment is never written"
+  // semantics. Reset once per
   // quad below (same lifecycle as e0/e1/e2_outside), gates tile write-back in
   // sTileWrite exactly like inside_flag already does.
   val killed = RegInit(VecInit(Seq.fill(N)(false.B)))
-  // Draw mode at MSAA: each sample's own depth (the raster ROM's r11..r14),
-  // used unless the shader writes its depth (r29), which then holds for all.
-  // At one sample the ROM skips them and FragCoord.z (r29) is every sample's.
+  // Draw mode at MSAA: each sample's own depth (rast_sample_z0..3), used
+  // unless the shader writes out_depth, which then holds for all. At one
+  // sample the ROM skips them and FragCoord.z (rast_frag_z) is every sample's.
   val frag_zs  = Option.when(cfg.drawEnabled && cfg.samples == 4)(Reg(Vec(N, Vec(4, UInt(32.W)))))
   val zWritten = RegInit(VecInit(Seq.fill(N)(false.B)))
   def zAt(l: UInt, s: UInt): UInt =
@@ -382,7 +369,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
                   else DepthQuantize.dequantize16(DepthQuantize.quantize16(clamped))
     Mux(drawMode && io.depthUnorm, rounded, z)
   }
-  // gl_SampleMask as the shader wrote it (r19), all ones until it does.
+  // gl_SampleMask as the shader wrote it (sample_mask), all ones until it does.
   val fragMask = RegInit(VecInit(Seq.fill(N)(((1 << cfg.samples) - 1).U(cfg.samples.W))))
   /** Alpha to coverage: the first round(alpha * samples) samples -- a
     * monotonic mapping, which is all Vulkan asks of it. */
@@ -410,8 +397,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   //
   // Vulkan's EarlyFragmentTests puts the depth/stencil test BEFORE the
   // fragment shader, and a fragment that fails it must have no side effects.
-  // Borg computes depth in the fragment shader itself (r29), so "before" is
-  // realised as "at the ZTEST instruction": the compiler writes r29 first,
+  // Borg computes depth in the fragment shader itself (out_depth), so "before" is
+  // realised as "at the ZTEST instruction": the compiler writes out_depth first,
   // then issues ZTEST, then everything else.
   //
   // ZTEST reuses the late test's own states and datapath -- sZRead through
@@ -510,7 +497,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       e2_outside(i) := false.B
       z_outside.foreach(z => z(i).foreach(_ := false.B))
       killed(i) := false.B
-      // Re-arm the opaque default every quad: a shader that writes r24 on one
+      // Re-arm the opaque default every quad: a shader that writes out_c3 on one
       // quad and not the next must not inherit the previous quad's alpha.
       frag_a.foreach(_(i) := 0x3C00.U)
       fragMask(i) := ((1 << cfg.samples) - 1).U
@@ -695,7 +682,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       (masked(0), masked(1), masked(2))
     } else (frag_r(laneIdx), frag_g(laneIdx), frag_b(laneIdx))
 
-    // A RAW attachment stores r26's bytes as they are: no blending, no write
+    // A RAW attachment stores out_c0's bytes as they are: no blending, no write
     // mask (the shader applies both, having read the destination with TLD).
     // An sRGB one stores the shader's colour unblended for the same reason.
     val srgbActive = io.srgbColor && rawSupported.B

@@ -459,9 +459,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A branch has no destination: its rd field carries the low bits of the
     // target address, so writing back would corrupt an unrelated register.
     // The exec mask gates the same point, which is what makes predicated
-    // execution correct for everything the ALU produces -- including the
-    // fragment outputs r24..r29, since the dispatcher snoops them through
-    // this very port.
+    // execution correct for everything the ALU produces; the CSR writes
+    // (fragment outputs, rast_*) take the same gate.
     //
     // EXANY is the one deliberate exception to the exec-mask gate: its whole
     // purpose is to hand every lane -- INCLUDING ones the current mask has

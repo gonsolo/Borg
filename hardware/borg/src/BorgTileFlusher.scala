@@ -13,7 +13,7 @@ import chisel3.util._
 /** Colour attachment formats the flusher can write (FLUSH_FORMAT.format).
   *
   * The first three are fixed-function UNORM8: blended by BorgBlend and
-  * resolved by averaging. The RAW formats hold the fragment shader's r26
+  * resolved by averaging. The RAW formats hold the fragment shader's out_c0
   * word as bytes (byte 0 at the lowest address): any colour format the
   * compiler packs into 1, 2 or 4 bytes. They are neither blended nor
   * resolved in hardware -- the shader blends through TLD, and a 4x RAW
@@ -27,7 +27,7 @@ object FlushFormat {
   val RAW16  = 4   // bytes 0-1:                     2 bytes/pixel, 32 bytes/tile
   val RAW8   = 5   // byte 0:                        1 byte/pixel,  16 bytes/tile
   /** Two words, co-resident in the tile (word 1 in its extension plane):
-    * r26 then r27, 8 bytes/pixel, 128 bytes/tile. */
+    * out_c0 then out_c1, 8 bytes/pixel, 128 bytes/tile. */
   val RAW64  = 6
   /** Four words, 16 bytes/pixel, rendered in two passes (slices) of two
     * words each: a 256-byte tile whose first 128 bytes hold bytes 0-7 of its

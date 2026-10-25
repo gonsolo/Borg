@@ -178,7 +178,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // ATTACH_MS: multisampled attachments stored/loaded per sample.
   val attachMsReg     = RegInit(false.B)
   // SAMPLE_MASK_CFG: [samples-1:0] static mask (reset all ones), [4] alpha to
-  // coverage, [5] the shader's own mask (r19), [6] rasterizationSamples = 1.
+  // coverage, [5] the shader's own mask (sample_mask), [6] rasterizationSamples = 1.
   val smCfg = RegInit(((1 << cfg.samples) - 1).U(7.W))
   private def singleSample: Bool = smCfg(6) && (cfg.samples > 1).B
   /** Tiles per attachment tile: `samples` per-sample tiles, or one resolved. */
