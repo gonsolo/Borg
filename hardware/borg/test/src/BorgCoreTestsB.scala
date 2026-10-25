@@ -12,9 +12,9 @@ object BorgCoreTestsB extends TestSuite {
 
   val tests = Tests {
 
-    utest.test("pipe_write_snoop") {
+    utest.test("write_back_reaches_the_register_file") {
       simulate(new BorgCore(config)) { core =>
-        println("\n--- BorgCore: pipe_write_snoop ---")
+        println("\n--- BorgCore: write_back_reaches_the_register_file ---")
         idleInputs(core)
         resetCore(core)
 
@@ -26,9 +26,7 @@ object BorgCoreTestsB extends TestSuite {
 
         startAndWait(core)
 
-        // The pipeWriteEn/Addr/Data outputs should have been pulsed during execution.
-        // We can't catch the transient pulse easily, but we can verify the register
-        // was written correctly (proving the write-back path works).
+        // The register was written correctly: the write-back path works.
         val result = bitsToFloat(readReg(core, 2))
         println(f"  Snoop path: r2 = $result%.2f (expected 6.0)")
         utest.assert(math.abs(result - 6.0f) < 0.1f)

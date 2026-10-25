@@ -78,7 +78,6 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
 
   // --- Outputs ---
-  val pipeWrite   = new PipeWriteIO(cfg.totalBits) // write-back snoop
   val csrWrite    = new CsrWriteIO(cfg.totalBits)
   val regReadData = Output(UInt(cfg.totalBits.W))  // MMIO GPR read (lane 0 consumed)
   val recARaw     = Output(UInt(cfg.totalBits.W))  // operands for the shared FSMs
@@ -493,17 +492,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.csrWrite.en   := running && is_busy && busy_counter === 1.U && io.opFlags.csrw && io.execActive
     io.csrWrite.addr := io.opFlags.csr
     io.csrWrite.data := recA_raw
-    io.pipeWrite.en   := pipe_write
-    io.pipeWrite.addr := w_addr
-    io.pipeWrite.data := w_data
 
     // Memory-FSM write-back override (TEX's texel, or LOAD's word).
     // Last-connect wins over the ALU write-back above.
     when(io.memWrite.en && io.execActive) {
       writeReg(io.memWrite.addr, true.B, io.memWrite.data)
-      io.pipeWrite.en   := true.B
-      io.pipeWrite.addr := io.memWrite.addr
-      io.pipeWrite.data := io.memWrite.data
     }
   }
 

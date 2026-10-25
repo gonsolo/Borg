@@ -11,7 +11,7 @@ import chisel3.util.*
   * and MMIO/DMA write routing.
   *
   * The per-lane datapath (register files, coordinate expansion, FP16 ALU,
-  * write-back, pipeWrite snoop) lives in [[BorgLane]], instantiated `cfg.fragLanes`
+  * write-back) lives in [[BorgLane]], instantiated `cfg.fragLanes`
   * times.  At `fragLanes==1` (current default) a single lane reproduces the
   * original monolithic core bit-for-bit.
   *
@@ -24,7 +24,7 @@ import chisel3.util.*
   *   cOperands..2: Stage 1 — operand reads valid (now held, not live); op-type flags
   *         latched (in the lane) at decode
   *   2→1:  Lane pipeline register captures the FMA mid-result
-  *   1:    Stage 2 — round; register file written; pipeWrite exposed
+  *   1:    Stage 2 — round; register file written
   *   0:    idle — next instruction can start
   */
 
@@ -61,7 +61,6 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val dmaUniformWrite = Flipped(new MemWritePort(6, cfg.totalBits))
 
   // Pipeline write-back snoop, per lane (exposed to rasterizer + sequencer)
-  val pipeWrite = Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits))
   val csrWrite  = Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits))
 
   // Status outputs (exposed to rasterizer and top-level read mux)
@@ -316,8 +315,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.pixelOrigin := io.pixelOrigin
   }
 
-  // Each lane exposes its own write-back snoop; lane 0 drives the MMIO read.
-  lanes.zipWithIndex.foreach { case (lane, i) => io.pipeWrite(i) := lane.io.pipeWrite; io.csrWrite(i) := lane.io.csrWrite }
+  // Each lane exposes its own CSR writes; lane 0 drives the MMIO read.
+  lanes.zipWithIndex.foreach { case (lane, i) => io.csrWrite(i) := lane.io.csrWrite }
   io.regReadData := lanes(0).io.regReadData
   io.status.running := running
   io.status.autoRunPending := auto_run_pending

@@ -46,7 +46,7 @@ object BorgCoreTestHelpers {
 
   /** Float -> the datapath's own bit pattern, `config.totalBits` wide.
     *
-    * BorgCore's register file, pipeWrite and regReadData are all
+    * BorgCore's register file and regReadData are both
     * cfg.totalBits wide, so at FP32 a 16-bit FP16 pattern is simply a
     * different (tiny, denormal) number -- not a narrower version of the same
     * one. These tests fed FP16 patterns and compared decoded FP16, which is
@@ -287,8 +287,7 @@ object BorgCoreTestHelpers {
         core.io.iter(i).y.poke(y.U)
       }
 
-    /** Read one lane's register through its own pipeWrite snoop is not
-      * possible after the fact, so tests below check lane 0 via regReadData
+    /** Only lane 0's registers are readable (regReadData), so tests below check lane 0
       * and infer the others from the masked/unmasked contrast. */
 
 }
