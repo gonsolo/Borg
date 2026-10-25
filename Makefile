@@ -20,7 +20,7 @@ help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
 	@echo -e "  ------------------------------------------------------------------------------"
-	@echo -e "  rdl:\t\t\t\tGenerate the register block and borg_isa.h."
+	@echo -e "  rdl:\t\t\t\tGenerate the register block, borg_isa.h and borg_tex_format.h."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
@@ -250,6 +250,7 @@ rdl: $(RDL_SRC)
 	@# include that PeakRDL-cheader emits so the generated file is self-contained.
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 	@python3-borg-rdl scripts/isa_gen.py hardware/borg/isa --c $(RDL_C_OUT)/borg_isa.h
+	@python3-borg-rdl scripts/tex_format_gen.py hardware/borg/isa/tex_formats.txt --c $(RDL_C_OUT)/borg_tex_format.h
 
 clean:
 	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp

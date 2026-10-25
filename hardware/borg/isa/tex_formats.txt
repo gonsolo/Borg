@@ -1,0 +1,57 @@
+# Texel formats of a texture descriptor (word 2 [19:14], docs/B2_texture_unit.md): the code,
+# the name, the texel size in bytes, the numeric type, and per channel R, G, B, A its bit
+# offset:width in the texel (absent channels are 0:0). scripts/tex_format_gen.py generates
+# TexFormat's table (mill), borg_tex_format.h (make rdl) and mesa's tex_format.rs from it.
+#
+# code  name                       bytes  kind       R      G      B      A
+1     R8_UNORM                   1      UNORM      0:8    0:0    0:0    0:0
+2     R8_SNORM                   1      SNORM      0:8    0:0    0:0    0:0
+3     R8_UINT                    1      UINT       0:8    0:0    0:0    0:0
+4     R8_SINT                    1      SINT       0:8    0:0    0:0    0:0
+5     R8_SRGB                    1      SRGB       0:8    0:0    0:0    0:0
+6     R8G8_UNORM                 2      UNORM      0:8    8:8    0:0    0:0
+7     R8G8_SNORM                 2      SNORM      0:8    8:8    0:0    0:0
+8     R8G8_UINT                  2      UINT       0:8    8:8    0:0    0:0
+9     R8G8_SINT                  2      SINT       0:8    8:8    0:0    0:0
+10    R8G8_SRGB                  2      SRGB       0:8    8:8    0:0    0:0
+11    R8G8B8A8_UNORM             4      UNORM      0:8    8:8    16:8   24:8
+12    R8G8B8A8_SNORM             4      SNORM      0:8    8:8    16:8   24:8
+13    R8G8B8A8_UINT              4      UINT       0:8    8:8    16:8   24:8
+14    R8G8B8A8_SINT              4      SINT       0:8    8:8    16:8   24:8
+15    R8G8B8A8_SRGB              4      SRGB       0:8    8:8    16:8   24:8
+16    B8G8R8A8_UNORM             4      UNORM      16:8   8:8    0:8    24:8
+17    B8G8R8A8_SRGB              4      SRGB       16:8   8:8    0:8    24:8
+18    R16_UNORM                  2      UNORM      0:16   0:0    0:0    0:0
+19    R16_SNORM                  2      SNORM      0:16   0:0    0:0    0:0
+20    R16_UINT                   2      UINT       0:16   0:0    0:0    0:0
+21    R16_SINT                   2      SINT       0:16   0:0    0:0    0:0
+22    R16_SFLOAT                 2      SFLOAT     0:16   0:0    0:0    0:0
+23    R16G16_UNORM               4      UNORM      0:16   16:16  0:0    0:0
+24    R16G16_SNORM               4      SNORM      0:16   16:16  0:0    0:0
+25    R16G16_UINT                4      UINT       0:16   16:16  0:0    0:0
+26    R16G16_SINT                4      SINT       0:16   16:16  0:0    0:0
+27    R16G16_SFLOAT              4      SFLOAT     0:16   16:16  0:0    0:0
+28    R16G16B16A16_UNORM         8      UNORM      0:16   16:16  32:16  48:16
+29    R16G16B16A16_SNORM         8      SNORM      0:16   16:16  32:16  48:16
+30    R16G16B16A16_UINT          8      UINT       0:16   16:16  32:16  48:16
+31    R16G16B16A16_SINT          8      SINT       0:16   16:16  32:16  48:16
+32    R16G16B16A16_SFLOAT        8      SFLOAT     0:16   16:16  32:16  48:16
+33    R32_UINT                   4      UINT       0:32   0:0    0:0    0:0
+34    R32_SINT                   4      SINT       0:32   0:0    0:0    0:0
+35    R32_SFLOAT                 4      SFLOAT     0:32   0:0    0:0    0:0
+36    R32G32_UINT                8      UINT       0:32   32:32  0:0    0:0
+37    R32G32_SINT                8      SINT       0:32   32:32  0:0    0:0
+38    R32G32_SFLOAT              8      SFLOAT     0:32   32:32  0:0    0:0
+39    R32G32B32A32_UINT          16     UINT       0:32   32:32  64:32  96:32
+40    R32G32B32A32_SINT          16     SINT       0:32   32:32  64:32  96:32
+41    R32G32B32A32_SFLOAT        16     SFLOAT     0:32   32:32  64:32  96:32
+42    A2B10G10R10_UNORM_PACK32   4      UNORM      0:10   10:10  20:10  30:2
+43    A2B10G10R10_UINT_PACK32    4      UINT       0:10   10:10  20:10  30:2
+44    R5G6B5_UNORM_PACK16        2      UNORM      11:5   5:6    0:5    0:0
+45    A1R5G5B5_UNORM_PACK16      2      UNORM      10:5   5:5    0:5    15:1
+46    B4G4R4A4_UNORM_PACK16      2      UNORM      4:4    8:4    12:4   0:4
+47    B10G11R11_UFLOAT_PACK32    4      UFLOAT     0:11   11:11  22:10  0:0
+48    E5B9G9R9_UFLOAT_PACK32     4      SHAREDEXP  0:9    9:9    18:9   0:0
+49    D16_UNORM                  2      UNORM      0:16   0:0    0:0    0:0
+50    X8_D24_UNORM_PACK32        4      UNORM      0:24   0:0    0:0    0:0
+51    D32_SFLOAT                 4      SFLOAT     0:32   0:0    0:0    0:0

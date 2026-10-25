@@ -1,9 +1,18 @@
 package build.hardware.borg
 import mill._, scalalib._
+import mill.api.BuildCtx
 import build.IsaModule
 
 object `package` extends IsaModule {
   def isaPackage = "borg"
   def isaObject = "Opcodes"
   override def moduleDeps = Seq(build.hardware.hutt)
+  def texFormatSpec = Task.Source(moduleDir / "isa" / "tex_formats.txt")
+  def texFormatGen = Task.Source(BuildCtx.workspaceRoot / "scripts" / "tex_format_gen.py")
+  def texFormatTable = Task {
+    os.call(Seq("python3-borg-rdl", texFormatGen().path.toString, texFormatSpec().path.toString,
+      "--scala", (Task.dest / "TexFormatTable.scala").toString))
+    PathRef(Task.dest)
+  }
+  override def generatedSources = Task { super.generatedSources() ++ Seq(texFormatTable()) }
 }

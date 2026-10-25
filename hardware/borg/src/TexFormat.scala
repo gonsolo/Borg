@@ -27,40 +27,9 @@ object TexFormat {
     require(ch.size == 4)
     def isInt: Boolean = kind == UINT || kind == SINT
   }
-  private def f(code: Int, name: String, bytes: Int, kind: Int, ch: (Int, Int)*) =
-    Fmt(code, name, bytes, ch.padTo(4, (0, 0)), kind)
-
-  private val kinds8  = Seq("UNORM" -> UNORM, "SNORM" -> SNORM, "UINT" -> UINT, "SINT" -> SINT, "SRGB" -> SRGB)
-  private val kinds16 = Seq("UNORM" -> UNORM, "SNORM" -> SNORM, "UINT" -> UINT, "SINT" -> SINT, "SFLOAT" -> SFLOAT)
-  private val kinds32 = Seq("UINT" -> UINT, "SINT" -> SINT, "SFLOAT" -> SFLOAT)
-
-  val all: Seq[Fmt] = {
-    val b = Seq.newBuilder[Fmt]
-    var code = 1
-    def add(name: String, bytes: Int, kind: Int, ch: (Int, Int)*): Unit = { b += f(code, name, bytes, kind, ch: _*); code += 1 }
-    for ((k, t) <- kinds8)  add(s"R8_$k", 1, t, (0, 8))
-    for ((k, t) <- kinds8)  add(s"R8G8_$k", 2, t, (0, 8), (8, 8))
-    for ((k, t) <- kinds8)  add(s"R8G8B8A8_$k", 4, t, (0, 8), (8, 8), (16, 8), (24, 8))
-    add("B8G8R8A8_UNORM", 4, UNORM, (16, 8), (8, 8), (0, 8), (24, 8))
-    add("B8G8R8A8_SRGB",  4, SRGB,  (16, 8), (8, 8), (0, 8), (24, 8))
-    for ((k, t) <- kinds16) add(s"R16_$k", 2, t, (0, 16))
-    for ((k, t) <- kinds16) add(s"R16G16_$k", 4, t, (0, 16), (16, 16))
-    for ((k, t) <- kinds16) add(s"R16G16B16A16_$k", 8, t, (0, 16), (16, 16), (32, 16), (48, 16))
-    for ((k, t) <- kinds32) add(s"R32_$k", 4, t, (0, 32))
-    for ((k, t) <- kinds32) add(s"R32G32_$k", 8, t, (0, 32), (32, 32))
-    for ((k, t) <- kinds32) add(s"R32G32B32A32_$k", 16, t, (0, 32), (32, 32), (64, 32), (96, 32))
-    add("A2B10G10R10_UNORM_PACK32", 4, UNORM, (0, 10), (10, 10), (20, 10), (30, 2))
-    add("A2B10G10R10_UINT_PACK32",  4, UINT,  (0, 10), (10, 10), (20, 10), (30, 2))
-    add("R5G6B5_UNORM_PACK16",   2, UNORM, (11, 5), (5, 6), (0, 5))
-    add("A1R5G5B5_UNORM_PACK16", 2, UNORM, (10, 5), (5, 5), (0, 5), (15, 1))
-    add("B4G4R4A4_UNORM_PACK16", 2, UNORM, (4, 4), (8, 4), (12, 4), (0, 4))
-    add("B10G11R11_UFLOAT_PACK32", 4, UFLOAT, (0, 11), (11, 11), (22, 10))
-    add("E5B9G9R9_UFLOAT_PACK32",  4, SHAREDEXP, (0, 9), (9, 9), (18, 9))
-    add("D16_UNORM", 2, UNORM, (0, 16))
-    add("X8_D24_UNORM_PACK32", 4, UNORM, (0, 24))
-    add("D32_SFLOAT", 4, SFLOAT, (0, 32))
-    b.result()
-  }
+  private val kinds = Map("UNORM" -> UNORM, "SNORM" -> SNORM, "UINT" -> UINT, "SINT" -> SINT, "SFLOAT" -> SFLOAT,
+    "SRGB" -> SRGB, "UFLOAT" -> UFLOAT, "SHAREDEXP" -> SHAREDEXP)
+  val all: Seq[Fmt] = TexFormatTable.rows.map { case (code, name, bytes, kind, ch) => Fmt(code, name, bytes, ch, kinds(kind)) }
   def byName(n: String): Fmt = all.find(_.name == n).getOrElse(throw new NoSuchElementException(n))
   val Bits = 6                                    // format code width
   require(all.size < (1 << Bits))
