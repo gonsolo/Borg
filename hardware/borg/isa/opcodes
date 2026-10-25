@@ -1,7 +1,7 @@
 # The Borg shader ISA, in the format of riscv-opcodes: a name, its operand fields
 # (fields.csv) and the fixed bits. Every bit of a word is an operand or fixed.
-# hardware/borg/isa/gen.py generates the Scala decoder constants, borg_isa.h and
-# the compiler's opcodes.rs from it.
+# scripts/isa_gen.py generates the Scala decoder constants (mill) and borg_isa.h
+# (make rdl) from it at build time; mesa keeps a copy for the compiler's opcodes.rs.
 #
 # f3 selects the operand read from the uniform window (k + 1: operand k), unless
 # an instruction says otherwise. Registers hold raw bits; tests against zero

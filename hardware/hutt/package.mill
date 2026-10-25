@@ -1,5 +1,8 @@
 package build.hardware.hutt
 import mill._, scalalib._
-import build.BorgModule
+import build.IsaModule
 
-object `package` extends BorgModule
+object `package` extends IsaModule {
+  def isaPackage = "hutt"
+  def isaObject = "HuttOpcodes"
+}

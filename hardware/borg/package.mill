@@ -1,7 +1,9 @@
 package build.hardware.borg
 import mill._, scalalib._
-import build.BorgModule
+import build.IsaModule
 
-object `package` extends BorgModule {
+object `package` extends IsaModule {
+  def isaPackage = "borg"
+  def isaObject = "Opcodes"
   override def moduleDeps = Seq(build.hardware.hutt)
 }

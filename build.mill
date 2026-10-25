@@ -75,3 +75,17 @@ trait BorgModule extends ScalaModule {
     // mill does not forward -- args to the sbt testing runner that way.
   }
 }
+
+// The opcode tables, generated from the module's isa/ directory by scripts/isa_gen.py.
+trait IsaModule extends BorgModule {
+  def isaPackage: String
+  def isaObject: String
+  def isaSpec = Task.Source(moduleDir / "isa")
+  def isaGen = Task.Source(BuildCtx.workspaceRoot / "scripts" / "isa_gen.py")
+  def isaOpcodes = Task {
+    os.call(Seq("python3-borg-rdl", isaGen().path.toString, isaSpec().path.toString,
+      "--scala", (Task.dest / s"$isaObject.scala").toString, "--package", isaPackage, "--object", isaObject))
+    PathRef(Task.dest)
+  }
+  override def generatedSources = Task { super.generatedSources() ++ Seq(isaOpcodes()) }
+}

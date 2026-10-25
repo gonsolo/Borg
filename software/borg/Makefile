@@ -92,7 +92,7 @@ python:
 	$(MAKE) -C python
 
 test-native: test_spirb.c borg_spirb.c
-	gcc -O2 -g -Wall test_spirb.c borg_spirb.c -I. -o test_spirb
+	gcc -O2 -g -Wall test_spirb.c borg_spirb.c -I. -I$(RDL_C_OUT) -o test_spirb
 	./test_spirb
 
 clean:
