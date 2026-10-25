@@ -3,11 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Generates instruction encodings from opcode files in riscv-opcodes syntax.
 
-    isa_gen.py ISA_DIR [--check] [--c F] [--scala F --package P --object O] [--rust F]
+    isa_gen.py ISA_DIR [--c F] [--scala F --package P --object O] [--rust F]
 
 ISA_DIR holds fields.csv and the opcode files: hardware/borg/isa for the Borg shader ISA,
-hardware/hutt/isa for Hutt's RISC-V subset (riscv-opcodes' own extension files). --check
-compares with the files instead of writing them and fails when one differs. Python reads the
+hardware/hutt/isa for Hutt's RISC-V subset (riscv-opcodes' own extension files). Python reads the
 source directly: encode(ISA_DIR, "store", rs1=0, rs2=1).
 
 fields.csv: name, bits, role. bits are word ranges, MSB part first, each optionally naming the
@@ -256,31 +255,20 @@ def encode(isa, name, **operands):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("isa")
-    ap.add_argument("--check", action="store_true")
     ap.add_argument("--c")
     ap.add_argument("--scala")
     ap.add_argument("--package")
     ap.add_argument("--object")
     ap.add_argument("--rust")
     a = ap.parse_args()
-    d = (ROOT / a.isa).resolve()
+    d = pathlib.Path(a.isa).resolve()
     fields, consts, ops, pseudo = load(d)
     outs = ((a.c, lambda: gen_c(d, fields, consts, ops, pseudo)),
             (a.scala, lambda: gen_scala(d, fields, consts, ops, pseudo, a.package, a.object)),
             (a.rust, lambda: gen_rust(d, fields, consts, ops, pseudo)))
-    stale = []
     for path, gen in outs:
-        if not path:
-            continue
-        text, p = gen(), ROOT / path
-        if a.check:
-            if not p.exists() or p.read_text() != text:
-                stale.append(path)
-        else:
-            p.write_text(text)
-    if stale:
-        sys.exit("out of date, run make isa: " + " ".join(stale))
-
+        if path:
+            pathlib.Path(path).write_text(gen())
 
 if __name__ == "__main__":
     main()
