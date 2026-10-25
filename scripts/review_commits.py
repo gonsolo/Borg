@@ -251,6 +251,8 @@ def main():
 
     print(f"\nReviewed-by added to {base}..HEAD on {reviewed}; {cur} is unchanged. Nothing was pushed. To merge:")
     print(f"  git switch main && git merge --ff-only {reviewed}")
+    if (ROOT / "mesa" / ".git").exists():
+        print("  git -C mesa switch main   # submodule.recurse leaves mesa detached")
     print("  git -c http.https://github.com/.extraheader= push origin main   # only if you want to")
 
 if __name__ == "__main__":
