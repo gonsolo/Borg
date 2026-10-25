@@ -11,7 +11,7 @@ import chisel3.util._
   * Owns the complete lifecycle of a single pixel:
   *   1. Receives `pixelReady` from BorgIterator.
   *   2. Triggers the rasterizer (edge) shader at PC=0.
-  *   3. Snoops edge-sign results from pipeline write-back to determine inside/outside.
+  *   3. Takes the edge results from the raster ROM's rast_* CSR writes to determine inside/outside.
   *   4. If inside: chains to fragment shader at `fragPcReg`, which samples
   *      texels via TEX/TEXA (docs/B2_texture_unit.md) when it needs to --
   *      entirely within BorgCore, this dispatcher is not involved.
@@ -33,8 +33,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val pixelReady     = Input(Bool())            // one-cycle pulse: new quad ready
   val shaderTileIndex = Input(Vec(cfg.fragLanes, UInt(4.W)))  // per-lane pre-advance tile slots
 
-  // --- Inputs from BorgCore (snooping), per lane ---
-  val pipeWrite  = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
+  // --- Inputs from BorgCore, per lane ---
   val csrWrite   = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val coreStatus = Flipped(new CoreStatusIO)
 
@@ -217,7 +216,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val e0_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
-  // Draw front end: the near (Zn) and far (Zf) planes, r4 and r10.
+  // Draw front end: the near (Zn) and far (Zf) planes.
   private val drawMode = io.drawMode.getOrElse(false.B)
   private val nPlanes  = if (cfg.drawEnabled) 5 else 3
   val z_outside = Option.when(cfg.drawEnabled)(RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B)))))
@@ -254,7 +253,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // Raw edge values per lane, needed only for the per-sample compare.
   //
   // No reset: the rasterizer program writes all three edges for every lane of
-  // every pixel (the snoop below) before `coverage` reads them, so the reset
+  // every pixel (rast_e0..2 below) before `coverage` reads them, so the reset
   // value is never observed. 384 flops off the reset tree at 4x MSAA -- see
   // the reset-fanout work for why that matters (one net drove 3887 gates).
   val e_val = if (cfg.samples > 1)
@@ -898,11 +897,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
 
   // =========================================================================
-  // Fragment Output & Edge-sign snooping
+  // Edge signs
   // =========================================================================
   //
   // The rasterizer shader (rasterize.s) evaluates edge functions for each
-  // pixel and writes the results to registers r0 (e0), r1 (e1), r2 (e2).
+  // pixel and writes the results to the CSRs rast_e0..2.
   //
   //   POSITIVE edge value  →  pixel is INSIDE this edge  (not outside)
   //   NEGATIVE edge value  →  pixel is OUTSIDE this edge
@@ -933,38 +932,35 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     sign_bit && magn_non_zero
   }
 
-  // Per-lane edge snoop: each lane runs the rast shader in lockstep and writes
-  // its own E0..E2 (BorgRasterRom.planeRegs) via its own pipeWrite port.
+  // Per-lane edge results: each lane runs the rast shader in lockstep and writes
+  // its own E0..E2 (and in draw mode Zn, Zf, FragCoord.z and the sample depths)
+  // to the rast_* CSRs.
   for (i <- 0 until N) {
-    when(io.pipeWrite(i).en && phase === sRast) {
-      // Draw mode at one sample: an edge value of exactly 0 is inside only
-      // for a top or left edge (the tie rule; see io.topLeft).
-      def out(e: Int): Bool = {
-        val d = io.pipeWrite(i).data
-        val onEdge = d(config.totalBits - 2, 0) === 0.U
-        isOutside(d) || io.topLeft.map(tl => drawMode && onEdge && !tl(e)).getOrElse(false.B)
+    val c = io.csrWrite(i)
+    def at(n: Int) = c.en && phase === sRast && c.addr === n.U
+    // Draw mode at one sample: an edge value of exactly 0 is inside only
+    // for a top or left edge (the tie rule; see io.topLeft).
+    def out(e: Int): Bool = {
+      val onEdge = c.data(config.totalBits - 2, 0) === 0.U
+      isOutside(c.data) || io.topLeft.map(tl => drawMode && onEdge && !tl(e)).getOrElse(false.B)
+    }
+    when(at(Csr.RastE0))     { e0_outside(i) := out(0) }
+    when(at(Csr.RastE0 + 1)) { e1_outside(i) := out(1) }
+    when(at(Csr.RastE0 + 2)) { e2_outside(i) := out(2) }
+    z_outside.foreach { z =>
+      when(at(Csr.RastZn)) { z(i)(0) := isOutside(c.data) }
+      when(at(Csr.RastZf)) { z(i)(1) := isOutside(c.data) }
+      // FragCoord.z, the depth unless the fragment shader writes its own.
+      when(drawMode && at(Csr.RastFragZ)) { frag_z(i) := c.data(31, 0) }
+      frag_zs.foreach { zs =>
+        for (smp <- 0 until 4) when(at(Csr.RastSampleZ0 + smp)) { zs(i)(smp) := c.data(31, 0) }
       }
-      val reg = BorgRasterRom.planeRegs
-      when(io.pipeWrite(i).addr === reg(0).U) { e0_outside(i) := out(0) }
-      when(io.pipeWrite(i).addr === reg(1).U) { e1_outside(i) := out(1) }
-      when(io.pipeWrite(i).addr === reg(2).U) { e2_outside(i) := out(2) }
-      z_outside.foreach { z =>
-        when(io.pipeWrite(i).addr === reg(3).U) { z(i)(0) := isOutside(io.pipeWrite(i).data) }
-        when(io.pipeWrite(i).addr === reg(4).U) { z(i)(1) := isOutside(io.pipeWrite(i).data) }
-        // FragCoord.z, the depth unless the fragment shader writes its own.
-        when(drawMode && io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(31, 0) }
-        frag_zs.foreach { zs =>
-          for (smp <- 0 until 4) when(io.pipeWrite(i).addr === (11 + smp).U) { zs(i)(smp) := io.pipeWrite(i).data(31, 0) }
-        }
-      }
-      // MSAA also needs the raw edge magnitudes, not just their signs, to test
-      // each sample's offset position.  Same write, same cycle, same registers'
-      // lifecycle — just kept at full width.
-      e_val.foreach { ev =>
-        for (e <- 0 until nPlanes) {
-          when(io.pipeWrite(i).addr === BorgRasterRom.planeRegs(e).U) { ev(i)(e) := io.pipeWrite(i).data(cfg.totalBits - 1, 0) }
-        }
-      }
+    }
+    // MSAA also needs the raw edge magnitudes, not just their signs, to test
+    // each sample's offset position: the same writes, kept at full width.
+    val planeCsr = Seq(Csr.RastE0, Csr.RastE0 + 1, Csr.RastE0 + 2, Csr.RastZn, Csr.RastZf)
+    e_val.foreach { ev =>
+      for (e <- 0 until nPlanes) when(at(planeCsr(e))) { ev(i)(e) := c.data(cfg.totalBits - 1, 0) }
     }
   }
   // @doc:end

@@ -64,10 +64,7 @@ object BorgShaderDispatcherTestHelpers {
   def pokeIdle(d: BorgShaderDispatcher): Unit = {
     d.io.pixelReady.poke(false.B)
     d.io.shaderTileIndex(0).poke(0.U)
-    d.io.pipeWrite(0).en.poke(false.B)
     d.io.csrWrite.foreach(_.en.poke(false.B))
-    d.io.pipeWrite(0).addr.poke(0.U)
-    d.io.pipeWrite(0).data.poke(0.U)
     d.io.coreStatus.running.poke(false.B)
     d.io.coreStatus.autoRunPending.poke(false.B)
     d.io.fragPcReg.poke(0.U)
@@ -158,27 +155,26 @@ object BorgShaderDispatcherTestHelpers {
     d.clock.step(1)
   }
 
-  /** A shader's register write as the dispatcher sees it: in the fragment phase the v1 outputs
-    * (r19, r24-r29) arrive as their CSR writes (B8 step 8), everything else through the snoop. */
+  /** A v1 register result as the CSR write that carries it now: in the fragment phase the
+    * outputs (r19, r24-r29, B8 step 8), in the raster phase the ROM's results (rast_*). */
   def pokeWrite(d: BorgShaderDispatcher, reg: Int, value: BigInt): Unit = {
-    val csr = Map(19 -> Csr.SampleMask, 24 -> Csr.OutC3, 25 -> Csr.Discard, 26 -> Csr.OutC0,
-                  27 -> Csr.OutC1, 28 -> Csr.OutC2, 29 -> Csr.OutDepth)
-    csr.get(reg).filter(_ => d.io.phase.peek().litValue.toInt == PHASE_FRAG) match {
-      case Some(c) =>
-        d.io.csrWrite(0).en.poke(true.B); d.io.csrWrite(0).addr.poke(c.U); d.io.csrWrite(0).data.poke(value.U)
-        d.clock.step(1)
-        d.io.csrWrite(0).en.poke(false.B)
-      case None =>
-        d.io.pipeWrite(0).en.poke(true.B); d.io.pipeWrite(0).addr.poke(reg.U); d.io.pipeWrite(0).data.poke(value.U)
-        d.clock.step(1)
-        d.io.pipeWrite(0).en.poke(false.B)
+    val frag = Map(19 -> Csr.SampleMask, 24 -> Csr.OutC3, 25 -> Csr.Discard, 26 -> Csr.OutC0,
+                   27 -> Csr.OutC1, 28 -> Csr.OutC2, 29 -> Csr.OutDepth)
+    val rast = BorgRasterRom.planeRegs.zip(Seq(Csr.RastE0, Csr.RastE0 + 1, Csr.RastE0 + 2, Csr.RastZn, Csr.RastZf)).toMap ++
+      Map(29 -> Csr.RastFragZ) ++ (0 until 4).map(s => (11 + s) -> (Csr.RastSampleZ0 + s))
+    val csr = d.io.phase.peek().litValue.toInt match {
+      case PHASE_FRAG => frag.get(reg)
+      case PHASE_RAST => rast.get(reg)
+      case _          => None
     }
+    csr.foreach { c => d.io.csrWrite(0).en.poke(true.B); d.io.csrWrite(0).addr.poke(c.U); d.io.csrWrite(0).data.poke(value.U) }
+    d.clock.step(1)
+    d.io.csrWrite(0).en.poke(false.B)
   }
 
   /** Write edge `e`'s result via pipeline snoop. */
   def pokeEdge(d: BorgShaderDispatcher, e: Int, value: Int): Unit = {
     pokeWrite(d, BorgRasterRom.planeRegs(e), value)
-    d.io.pipeWrite(0).en.poke(false.B)
   }
 
   /** Drive one complete inside-pixel through sRast → sFrag → depth test →
@@ -257,7 +253,6 @@ object BorgShaderDispatcherTestHelpers {
     for ((reg, value) <- fragWrites) {
       pokeWrite(d, reg, value)
     }
-    d.io.pipeWrite(0).en.poke(false.B)
     d.io.coreStatus.running.poke(false.B)
     d.clock.step(1)
 

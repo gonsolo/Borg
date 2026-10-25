@@ -41,7 +41,6 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         for ((reg, value) <- Seq((25, 0x3C00), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, value)
         }
-        d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)
         d.clock.step(1) // -> sZRead
 
@@ -79,7 +78,6 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, value)
         }
-        d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)
         d.clock.step(1)
 
@@ -116,7 +114,6 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         for ((reg, value) <- Seq((25, 0x0000), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, value)
         }
-        d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)
         d.clock.step(1)
 

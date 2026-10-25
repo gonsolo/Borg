@@ -35,7 +35,6 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
 
   def writeReg(d: BorgShaderDispatcher, reg: Int, value: Int): Unit = {
     pokeWrite(d, reg, value)
-    d.io.pipeWrite(0).en.poke(false.B)
   }
 
   /** One pixel with ZTEST issued after r29. Returns the early write, the
@@ -347,12 +346,10 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         for ((reg, v) <- Seq((0, one), (1, one), (2, one))) {
           pokeWrite(d, reg, v)
         }
-        d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B); d.clock.step(1)
         d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
         d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
         pokeWrite(d, 29, frag)
-        d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B); d.clock.step(1)
         stepThroughDepthTest(d)
         val en = d.io.tileWrite.en.peek().litToBoolean
