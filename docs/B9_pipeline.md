@@ -3,7 +3,7 @@
 Status: design for review, 2026-10-22, updated 2026-10-25 after B8, not implemented. It builds
 on ISA v2 (B8, on main since 2026-10-25). A pipeline that writes several instructions' results in
 flight cannot also watch register numbers: B8 removed every such role except the dispatcher's
-snoop of the raster ROM's registers, which goes first (Order, step 0).
+snoop of the raster ROM's registers, which went first (Order, step 0, 2026-10-25).
 
 ## Today
 
@@ -181,7 +181,10 @@ LUTs, FFs, block RAM and Fmax.
 0. The raster ROM's results by CSR writes, as the setup ROM's (`setup_screen`, `setup_det`):
    the dispatcher stops snooping its registers (`BorgRasterRom.planeRegs`: r1-r4, r10; the draw
    ROM's barycentrics r5-r8, sample depths r11-r14 and r29). B8's step 7c left this. The window's
-   storage stays as the ROMs' `uniform0..31` CSRs.
+   storage stays as the ROMs' `uniform0..31` CSRs. Done 2026-10-25: `rast_e0..2`, `rast_zn`,
+   `rast_zf`, `rast_frag_z`, `rast_sample_z0..3` (0x818-0x823); the draw ROM grew from 51 to 61
+   words (6 more per pixel at one sample, 4 more at MSAA): vkcube 2.96 M to 3.11 M cycles per
+   frame (+5.0%) until CSR writes are short in the pipeline; ULX3S yosys +329 LUT4.
 1. The step-1 pipeline on ULX3S and Default, behind `BorgConfig.pipelined`; Wafer keeps the v1
    sequencing until its own step.
 2. borgc's scheduler gets the distance goal; measure.

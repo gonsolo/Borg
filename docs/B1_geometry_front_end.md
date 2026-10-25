@@ -200,8 +200,10 @@ against a 1.0 clear at D32 (`far_and_near_plane_primitives_are_inside`).
 In a render (and on the MMIO pixel path with `DRAW_CFG.mode` set) the
 dispatcher's per-pixel trigger runs `BorgRasterRom.drawInstructions` instead
 of the three-plane edge test. It
-reads the record as uniform CSRs and evaluates `E0, E1, E2, Zn, Zf` into r1-r4
-and r10; the dispatcher snoops all five for
+reads the record as uniform CSRs, evaluates `E0, E1, E2, Zn, Zf` into r1-r4
+and r10 and writes them to the CSRs `rast_e0..2`, `rast_zn`, `rast_zf`
+(0x818-0x81C; FragCoord.z and the sample depths to `rast_frag_z` 0x81D and
+`rast_sample_z0..3` 0x820-0x823). The dispatcher takes these writes for
 coverage, per sample at 4x MSAA (the far plane's sample thresholds are the
 depth plane's with the signs swapped). Pixel centres are built in FP32, exact
 at any framebuffer size.

@@ -59,6 +59,8 @@ A typical CPU or GPU core has a dedicated Load/Store Unit (LSU) to handle memory
 
 Instead of complex handshake protocols (like valid/ready signals) between the FPU and the rasterizer to know when a pixel is done, the rasterizer simply "snoops" the `pipeWrite` (write-back) bus of the FPU. When the final color is calculated and written to the destination register, the rasterizer intercepts it immediately on the wire and moves it to the Tile Buffer.
 
+Retired by ISA v2: the fragment outputs (B8 step 8) and the raster ROM's results (B9 step 0) are CSR writes, because a pipelined core cannot be watched by register number.
+
 ## 13. SystemRDL Generated Control Logic
 
 Rather than hand-writing the Control and Status Register (CSR) decode logic in Chisel (which often leads to bloated multiplexers and area waste), Borg defines its registers in SystemRDL (`borg.rdl`). A compiler (`PeakRDL`) generates the mathematically optimal hardware logic for address decoding, read/write masks, and single-pulse clears directly into Chisel. It also generates the C headers, keeping hardware and software in perfect sync with zero manual logic bloat.
