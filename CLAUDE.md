@@ -74,7 +74,7 @@ When a build needs the SystemRDL-generated register block, the top Makefile runs
 
 ### Borg shader processor (the actual GPU)
 
-Lives in `hardware/borg/src/`. `Borg.scala` is the top, with the in-tree FMA pipeline (`BorgFma.scala`; FP32 by default, FP16 selectable), 32 registers, instruction memory, LUT-based reciprocal, rsqrt and sRGB (`Fp16Special.scala`, `BorgLutTables.scala`, `*_lut.hex`), tile buffer with Z (`BorgTileBuffer.scala`), the descriptor-based texture unit (`BorgSampler.scala`, see below), rasterizer (`BorgRasterizer.scala`), and a 2-entry async command FIFO (`BorgCommandFIFO.scala`). The CPU pokes it via the MMIO register block defined in SystemRDL.
+Lives in `hardware/borg/src/`. `Borg.scala` is the top, with the in-tree FMA pipeline (`BorgFma.scala`; FP32 by default, FP16 selectable), 32 registers, instruction memory, LUT-based reciprocal, rsqrt and sRGB (`Fp16Special.scala`, `BorgLutTables.scala`), tile buffer with Z (`BorgTileBuffer.scala`), the descriptor-based texture unit (`BorgSampler.scala`, see below), rasterizer (`BorgRasterizer.scala`), and a 2-entry async command FIFO (`BorgCommandFIFO.scala`). The CPU pokes it via the MMIO register block defined in SystemRDL.
 
 ### SystemRDL → Chisel + C headers
 
