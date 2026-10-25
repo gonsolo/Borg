@@ -172,7 +172,6 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus = Flipped(new CoreStatusIO)
-  val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 
