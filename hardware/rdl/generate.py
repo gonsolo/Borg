@@ -8,6 +8,10 @@ from systemrdl.node import AddrmapNode, RegNode
 from peakrdl_chisel import ChiselExporter
 from peakrdl_cheader.exporter import CHeaderExporter
 
+_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(_REPO, "scripts"))
+from isa_gen import encode  # noqa: E402
+
 rdl_dir = os.path.dirname(os.path.abspath(__file__))
 
 scala_out_dir = sys.argv[1] if len(sys.argv) > 1 else "hardware/borg/src/generated/"
@@ -205,22 +209,20 @@ def emit_python(path, rdl_consts):
         f.write("SPIRB_INSTR_BYTES = 4\n")
         f.write("\n")
 
-        f.write("# --- Borg instruction encoding (32-bit RISC-V R-type / R4-type) ---\n")
-        f.write("def encode_rv32_fadd(rs1=0, rs2=1, rd=2, funct3=0):\n")
-        f.write("    return (0x00000000 | (funct3 << 12) | (rs2 << 20) | (rs1 << 15) | (rd << 7))\n")
-        f.write("def encode_rv32_fmul(rs1=0, rs2=1, rd=2, funct3=0):\n")
-        f.write("    return (0x08000000 | (funct3 << 12) | (rs2 << 20) | (rs1 << 15) | (rd << 7))\n")
-        f.write("def encode_rv32_fmadd(rs1=0, rs2=1, rs3=3, rd=2, funct3=0):\n")
-        f.write("    return (0x00000004 | (funct3 << 12) | (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7))\n")
-        f.write("def encode_rv32_fneg(rs1=0, rd=1, funct3=0):\n")
-        f.write("    return (0x0C000000 | (funct3 << 12) | (rs1 << 15) | (rd << 7))\n")
-        f.write("def encode_rv32_fstep(rs1=0, rd=1, funct3=0):\n")
-        f.write("    return (0x10000000 | (funct3 << 12) | (rs1 << 15) | (rd << 7))\n")
-        f.write("def encode_rv32_frcp(rs1=0, rd=1, funct3=0):\n")
-        f.write("    return (0x14000000 | (funct3 << 12) | (rs1 << 15) | (rd << 7))\n")
-        f.write("def encode_rv32_ftex(rs1=0, rs2=1, rd=2, funct3=0):\n")
-        f.write("    # rd=texR, rd+1=texG, rd+2=texB (implicit); rs1=U, rs2=V\n")
-        f.write("    return (0x18000000 | (funct3 << 12) | (rs2 << 20) | (rs1 << 15) | (rd << 7))\n")
+        # ISA v2 words from the opcode file; x0 reads 0, so the defaults keep off r0.
+        isa = os.path.join(_REPO, "hardware", "borg", "isa")
+        enc = lambda name: encode(isa, name)
+        f.write("# --- Borg instructions (ISA v2, from hardware/borg/isa) ---\n")
+        f.write("def encode_rv32_fadd(rs1=1, rs2=2, rd=3):\n")
+        f.write(f"    return 0x{enc('fadd.s'):08X} | (rs2 << 20) | (rs1 << 15) | (rd << 7)\n")
+        f.write("def encode_rv32_fmul(rs1=1, rs2=2, rd=3):\n")
+        f.write(f"    return 0x{enc('fmul.s'):08X} | (rs2 << 20) | (rs1 << 15) | (rd << 7)\n")
+        f.write("def encode_rv32_fmadd(rs1=1, rs2=2, rs3=4, rd=3):\n")
+        f.write(f"    return 0x{enc('fmadd.s'):08X} | (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7)\n")
+        f.write("def encode_rv32_fneg(rs1=1, rd=2):\n")
+        f.write(f"    return 0x{enc('fsgnjn.s'):08X} | (rs1 << 20) | (rs1 << 15) | (rd << 7)\n")
+        f.write("def encode_rv32_frcp(rs1=1, rd=2):\n")
+        f.write(f"    return 0x{enc('frcp.v2'):08X} | (rs1 << 15) | (rd << 7)\n")
         f.write("def encode_rv32_halt(): return 0x00000000\n")
 
 

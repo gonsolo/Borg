@@ -13,7 +13,7 @@ from borg_mmio import (
     BORG_CONTROL_OFFSET,
     BORG_STATUS_OFFSET,
 )
-from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg, encode_rv32_fstep, encode_rv32_frcp
+from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg, encode_rv32_frcp
 
 FP16_MAX = 65504
 PERIPHERAL_NUM = 3
@@ -162,23 +162,23 @@ def compute_expected(driver, op, a, b, c=0.0):
 async def run_op_test(dut, driver, op, a, b, c=0.0):
     """Unified test runner for ADD, MUL, FMA."""
     if op == "add":
-        operands = [(0, a), (1, b)]
+        operands = [(1, a), (2, b)]
         instr = encode_rv32_fadd()
         label = f"{a:8.2f} + {b:8.2f}"
     elif op == "mul":
-        operands = [(0, a), (1, b)]
+        operands = [(1, a), (2, b)]
         instr = encode_rv32_fmul()
         label = f"{a:8.2f} * {b:8.2f}"
     elif op == "fneg":
-        operands = [(0, a)]
+        operands = [(1, a)]
         instr = encode_rv32_fneg()
         label = f"fneg({a:8.2f})"
     else:
-        operands = [(0, a), (1, b), (3, c)]
+        operands = [(1, a), (2, b), (4, c)]
         instr = encode_rv32_fmadd()
         label = f"{a:8.2f} * {b:8.2f} + {c:8.2f}"
 
-    result = await driver.run_program(operands, instr, rd_idx=1 if op == "fneg" else 2)
+    result = await driver.run_program(operands, instr, rd_idx=2 if op == "fneg" else 3)
     expected = compute_expected(driver, op, a, b, c)
 
     assert driver.is_close(
@@ -241,15 +241,15 @@ async def test_borg_rotation_shader(dut):
     #   fmul  r1, r5, r3       // sin*x → r1
     #   fmadd r1, r2, r6, r1   // cos*y + sin*x → r1 (ry)
     #   halt
-    instr_fmul_cx  = encode_rv32_fmul(rs1=2, rs2=3, rd=0)
-    instr_fmadd_rx = encode_rv32_fmadd(rs1=4, rs2=6, rs3=0, rd=0)
-    instr_fmul_sx  = encode_rv32_fmul(rs1=5, rs2=3, rd=1)
-    instr_fmadd_ry = encode_rv32_fmadd(rs1=2, rs2=6, rs3=1, rd=1)
+    instr_fmul_cx  = encode_rv32_fmul(rs1=3, rs2=4, rd=1)
+    instr_fmadd_rx = encode_rv32_fmadd(rs1=5, rs2=7, rs3=1, rd=1)
+    instr_fmul_sx  = encode_rv32_fmul(rs1=6, rs2=4, rd=2)
+    instr_fmadd_ry = encode_rv32_fmadd(rs1=3, rs2=7, rs3=2, rd=2)
 
-    dut._log.info(f"  IMEM[0] fmul  r0,r2,r3:     0x{instr_fmul_cx:04X}")
-    dut._log.info(f"  IMEM[1] fmadd r0,r4,r6,r0:  0x{instr_fmadd_rx:04X}")
-    dut._log.info(f"  IMEM[2] fmul  r1,r5,r3:     0x{instr_fmul_sx:04X}")
-    dut._log.info(f"  IMEM[3] fmadd r1,r2,r6,r1:  0x{instr_fmadd_ry:04X}")
+    dut._log.info(f"  IMEM[0] fmul  r1,r3,r4:     0x{instr_fmul_cx:04X}")
+    dut._log.info(f"  IMEM[1] fmadd r1,r5,r7,r1:  0x{instr_fmadd_rx:04X}")
+    dut._log.info(f"  IMEM[2] fmul  r2,r6,r4:     0x{instr_fmul_sx:04X}")
+    dut._log.info(f"  IMEM[3] fmadd r2,r3,r7,r2:  0x{instr_fmadd_ry:04X}")
 
     # Operands as floats, packed by the driver in the DUT's own format (these
     # were raw FP16 bit patterns until the core went FP32). The expectation
@@ -278,11 +278,11 @@ async def test_borg_rotation_shader(dut):
         await driver.write_imem(4, 0)  # halt
 
         # Load registers in the DUT's float format
-        await tqv.write_word_reg(2 * 4, int(driver.float_to_bits(tc["cos"])))   # r2 = cos
-        await tqv.write_word_reg(3 * 4, int(driver.float_to_bits(tc["x"])))     # r3 = x
-        await tqv.write_word_reg(4 * 4, int(driver.float_to_bits(-tc["sin"])))  # r4 = -sin
-        await tqv.write_word_reg(5 * 4, int(driver.float_to_bits(tc["sin"])))   # r5 = sin
-        await tqv.write_word_reg(6 * 4, int(driver.float_to_bits(tc["y"])))     # r6 = y
+        await tqv.write_word_reg(3 * 4, int(driver.float_to_bits(tc["cos"])))   # r3 = cos
+        await tqv.write_word_reg(4 * 4, int(driver.float_to_bits(tc["x"])))     # r4 = x
+        await tqv.write_word_reg(5 * 4, int(driver.float_to_bits(-tc["sin"])))  # r5 = -sin
+        await tqv.write_word_reg(6 * 4, int(driver.float_to_bits(tc["sin"])))   # r6 = sin
+        await tqv.write_word_reg(7 * 4, int(driver.float_to_bits(tc["y"])))     # r7 = y
 
         # Reset PC and start execution
         await driver.start_execution(reset_pc=True)
@@ -290,55 +290,19 @@ async def test_borg_rotation_shader(dut):
         await driver.wait_for_halt()
 
         # Read back registers 0-6 for debugging (r7 is unused and may be uninitialized)
-        for r in range(7):
+        for r in range(1, 8):
             bits = await tqv.read_word_reg(r * 4)
             fval = driver.bits_to_float(bits)
             dut._log.info(f"    r{r} = 0x{bits:04X} ({float(fval):.4f})")
 
-        rx = driver.bits_to_float(await tqv.read_word_reg(0 * 4))
-        ry = driver.bits_to_float(await tqv.read_word_reg(1 * 4))
+        rx = driver.bits_to_float(await tqv.read_word_reg(1 * 4))
+        ry = driver.bits_to_float(await tqv.read_word_reg(2 * 4))
         dut._log.info(f"  Result: rx={float(rx):.4f} (exp {tc['exp_rx']:.4f}), ry={float(ry):.4f} (exp {tc['exp_ry']:.4f})")
 
         assert driver.is_close(float(rx), tc["exp_rx"]), f"rx mismatch: got {float(rx)}, expected {tc['exp_rx']}"
         assert driver.is_close(float(ry), tc["exp_ry"]), f"ry mismatch: got {float(ry)}, expected {tc['exp_ry']}"
 
     dut._log.info("Borg Rotation Shader Test Passed!")
-
-
-@cocotb.test()
-async def test_borg_fstep(dut):
-    """Test FSTEP: output is 1.0 for x > 0, 0.0 for x <= 0.
-
-    Boundary semantics match the hardware (BorgLane.computeFstep) and the Chisel
-    oracle (BorgTests.scala: `if (a_eff > 0.0f) 1.0f else 0.0f`): the step is
-    *strictly* greater than zero, so FSTEP(0.0) == 0.0 (the sign-or-zero test
-    treats +0.0 as not-positive)."""
-    dut._log.info("Starting Borg FSTEP Test")
-
-    clock = Clock(dut.clk, 100, unit="ns")
-    cocotb.start_soon(clock.start())
-
-    tqv = Hutt(dut, PERIPHERAL_NUM)
-    driver = BorgDriver(dut, tqv, is_fp16=dut_is_fp16())
-    await driver.reset()
-
-    instr = encode_rv32_fstep(rs1=0, rd=1)
-
-    cases = [
-        ( 1.0,  1.0),
-        ( 0.5,  1.0),
-        ( 0.0,  0.0),  # strictly x > 0: +0.0 -> 0.0 (matches HW + Chisel oracle)
-        (-0.5,  0.0),
-        (-1.0,  0.0),
-    ]
-
-    for val, expected in cases:
-        result = await driver.run_program([(0, val)], instr, rd_idx=1)
-        assert driver.is_close(float(result), expected), \
-            f"FSTEP({val}) = {float(result)}, expected {expected}"
-        dut._log.info(f"FSTEP({val:6.2f}) -> {float(result):.1f}  (exp {expected:.1f})")
-
-    dut._log.info("Borg FSTEP Test Passed!")
 
 
 @cocotb.test()
@@ -353,7 +317,7 @@ async def test_borg_frcp(dut):
     driver = BorgDriver(dut, tqv, is_fp16=dut_is_fp16())
     await driver.reset()
 
-    instr = encode_rv32_frcp(rs1=0, rd=1)
+    instr = encode_rv32_frcp(rs1=1, rd=2)
 
     # (input, expected_reciprocal) — exact FP16 representable values
     cases = [
@@ -365,7 +329,7 @@ async def test_borg_frcp(dut):
     ]
 
     for val, expected in cases:
-        bits = await driver.run_program([(0, val)], instr, rd_idx=1)
+        bits = await driver.run_program([(1, val)], instr, rd_idx=2)
         result = float(bits)
         rel_err = abs(result - expected) / abs(expected) if expected != 0 else abs(result)
         assert rel_err < 0.005, \
