@@ -91,7 +91,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
                      val zBits: Int = 16, val samples: Int = 1) extends Module {
   val io = IO(new BorgTileLoaderIO(hasDepth, hasStencil, zBits, samples))
 
-  val sIdle :: sReadC0 :: sReadC1 :: sReadC2 :: sReadC3 :: sReadZ :: sReadZ1 :: sReadS :: sWrite0 :: sWrite1 :: Nil = Enum(10)
+  val sIdle :: sReadC0 :: sReadC1 :: sReadC2 :: sReadC3 :: sReadZ :: sReadZ1 :: sReadS :: sLookup :: sWrite0 :: sWrite1 :: Nil = Enum(11)
   val state = RegInit(sIdle)
 
   val aspects = Reg(new TileLoadAspects)
@@ -137,10 +137,10 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   def firstRead(e: UInt, a: TileLoadAspects): UInt =
     Mux(a.color, sReadC0,
     Mux(a.depth, sReadZ,
-    Mux(a.stencil && e(1, 0) === 0.U, sReadS, sWrite0)))
+    Mux(a.stencil && e(1, 0) === 0.U, sReadS, sLookup)))
   def afterColor(): UInt =
-    Mux(aspects.depth, sReadZ, Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sWrite0))
-  def afterDepth(): UInt = Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sWrite0)
+    Mux(aspects.depth, sReadZ, Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sLookup))
+  def afterDepth(): UInt = Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sLookup)
   def afterZ0(): UInt = Mux(d32, sReadZ1, afterDepth())
 
   /** One read: present the address, and on `ready` capture and move on. */
@@ -193,7 +193,9 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
     // D16: one word holds the pair. D32: one word per entry.
     is(sReadZ)  { read(zSample + Mux(d32, entry << 2, entry << 1), zWord, afterZ0()) }
     is(sReadZ1) { read(zSample + ((entry + 1.U) << 2), zWord1, afterDepth()) }
-    is(sReadS)  { read(sSample + entry, sWord, sWrite0) }   // entry is a multiple of 4 here
+    is(sReadS)  { read(sSample + entry, sWord, sLookup) }   // entry is a multiple of 4 here
+    // sLookup: the sRGB decode's table read for the pair's first entry.
+    is(sLookup) { state := sWrite0 }
     is(sWrite0) { state := sWrite1 }
     is(sWrite1) {
       when(entry === 14.U) {
@@ -214,23 +216,28 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   }
 
   // --- The entry being written this cycle (sWrite0: `entry`, sWrite1: +1) --
-  val second = state === sWrite1
-  val half   = Mux(second, cWord0(31, 16), cWord0(15, 0))    // RGB565 pixel
-  val word   = Mux(second, cWord1, cWord0)                   // 32-bit pixel
-  val bgra   = format === FlushFormat.BGRA8.U
+  /** The colour bytes of the pair's first (`second` false) or second entry. */
+  def rgba8(second: Bool): (UInt, UInt, UInt, UInt) = {
+    val half   = Mux(second, cWord0(31, 16), cWord0(15, 0))    // RGB565 pixel
+    val word   = Mux(second, cWord1, cWord0)                   // 32-bit pixel
+    val bgra   = format === FlushFormat.BGRA8.U
 
-  def expand5(v: UInt): UInt = Cat(v, v(4, 2))
-  def expand6(v: UInt): UInt = Cat(v, v(5, 4))
-  // RAW8: the entry's byte of the aligned word (entry mod 4).
-  val byte8 = VecInit((0 until 4).map(i => cWord0(8 * i + 7, 8 * i)))(Cat(entry(1), second))
-  val wide4 = wide || fmt64                                   // word 0 is RGBA8's bytes
-  val r8 = Mux(wide4, Mux(bgra, word(23, 16), word(7, 0)),
-           Mux(raw16, half(7, 0), Mux(byteFmt, byte8, expand5(half(15, 11)))))
-  val g8 = Mux(wide4, word(15, 8), Mux(raw16, half(15, 8), Mux(byteFmt, 0.U, expand6(half(10, 5)))))
-  val b8 = Mux(wide4, Mux(bgra, word(7, 0), word(23, 16)), Mux(raw16 || byteFmt, 0.U, expand5(half(4, 0))))
-  // RGB565 has no alpha: a format without it reads as opaque. The narrow
-  // RAW formats' missing bytes read as 0.
-  val a8 = Mux(wide4, word(31, 24), Mux(raw16 || byteFmt, 0.U, 255.U(8.W)))
+    def expand5(v: UInt): UInt = Cat(v, v(4, 2))
+    def expand6(v: UInt): UInt = Cat(v, v(5, 4))
+    // RAW8: the entry's byte of the aligned word (entry mod 4).
+    val byte8 = VecInit((0 until 4).map(i => cWord0(8 * i + 7, 8 * i)))(Cat(entry(1), second))
+    val wide4 = wide || fmt64                                   // word 0 is RGBA8's bytes
+    val r8 = Mux(wide4, Mux(bgra, word(23, 16), word(7, 0)),
+             Mux(raw16, half(7, 0), Mux(byteFmt, byte8, expand5(half(15, 11)))))
+    val g8 = Mux(wide4, word(15, 8), Mux(raw16, half(15, 8), Mux(byteFmt, 0.U, expand6(half(10, 5)))))
+    val b8 = Mux(wide4, Mux(bgra, word(7, 0), word(23, 16)), Mux(raw16 || byteFmt, 0.U, expand5(half(4, 0))))
+    // RGB565 has no alpha: a format without it reads as opaque. The narrow
+    // RAW formats' missing bytes read as 0.
+    val a8 = Mux(wide4, word(31, 24), Mux(raw16 || byteFmt, 0.U, 255.U(8.W)))
+    (r8, g8, b8, a8)
+  }
+  val second = state === sWrite1
+  val (r8, g8, b8, a8) = rgba8(second)
 
   val z16 = Mux(second, zWord(31, 16), zWord(15, 0))
   val zLoaded: UInt =
@@ -246,10 +253,12 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   // pass's own coverage bit -- all bits cover it.
   io.write.coverage := Mux(msReg && !msGiven, UIntToOH(sampleIdx, samples), Fill(samples, 1.U(1.W)))
   io.write.idx := entry + second.asUInt
-  def linear(v: UInt): UInt = Mux(srgb, SrgbCodec.decode(v), ColorQuantize.dequantize8(v))
-  io.write.data.r := Mux(aspects.color, linear(r8), io.clearColor.r)
-  io.write.data.g := Mux(aspects.color, linear(g8), io.clearColor.g)
-  io.write.data.b := Mux(aspects.color, linear(b8), io.clearColor.b)
+  // The sRGB decode reads its table a cycle ahead, from sLookup and sWrite0.
+  val (rN, gN, bN, _) = rgba8(state === sWrite0)
+  def linear(v: UInt, ahead: UInt): UInt = Mux(srgb, SrgbCodec.decode(ahead, piped = true), ColorQuantize.dequantize8(v))
+  io.write.data.r := Mux(aspects.color, linear(r8, rN), io.clearColor.r)
+  io.write.data.g := Mux(aspects.color, linear(g8, gN), io.clearColor.g)
+  io.write.data.b := Mux(aspects.color, linear(b8, bN), io.clearColor.b)
   io.write.data.z := Mux(aspects.depth, zLoaded, io.clearColor.z)
   io.write.alpha   := Mux(aspects.color, a8, io.clearAlpha)
   io.write.stencil := Mux(aspects.stencil, s8, io.clearStencil)
