@@ -4,8 +4,6 @@
 // Unit tests for spirb_parse().
 
 #include "borg_spirb.h"
-#include "borg_isa.h"
-#include "compiler/shader_blobs.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -115,66 +113,8 @@ static void test_empty_blob(void) {
     CHECK(s.num_instrs == 0, "empty blob: num_instrs==0");
 }
 
-// ---------------------------------------------------------------------------
-// The baked shader blobs still decode as current-ISA instructions.
-//
-// compiler/shader_blobs.h is a checked-in binary artifact: vert_borg and
-// frag_borg are borgc output (`make -C compiler regen`), rasterize_borg is
-// hand-written ISA. Checked in, they can go stale: the blobs encode opcodes,
-// and if one is retired or moves they would silently execute DIFFERENT
-// instructions -- no load failure, no error, just a wrong image, in the
-// standalone path that has no driver to override them.
-//
-// This is the guard. It cannot check the blobs still compute the right thing,
-// but it does catch the whole class of "the ISA moved out from under the
-// blob" -- which is how the FTEX retirement showed up.
-//
-// The valid opcodes are borg_isa.h's generated list, so this tracks the ISA
-// rather than being a second hand-maintained list that could drift from it.
-// ---------------------------------------------------------------------------
-
-static int isa_base_is_known(uint32_t word) {
-#define KNOWN(n) if ((word & BORG_MASK_##n) == BORG_MATCH_##n) return 1;
-    BORG_OPCODES(KNOWN)
-#undef KNOWN
-    return 0;
-}
-
-static void check_blob_opcodes(const char *name, const unsigned char *blob,
-                               unsigned len) {
-    spirb_shader_t s;
-    int n = spirb_parse((uint8_t *)blob, &s);
-    char msg[160];
-    // Report the numbers on failure: "parses" alone would not say whether the
-    // parser overran the array or the array outgrew the parser, and those have
-    // opposite fixes.
-    snprintf(msg, sizeof msg, "%s: parse consumed %d of %u declared bytes",
-             name, n, len);
-    CHECK(n > 0 && (unsigned)n <= (int)len, msg);
-    if (n <= 0) return;
-
-    int bad = -1;
-    for (unsigned i = 0; i < s.num_instrs; i++)
-        if (!isa_base_is_known(s.instrs[i])) { bad = (int)i; break; }
-
-    if (bad >= 0)
-        snprintf(msg, sizeof msg, "%s: instr %d = 0x%08X is not a current opcode",
-                 name, bad, s.instrs[bad]);
-    else
-        snprintf(msg, sizeof msg, "%s: all %u instrs decode as current ISA",
-                 name, s.num_instrs);
-    CHECK(bad < 0, msg);
-}
-
-static void test_baked_blobs_match_current_isa(void) {
-    check_blob_opcodes("vert_borg", vert_borg, vert_borg_len);
-    check_blob_opcodes("rasterize_borg", rasterize_borg, rasterize_borg_len);
-    check_blob_opcodes("frag_borg", frag_borg, frag_borg_len);
-}
-
 int main(void) {
     printf("test_spirb\n");
-    test_baked_blobs_match_current_isa();
     test_valid_blob();
     test_null_blob();
     test_null_struct();

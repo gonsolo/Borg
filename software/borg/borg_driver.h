@@ -29,31 +29,9 @@ typedef struct {
     borg_float_t uniforms[16];
 } borg_draw_data_t;
 
-// Shader module — mirrors Vulkan's VkShaderModule.
-// Created from compiled SPIR-B bytecode via borgCreateShaderModule().
-typedef struct {
-    const uint8_t *code;
-    unsigned int codeSize;
-} BorgShaderModule;
-
-// Create a shader module from compiled SPIR-B bytecode.
-// Mirrors vkCreateShaderModule().
-static inline void borgCreateShaderModule(BorgShaderModule *module,
-                                          const uint8_t *code,
-                                          unsigned int codeSize) {
-    module->code = code;
-    module->codeSize = codeSize;
-}
-
 // Initialize hardware: UART, DRAM resolution, LUTs.
 // Mirrors vkCreateDevice().
 void borgCreateDevice(void);
-
-// Parse and bind shader modules to the pipeline stages.
-// Mirrors vkCreateGraphicsPipelines().
-void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
-                                const BorgShaderModule *rast,
-                                const BorgShaderModule *frag);
 
 // Runtime shader upload: stage a borgc-compiled .borg blob (spirb_parse format)
 // into the sequencer's DRAM slot for `stage` (0 = vertex, 1 = fragment).

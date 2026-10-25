@@ -8,7 +8,6 @@
 #include "borg_driver.h"
 #include "borg_fpu.h"
 #include "borg_sys.h"
-#include "compiler/shader_blobs.h"
 #include "replay_capture.h"
 
 #ifdef BORG_LINUX_USER   // Linux userspace: map the fixed addresses the firmware uses, then run unchanged
@@ -43,11 +42,6 @@ int main() {
   for (;;) fast_putc('A');   // UART/boot check only; the Borg is never touched
 #endif
   borgCreateDevice();
-  BorgShaderModule vert, rast, frag;
-  borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
-  borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
-  borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
-  borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
   for (const uint8_t *p = replay_capture; p < replay_capture + replay_capture_len;) {
     int n = borg_core_pkt_len(*p);

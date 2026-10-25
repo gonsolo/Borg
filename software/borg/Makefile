@@ -51,21 +51,13 @@ CLOCK_MHZ ?= 4
 PROJECT_NAME = kernel
 SHARED_SOURCES = borg_core.c borg_driver.c borg_fpu.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_kernel.c $(SHARED_SOURCES)
-# compiler/shader_blobs.h is listed explicitly, not folded into the wildcard:
-# $(wildcard *.h) only globs THIS directory, so a header one level down in
-# compiler/ was invisible to it. That silently broke incremental builds --
-# editing shader_blobs.h alone left borg_kernel.o (and therefore kernel.bin)
-# stale, so `make kernel` would relink the OLD baked shader with no warning.
-# Found by three separately-edited shader_blobs.h variants all producing
-# bit-identical firmware.
-HEADERS = $(wildcard *.h) compiler/shader_blobs.h
+HEADERS = $(wildcard *.h)
 
 all: python kernel
 
 .PHONY: all kernel replay replay-linux replay-drm python test-native clean
 
 kernel: python
-	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
 # Host-free frame: the captured borgvk burst (simulation/golden) linked in; see borg_replay.c.
@@ -85,14 +77,13 @@ replay-drm: python replay_capture.h
 	    -o $(OUT) borg_drm_replay.c borg_hw.c borg_core.c borg_spirb.c
 
 replay: python replay_capture.h
-	@$(MAKE) -C compiler all
 	@$(MAKE) -s PROJECT_NAME=replay PROJECT_SOURCES='borg_replay.c $(SHARED_SOURCES)' replay.bin
 
 python:
 	$(MAKE) -C python
 
 test-native: test_spirb.c borg_spirb.c
-	gcc -O2 -g -Wall test_spirb.c borg_spirb.c -I. -I$(RDL_C_OUT) -o test_spirb
+	gcc -O2 -g -Wall test_spirb.c borg_spirb.c -I. -o test_spirb
 	./test_spirb
 
 clean:

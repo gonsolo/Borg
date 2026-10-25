@@ -8,6 +8,4 @@ frag.spvasm
 frag.s
 frag.borg.h
 frag.borg
-rasterize.borg.h
-rasterize.borg
 __pycache__/

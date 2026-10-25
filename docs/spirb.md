@@ -63,20 +63,12 @@ the firmware appends it when loading IMEM.
 
 ## Shader transport
 
-Two paths exist depending on the use case:
-
-**Baked defaults** (`borg_kernel.c`): a rasterize/vertex/fragment shader blob
-is embedded as a static byte array in `compiler/shader_blobs.h`, loaded at
-boot via `spirb_parse(code, &shader)` so the GPU pipeline is valid before any
-borgvk upload arrives. The rasterize stage stays on this baked blob
-permanently — it is fixed-function, not app-derived.
-
-**borgvk driver** (`mesa/src/borg/vulkan/`): `borgc` compiles the app's real
+The borgvk driver (`mesa/src/borg/vulkan/`) compiles, with `borgc`, the app's real
 vertex/fragment shaders at Vulkan submit time and sends each blob via a serial
 packet (marker `0xB0`):
 `marker(1B) + stage(1B) + len(2B LE) + blob padded to BORGVK_SHADER_BLOB_MAX + checksum`.
 `borg_kernel.c` drains this fixed-length packet and calls `spirb_parse()` on
-the received blob, overriding the baked vertex/fragment defaults.
+the received blob; the firmware has no shaders of its own.
 
 ## Examples
 

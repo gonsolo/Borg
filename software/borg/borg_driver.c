@@ -196,18 +196,6 @@ void borgCreateDevice(void) {
   t_init_cycles = get_cycles() - t_init;
 }
 
-void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
-                                const BorgShaderModule *rast,
-                                const BorgShaderModule *frag) {
-  (void)rast;  // the draw raster program is a hardware ROM (BorgRasterRom)
-  // The baked blobs (compiler/shader_blobs.h) are borgc's draw-mode compiles
-  // of cube.vert and cube.frag, the same shaders borgvk uploads; staging them
-  // here gives the standalone firmware and the headless sims a working
-  // pipeline, and borgvk's 0xB0 packets later restage both slots.
-  borg_stage_shader(0, vert->code);
-  borg_stage_shader(1, frag->code);
-}
-
 // Record the frame's tile clear colour (written to every tile in Pass 2).
 void borgFastFrameBegin(rgb16_t clear_color) {
   borg_core_set_clear(clear_color.r, clear_color.g, clear_color.b);

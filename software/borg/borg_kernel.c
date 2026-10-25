@@ -9,7 +9,6 @@
 #include "borg_driver.h"
 #include "borg_fpu.h"
 #include "borg_sys.h"
-#include "compiler/shader_blobs.h"
 
 // Wire-packet formats and their handling live in borg_core.c (shared with the
 // direct simulator); this file only frames them off the UART.
@@ -45,15 +44,6 @@ static int cts_load_mailbox(borg_float_t mvp_out[16]) {
 
 int main() {
   borgCreateDevice();
-
-  // Load baked shaders (borgc's draw-mode compiles of cube.vert/cube.frag) so
-  // the GPU pipeline is valid before borgvk uploads its own. borgvk overrides
-  // vert+frag at runtime via 0xB0; the raster program is a hardware ROM.
-  BorgShaderModule vert, rast, frag;
-  borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
-  borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
-  borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
-  borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
   const int cts_active = cts_mailbox_present();
 
