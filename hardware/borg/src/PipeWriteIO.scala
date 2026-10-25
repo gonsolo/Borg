@@ -29,6 +29,8 @@ object Csr {
   val OutDepth = 0x804; val Discard = 0x805; val SampleMask = 0x806
   val OutPos0 = 0x808  // gl_Position x..w at 0x808..0x80B
   val SetupScreen0 = 0x810; val SetupDet = 0x816  // the setup ROM's results for the draw walker
+  // The raster ROMs' results for the dispatcher: E0..E2, Zn, Zf, FragCoord.z, the sample depths.
+  val RastE0 = 0x818; val RastZn = 0x81B; val RastZf = 0x81C; val RastFragZ = 0x81D; val RastSampleZ0 = 0x820
   val Root = 0xCC0
   val Uniform0 = 0x840  // the per-draw and per-triangle words, uniform k at 0x840 + k (k < 32)
   // System values (B8 step 7), read-only.
