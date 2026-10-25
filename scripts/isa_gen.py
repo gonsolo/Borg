@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Generates instruction encodings from opcode files in riscv-opcodes syntax.
 
-    isa_gen.py ISA_DIR [--c F] [--scala F --package P --object O] [--rust F]
+    isa_gen.py ISA_DIR [--c F] [--scala F --package P --object O] [--rust F [--ir NAMES]]
 
 ISA_DIR holds fields.csv, the opcode files and optionally csrs.csv (riscv-opcodes' format:
-number, "name" per line): hardware/borg/isa for the Borg shader ISA,
+number, "name" per line). --ir names a file of compiler-only operations, one name per line:
+they join the Rust Op enum with no encoding (0). hardware/borg/isa for the Borg shader ISA,
 hardware/hutt/isa for Hutt's RISC-V subset (riscv-opcodes' own extension files). Python reads the
 source directly: encode(ISA_DIR, "store", rs1=0, rs2=1).
 
@@ -109,6 +110,11 @@ def load(d):
     fields, consts, replaces = load_fields(d)
     ops, pseudo = load_opcodes(d, fields, replaces)
     return fields, consts, ops, pseudo
+
+
+def load_ir(path):
+    names = [line.split("#", 1)[0].strip() for line in open(path)] if path else []
+    return [n for n in names if n]
 
 
 def load_csrs(d):
@@ -216,7 +222,8 @@ def camel(name):
     return "".join(p[:1].upper() + p[1:] for p in name.split("."))
 
 
-def gen_rust(d, fields, consts, ops, pseudo, csrs):
+def gen_rust(d, fields, consts, ops, pseudo, csrs, ir=()):
+    ops = ops + [dict(name=n, args=[], match=0, mask=0) for n in ir]
     o = ["// Copyright © 2026 Andreas Wendleder",
          "// SPDX-License-Identifier: MIT"] + header(d, "//") + ["",
          "#![allow(dead_code)]", "",
@@ -287,13 +294,14 @@ def main():
     ap.add_argument("--package")
     ap.add_argument("--object")
     ap.add_argument("--rust")
+    ap.add_argument("--ir")
     a = ap.parse_args()
     d = pathlib.Path(a.isa).resolve()
     fields, consts, ops, pseudo = load(d)
     csrs = load_csrs(d)
     outs = ((a.c, lambda: gen_c(d, fields, consts, ops, pseudo, csrs)),
             (a.scala, lambda: gen_scala(d, fields, consts, ops, pseudo, csrs, a.package, a.object)),
-            (a.rust, lambda: gen_rust(d, fields, consts, ops, pseudo, csrs)))
+            (a.rust, lambda: gen_rust(d, fields, consts, ops, pseudo, csrs, load_ir(a.ir))))
     for path, gen in outs:
         if path:
             pathlib.Path(path).write_text(gen())
