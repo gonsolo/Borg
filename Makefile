@@ -255,11 +255,11 @@ rdl: $(RDL_SRC)
 	@python3-borg-rdl scripts/tex_format_gen.py hardware/borg/isa/tex_formats.txt --c $(RDL_C_OUT)/borg_tex_format.h
 
 # mesa/src/borg/isa is a byte-exact copy of hardware/borg/isa and its two generators.
-ISA_COPY := $(wildcard hardware/borg/isa/*) scripts/isa_gen.py scripts/tex_format_gen.py
+ISA_COPY := $(filter-out %/__pycache__,$(wildcard hardware/borg/isa/*)) scripts/isa_gen.py scripts/tex_format_gen.py
 isa-copy-check:
 	@for f in $(ISA_COPY); do cmp -s $$f mesa/src/borg/isa/$$(basename $$f) || \
 	  { echo "mesa/src/borg/isa/$$(basename $$f) differs from $$f"; exit 1; }; done
-	@for f in $$(ls mesa/src/borg/isa | grep -v '^meson.build$$'); do \
+	@for f in $$(ls mesa/src/borg/isa | grep -v -e '^meson.build$$' -e '^__pycache__$$'); do \
 	  echo " $(notdir $(ISA_COPY)) " | grep -q " $$f " || { echo "mesa/src/borg/isa/$$f has no original"; exit 1; }; done
 
 # Generated files are built, not tracked, in Borg and in mesa's src/borg.
