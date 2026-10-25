@@ -326,18 +326,18 @@ the cases that ran out of it are the Timeouts. NotPresent: 36 `renderpasses.rend
 
 ## The compiler corpora on ISA v2 (tier 1, 2026-10-25)
 
-Both corpora on `feat/isa-v2-step1` (B8 steps 1-12, 15 and 7c):
+Both corpora on `feat/isa-v2-step1` (B8 steps 1-12, 15 and 7c), recorded as the new references:
 
 | Corpus | Cases | Pass | Fail | Other |
 |---|---|---|---|---|
-| Graphics (`check.sh`) | 2,293 | 731 | 5 | 4 Timeout, 1,553 NotSupported |
-| Compute (`SET=compute check.sh`) | 3,990 | 3,820 | 168 | 2 Timeout |
+| Graphics (`check.sh`) | 2,293 | 729 | 5 | 6 Timeout, 1,553 NotSupported |
+| Compute (`SET=compute check.sh`) | 3,990 | 3,819 | 168 | 3 Timeout |
 
-Graphics gained 5 and lost 2, both vertex-stage Timeouts: these cases were always slow (`max.highp_int_vertex`
-takes 402 s on main, 448 M cycles) and pass in chunks only; on ISA v2 it takes 548 s (540 M cycles, +20%, and the
-larger RTL simulates 11% slower), so their chunks now hit the 900 s limit. Run alone, all 8 such cases pass.
-Compute gained 109; the 4 `precision_fconvert.f32_to_u32` cases it lost (f2u went through the signed `FCVT.W.S`
-since the Zfinx switch) pass again with `FCVT.WU.S`, counted above.
+Graphics gained 5 and lost 4, compute gained 109 and lost 1, all of them Timeouts that pass when run alone. These
+cases were always slow (`max.highp_int_vertex` takes 402 s on main, 448 M cycles) and pass in chunks only; on ISA v2
+it takes 548 s (540 M cycles, +20%, and the larger RTL simulates 11% slower), so their chunks now hit the 900 s
+limit, more often under load. The 4 `precision_fconvert.f32_to_u32` cases (f2u went through the signed `FCVT.W.S`
+since the Zfinx switch) pass with `FCVT.WU.S`.
 
 ## `binding_model` in full (tier 1 on GitHub Actions, 2026-10-22)
 
