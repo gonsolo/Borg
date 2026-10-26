@@ -47,12 +47,12 @@ object BorgFmaStagesTests extends TestSuite {
     out
   }
 
-  /** Same results at fmaStages 3 and 4, and with one register-file read port. */
+  /** Same results at fmaStages 3 and 4, and with one read port and no overlap. */
   private def bothStages(name: String, operands: Seq[(Int, BigInt)],
                          prog: Seq[BigInt], readBack: Seq[Int]): Unit = {
     val r3 = runProg(cfg3, operands, prog, readBack)
     val r4 = runProg(cfg4, operands, prog, readBack)
-    val r1 = runProg(cfg3.copy(regReadPorts = 1), operands, prog, readBack)
+    val r1 = runProg(cfg3.copy(regReadPorts = 1, pipelined = false), operands, prog, readBack)
     println(f"  $name%-28s stages=3: ${r3.map(b => f"0x$b%x").mkString(",")}%-24s " +
             f"stages=4: ${r4.map(b => f"0x$b%x").mkString(",")}")
     utest.assert(r3 == r4 && r3 == r1)
