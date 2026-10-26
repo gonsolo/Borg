@@ -5,7 +5,7 @@ Status: specification agreed 2026-10-22; on `feat/isa-v2-step1` steps 1-12 and 1
 word, which RISC-V reserves as illegal. The setup and raster ROMs read the triangle's words as
 the CSRs `uniform0..31` (0x840), which go through the window's read port. An 8-bit tile's multi-pass resolve averages an sRGB attachment's stored codes. The private window below is not built: borgc keeps local
 arrays in registers and does not spill shaders that need helper lanes, so nothing uses it yet. The current ISA (v1) is
-`hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `fe1c9897`. The
+`hardware/borg/isa/opcodes`; the facts about it below come from the RTL as of `dbc19e0d`. The
 pipeline that follows it is B9.
 
 ## Goals

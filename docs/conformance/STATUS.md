@@ -341,7 +341,7 @@ since the Zfinx switch) pass with `FCVT.WU.S`.
 
 ## `binding_model` in full (tier 1 on GitHub Actions, 2026-10-22)
 
-All of `dEQP-VK.binding_model` after the descriptor fixes (Borg `304e6e35`, mesa `d7061c6f`), run as 16 shards on
+All of `dEQP-VK.binding_model` after the descriptor fixes (Borg `c40ada50`, mesa `d7061c6f`), run as 16 shards on
 GitHub-hosted runners from a pack built here (`scripts/cts_pack.sh`, `.github/workflows/cts-pack.yaml`), about 3 h.
 Every case that also ran locally (69,325, an earlier partial run of the same build) has the same result, except 16
 local Passes that timed out on the slower runners.
