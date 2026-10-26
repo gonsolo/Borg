@@ -20,7 +20,8 @@ import chisel3.util.*
   *   cRs2..cHoldC: rs1/rs2/rs3 read serially, one per cycle, off the lane's single
   *         register-file port (was 3 parallel ports/copies -- see BorgLane's
   *         `regFile` doc comment for the area rationale); each result is
-  *         captured into a hold register the cycle after it's issued.
+  *         captured into a hold register the cycle after it's issued. With
+  *         cfg.regReadPorts == 3 all three are read at decode (5→0 at fmaStages=3).
   *   cOperands..2: Stage 1 — operand reads valid (now held, not live); op-type flags
   *         latched (in the lane) at decode
   *   2→1:  Lane pipeline register captures the FMA mid-result

@@ -285,7 +285,10 @@ case class BorgConfig(
     // NOTE: raising this alone is NOT functionally correct -- each extra stage
     // adds a pipeline cycle, so BorgCore's busy_counter must widen from 3 bits
     // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
-    fmaStages: Int = 3
+    fmaStages: Int = 3,
+    // Register-file read ports per lane: 3 reads rs1, rs2 and rs3 together at decode (two more
+    // LUTRAM copies, docs/B9_pipeline.md); 1 reads them in turn, for Wafer's flop register file.
+    regReadPorts: Int = 3
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
@@ -294,6 +297,7 @@ case class BorgConfig(
   require(tileColorBits == 16 || tileColorBits == 8,
           s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
+  require(regReadPorts == 1 || regReadPorts == 3, s"regReadPorts must be 1 or 3, got $regReadPorts")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
@@ -353,6 +357,9 @@ case class BorgConfig(
   //   pipeEn1       4          5          6     (= operands valid)
   //   pipeEn2       3          3          4
   //   write-back    1          1          1
+  //
+  // With three read ports all operands are read at decode and held at holdC, so the counter
+  // loads holdC: 5, 6 or 7.
   private def fmaExtraMid: Int = if (fmaStages >= 4) 1 else 0
   private def fmaExtraLate: Int = if (fmaStages >= 5) 1 else 0
 
@@ -362,8 +369,8 @@ case class BorgConfig(
     * TEX/TEXA, LOAD/STORE and evaluates branches. */
   def cOperands: Int = cPipeEn2 + 1 + fmaExtraMid
   def cHoldC: Int = cOperands + 1
-  def cRs3: Int = cOperands + 2
-  def cRs2: Int = cOperands + 3
+  def cRs3: Int = if (regReadPorts == 3) cHoldC else cOperands + 2
+  def cRs2: Int = if (regReadPorts == 3) cHoldC else cOperands + 3
   /** Value busy_counter loads when an instruction issues. */
   def cBusyLoad: Int = cRs2
   def busyCounterWidth: Int = chisel3.util.log2Ceil(cBusyLoad + 1)
@@ -550,6 +557,7 @@ object BorgConfig {
     // exactly the stage fmaStages=4 splits. Costs one cycle per FMA; the
     // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
     fmaStages        = 4,
+    regReadPorts     = 1,
     // 2026-09-21: the ONLY target that needs this either. Measured on GF180,
     // rendering each tile once per sample instead of keeping every sample
     // resident saves 346,969 um2 -- 9.32% of the whole design:
