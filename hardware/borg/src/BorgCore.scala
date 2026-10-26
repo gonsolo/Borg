@@ -226,9 +226,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val barrierPCReg = RegInit(0.U(cfg.pcBits.W))
 
   // --- Instruction Fetch ---
+  // cfg.pipelined fetches the next word a cycle early, so it decodes during write-back.
+  private val pcAdvance = if (cfg.pipelined) 2 else 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC =
-    Mux(is_busy && busy_counter === 1.U, pcAfterThis, programCounter)
+    Mux(is_busy && busy_counter === pcAdvance.U, pcAfterThis, programCounter)
   val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
   private val rasterWord = drawRasterRom.map { rom =>
     val short = io.drawSingle.get && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
@@ -262,7 +264,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Decode + FSM ---
   val (regs, opFlags) = decode(fetchedInstruction)
-  val fma_start = running && !is_busy && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
+  // One-entry scoreboard: the instruction in write-back, and whether it writes a register the
+  // next one reads (its operands are read in that same cycle).
+  val lastWrites = RegInit(false.B); val lastRd = RegInit(0.U(5.W))
+  val readsLast = lastWrites && lastRd =/= 0.U && Seq(regs.rs1, regs.rs2, regs.rs3).map(_ === lastRd).reduce(_ || _)
+  val overlap = cfg.pipelined.B && is_busy && busy_counter === 1.U && !readsLast
+  val decoding = running && (!is_busy || overlap)
+  val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
+  when(fma_start) {
+    lastWrites := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite; lastRd := regs.rd
+  }
   runPipeline(fma_start)
 
   // --- Shared uniform-RAM read (broadcast to every lane) ---
@@ -278,6 +289,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.running     := running
     lane.io.isBusy      := is_busy
     lane.io.fmaStart    := fma_start
+    lane.io.decode      := decoding
     lane.io.seqBusy     := io.seqBusy
     lane.io.uniformData := uniform_data
     lane.io.funct3Del   := funct3_del
@@ -458,7 +470,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
   private def runPipeline(fma_start: Bool): Unit = {
     // @doc:fetch-execute
-    when(running && !is_busy && !texResumeDelay && fetchReady) {
+    when(is_busy) {
+      busy_counter := busy_counter - 1.U
+      when(busy_counter === pcAdvance.U) {
+        programCounter := pcAfterThis
+      }
+    }
+    when(decoding && !texResumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
         running      := false.B
         atBarrierReg := false.B
@@ -473,11 +491,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         barrierPCReg := (programCounter + 1.U)(cfg.pcBits - 1, 0)
       }.otherwise {
         busy_counter := cfg.cBusyLoad.U
-      }
-    }.elsewhen(is_busy) {
-      busy_counter := busy_counter - 1.U
-      when(busy_counter === 1.U) {
-        programCounter := pcAfterThis
       }
     }
 
@@ -548,7 +561,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** ISA v2 operands that are no register: x0, LUI's zero, AUIPC's address, immediates. Latched
     * with the uniform read. */
   private def wireRvOperands(): (Valid[UInt], Valid[UInt]) = {
-    val op_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val op_en = decoding || (is_busy && busy_counter >= 2.U)
     val rv = RvInt(fetchedInstruction)
     val w = cfg.totalBits
     def latch(valid: Bool, bits: UInt) = {
@@ -567,7 +580,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * lanes' operand mux.  The address is instruction-derived (shared), so one
     * read serves every lane. */
   private def wireUniformRead(): (UInt, UInt) = {
-    val op_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val op_en = decoding || (is_busy && busy_counter >= 2.U)
     val op_en_del = RegNext(op_en, false.B)
     val funct3_del = RegEnable(opFlags.funct3, op_en)
 
@@ -766,7 +779,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_texs_reg = RegInit(false.B)
     // TEXS: the sampler descriptor address and the control word for the TEX after it.
     val sAddrReg = RegInit(0.U(GpuMemIO.AddrBits.W)); val sCtlReg = RegInit(0.U(32.W))
-    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+    when(decoding && fetchedInstruction =/= 0.U) {
       is_tex_reg  := opFlags.tex
       is_texa_reg := opFlags.texa
       is_texs_reg := opFlags.texs
@@ -852,7 +865,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val N = cfg.fragLanes
     val unit = Module(new BorgExpLog)
     val isOp = RegInit(false.B); val isLog = RegInit(false.B)
-    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+    when(decoding && fetchedInstruction =/= 0.U) {
       val rv = RvInt(fetchedInstruction)
       isOp := rv.fexp2 || rv.flog2; isLog := rv.flog2
     }
@@ -895,7 +908,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * writes no register, exactly like STORE. */
   private def wireZTest(): Unit = {
     val is_ztest_reg = RegInit(false.B)
-    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+    when(decoding && fetchedInstruction =/= 0.U) {
       is_ztest_reg := opFlags.ztest
     }
     val waiting = is_busy && busy_counter === cfg.cOperands.U && is_ztest_reg
@@ -952,7 +965,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // LB..LW, SW and the AMOs: byte address rs1 + imm.
     val rvMem = RegInit(false.B); val rvWidth = Reg(UInt(3.W)); val rvImm = Reg(UInt(32.W))
     val isAmo = RegInit(false.B); val amoOp = Reg(UInt(5.W)); val amoNew = Reg(UInt(32.W))
-    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+    when(decoding && fetchedInstruction =/= 0.U) {
       val rv = RvInt(fetchedInstruction)
       rvMem := rv.load || rv.store || rv.amo; rvWidth := Mux(rv.amo, 2.U, rv.width); rvImm := rv.memImm
       isAmo := rv.amo; amoOp := rv.amoOp

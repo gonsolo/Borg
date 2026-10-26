@@ -51,6 +51,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
   val fmaStart    = Input(Bool())
+  val decode      = Input(Bool())   // operand reads: idle, or the previous write-back (cfg.pipelined)
   val seqBusy     = Input(Bool())
 
   // --- Per-lane pixel coordinate ---
@@ -139,7 +140,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     if (config.totalBits == 16) h else Fp16Fp32.widen(h)
   private def pixelCentre(i: UInt): UInt =
     if (config.totalBits == 32) pixelToFP32Half(i) else coordToRegWidth(pixelToFP16Half(i))
-  private val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+  private val coordReadEn = io.decode || (is_busy && busy_counter >= 2.U)
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
   // Muxed ahead of the registers, not on the read path, so compute mode adds
@@ -219,7 +220,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6; all three at decode with
     // three ports.
-    val atDecode = running && !is_busy
+    val atDecode = io.decode
     val three = regFilesBC.nonEmpty
     val atRs2 = if (three) atDecode else is_busy && busy_counter === cfg.cRs2.U
     val atRs3 = if (three) atDecode else is_busy && busy_counter === cfg.cRs3.U

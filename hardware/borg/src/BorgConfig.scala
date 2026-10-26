@@ -288,7 +288,10 @@ case class BorgConfig(
     fmaStages: Int = 3,
     // Register-file read ports per lane: 3 reads rs1, rs2 and rs3 together at decode (two more
     // LUTRAM copies, docs/B9_pipeline.md); 1 reads them in turn, for Wafer's flop register file.
-    regReadPorts: Int = 3
+    regReadPorts: Int = 3,
+    // The next instruction decodes and reads its operands in this one's write-back cycle, unless it
+    // reads this one's rd (docs/B9_pipeline.md, step 1).
+    pipelined: Boolean = true
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
@@ -558,6 +561,7 @@ object BorgConfig {
     // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
     fmaStages        = 4,
     regReadPorts     = 1,
+    pipelined        = false,
     // 2026-09-21: the ONLY target that needs this either. Measured on GF180,
     // rendering each tile once per sample instead of keeping every sample
     // resident saves 346,969 um2 -- 9.32% of the whole design:
