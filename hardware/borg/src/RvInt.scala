@@ -101,6 +101,12 @@ class RvInt(instr: UInt) {
   /** BEQ..BGEU and JAL (rd = x0: no return address yet); offsets in words. */
   val br    = opc === Opcodes.OPCODE_BEQ.U && f3 =/= 2.U && f3 =/= 3.U
   val jal   = opc === Opcodes.OPCODE_JAL.U
+  /** The register fields read as registers, not as immediates or indices (B9's hazard check). */
+  val readsRs1 = !(lui || auipc || jal || sout || fattr)
+  // OP-FP: funct5 bit 30 is set exactly for the one-operand conversions and FCLASS.
+  val readsRs2 = op || br || store || amo || r4 || texd || texad || texs || sout ||
+    opc === Opcodes.OPCODE_FADD_S.U && !instr(30)
+  val readsRs3 = r4 || texd || texad || amocas
   val brOff  = (riscv.Rv.immB(instr, 13).asSInt >> 2).pad(20)
   val jalOff = (riscv.Rv.immJ(instr, 21).asSInt >> 2).pad(20)
   def cond(a: UInt, b: UInt): Bool = riscv.Rv.branchTaken(f3, a, b)
