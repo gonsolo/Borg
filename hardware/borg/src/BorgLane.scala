@@ -99,6 +99,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // ASIC's 4MHz -- for ~88,000 um^2. See wireGprReads() and BorgCore's
   // busy_counter doc comment (countdown widened 4->7 to make room).
   val regFile = Module(new RegFileCopy(config.totalBits, "regFile"))
+  // cfg.regReadPorts == 3: copies for rs2 and rs3, written with regFile, so decode reads all three.
+  private val regFilesBC = Seq("regFileB", "regFileC").filter(_ => cfg.regReadPorts == 3)
+    .map(n => Module(new RegFileCopy(config.totalBits, n)))
 
   // --- FP16 special-function ROMs (purely combinational VecInit — zero FFs, zero clock load) ---
   private val rcpRom  = VecInit(BorgLutTables.rcpLut.map(_.U(10.W)))
@@ -214,13 +217,18 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // subtract/shift width-growth adds are provably always zero here.
     val mmioAddr = ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)
 
-    // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6.
+    // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6; all three at decode with
+    // three ports.
     val atDecode = running && !is_busy
-    val atRs2 = is_busy && busy_counter === cfg.cRs2.U
-    val atRs3 = is_busy && busy_counter === cfg.cRs3.U
+    val three = regFilesBC.nonEmpty
+    val atRs2 = if (three) atDecode else is_busy && busy_counter === cfg.cRs2.U
+    val atRs3 = if (three) atDecode else is_busy && busy_counter === cfg.cRs3.U
 
-    regFile.io.rd.addr := Mux(mmioEn, mmioAddr, Mux(atDecode, regs.rs1, Mux(atRs2, regs.rs2, regs.rs3)))
+    regFile.io.rd.addr := Mux(mmioEn, mmioAddr, if (three) regs.rs1 else Mux(atDecode, regs.rs1, Mux(atRs2, regs.rs2, regs.rs3)))
     regFile.io.rd.en   := mmioEn || atDecode || atRs2 || atRs3
+    regFilesBC.zip(Seq(regs.rs2, regs.rs3)).foreach { case (f, r) => f.io.rd.addr := r; f.io.rd.en := atDecode }
+    val (dataB, dataC) = if (three) (regFilesBC(0).io.rd.data, regFilesBC(1).io.rd.data)
+                         else (regFile.io.rd.data, regFile.io.rd.data)
 
     val mmioEnDel   = RegNext(mmioEn && io.bus.is_reading, false.B)
     val mmioAddrDel = RegEnable(mmioAddr, mmioEn)
@@ -230,9 +238,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val rs1IdxDel = RegEnable(regs.rs1, atDecode)
     val rs2IdxDel = RegEnable(regs.rs2, atRs2)
     val rs3IdxDel = RegEnable(regs.rs3, atRs3)
-    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atRs2)
-    val holdB = RegEnable(resolveCoordReg(regFile.io.rd.data, rs2IdxDel), 0.U(config.totalBits.W), atRs3)
-    val holdC = RegEnable(resolveCoordReg(regFile.io.rd.data, rs3IdxDel), 0.U(config.totalBits.W), is_busy && busy_counter === cfg.cHoldC.U)
+    val atHoldA = is_busy && busy_counter === cfg.cRs2.U
+    val atHoldB = is_busy && busy_counter === (if (three) cfg.cHoldC else cfg.cRs3).U
+    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atHoldA)
+    val holdB = RegEnable(resolveCoordReg(dataB, rs2IdxDel), 0.U(config.totalBits.W), atHoldB)
+    val holdC = RegEnable(resolveCoordReg(dataC, rs3IdxDel), 0.U(config.totalBits.W), is_busy && busy_counter === cfg.cHoldC.U)
     val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
 
     (holdA, holdB, holdC, mmioD)
@@ -499,9 +509,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  private def writeReg(addr: UInt, en: Bool, data: UInt): Unit = {
-    regFile.io.wr.addr := addr
-    regFile.io.wr.en := en
-    regFile.io.wr.data := data
-  }
+  private def writeReg(addr: UInt, en: Bool, data: UInt): Unit =
+    (regFile +: regFilesBC).foreach { f => f.io.wr.addr := addr; f.io.wr.en := en; f.io.wr.data := data }
 }
