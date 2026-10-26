@@ -1028,7 +1028,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.memBusy      := memState =/= sMemIdle
 
     // Start once operands are valid, exactly like TEX/TEXA.
-    when(at(cfg.cOperands) && (is_load_reg || is_store_reg)) {
+    when(at(cfg.cOperands) && memState === sMemIdle && (is_load_reg || is_store_reg)) {
+      holdPipe := true.B
       memRdReg := regs.rd
       memLane  := 0.U
       memState := sMemReq
@@ -1036,7 +1037,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     // FATTR is one access for the whole quad, not one per lane: the three
     // per-vertex values are the same for every fragment of the triangle.
-    when(at(cfg.cOperands) && is_fattr_reg) {
+    when(at(cfg.cOperands) && memState === sMemIdle && is_fattr_reg) {
+      holdPipe := true.B
       memRdReg := regs.rd
       attrK    := 0.U
       memState := sAttrReq
