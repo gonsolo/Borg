@@ -480,14 +480,19 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // operand; gating EXANY's write-back on execActive like everything else
     // would freeze lane 0's copy the moment lane 0 itself masks off, and the
     // loop could never observe every OTHER lane finishing after that.
-    val pipe_write = running && is_busy && busy_counter === 1.U &&
-                     !io.opFlags.branch && !io.opFlags.execOp && !io.opFlags.rvNoWrite &&
-                     (io.opFlags.exany || io.execActive)
+    // Taken with the instruction at issue, not from the live decode: with cfg.pipelined the next
+    // instruction is decoded while this one writes back.
+    val wbWrites = RegEnable(!io.opFlags.branch && !io.opFlags.execOp && !io.opFlags.rvNoWrite, false.B, io.fmaStart)
+    val wbExany  = RegEnable(io.opFlags.exany, false.B, io.fmaStart)
+    val wbRd     = RegEnable(regs.rd, 0.U, io.fmaStart)
+    val wbCsrw   = RegEnable(io.opFlags.csrw, false.B, io.fmaStart)
+    val wbCsr    = RegEnable(io.opFlags.csr, 0.U, io.fmaStart)
+    val pipe_write = running && is_busy && busy_counter === 1.U && wbWrites && (wbExany || io.execActive)
     val w_en = mmio_write || pipe_write
     // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:
     // this branch is only selected when mmio_write is true, which bounds
     // io.bus.address to the 32-word GPR region.
-    val w_addr = Mux(pipe_write, regs.rd, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
+    val w_addr = Mux(pipe_write, wbRd, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
     // is_frcp_reg/is_frsq_reg are mutually exclusive (decoded
     // from distinct funct7 values); special_result already internally
     // selects the right op's result (see computeFp16Special's `op` mux).
@@ -498,8 +503,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeReg(w_addr, w_en, w_data)
-    io.csrWrite.en   := running && is_busy && busy_counter === 1.U && io.opFlags.csrw && io.execActive
-    io.csrWrite.addr := io.opFlags.csr
+    io.csrWrite.en   := running && is_busy && busy_counter === 1.U && wbCsrw && io.execActive
+    io.csrWrite.addr := wbCsr
     io.csrWrite.data := recA_raw
 
     // Memory-FSM write-back override (TEX's texel, or LOAD's word).
