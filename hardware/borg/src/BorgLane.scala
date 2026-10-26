@@ -14,7 +14,7 @@ import chisel3.util._
   *
   * Everything that is SHARED across lanes stays in [[BorgCore]] and is supplied
   * here as inputs: the decoded instruction (`regs`/`opFlags`), the pipeline
-  * control (`busyCounter`/`running`/`isBusy`/`fmaStart`), the single uniform-RAM
+  * control (`stages`/`running`/`fmaStart`), the single uniform-RAM
   * read result (`uniformData`/`funct3Del`), the MMIO bus, LUT init, and the
   * memory write-back (`memWrite`) from the shared LOAD/STORE and TEX FSMs.
   *
@@ -47,9 +47,8 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None
   // This lane's destination word, for TLD.
   val dstWord     = if (cfg.drawEnabled) Some(Input(Vec(2, UInt(32.W)))) else None
-  val busyCounter = Input(UInt(cfg.busyCounterWidth.W))
+  val stages      = Input(UInt(cfg.cBusyLoad.W))   // BorgCore.stages
   val running     = Input(Bool())
-  val isBusy      = Input(Bool())
   val fmaStart    = Input(Bool())
   val decode      = Input(Bool())   // operand reads: idle, or the previous write-back (cfg.pipelined)
   val seqBusy     = Input(Bool())
@@ -98,7 +97,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // largest structural cost found in the whole ASIC area campaign). Serializing
   // the 3 reads over 3 extra pipeline cycles trades cycles -- free at the
   // ASIC's 4MHz -- for ~88,000 um^2. See wireGprReads() and BorgCore's
-  // busy_counter doc comment (countdown widened 4->7 to make room).
+  // timing doc comment (stages widened 4->7 to make room).
   val regFile = Module(new RegFileCopy(config.totalBits, "regFile"))
   // cfg.regReadPorts == 3: copies for rs2 and rs3, written with regFile, so decode reads all three.
   private val regFilesBC = Seq("regFileB", "regFileC").filter(_ => cfg.regReadPorts == 3)
@@ -108,8 +107,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val rcpRom  = VecInit(BorgLutTables.rcpLut.map(_.U(10.W)))
   private val frsqRom = VecInit(BorgLutTables.frsqLut.map(_.U(10.W)))
 
-  private val busy_counter = io.busyCounter
-  private val is_busy      = io.isBusy
+  private def at(k: Int): Bool = io.stages(k - 1)
+  private val is_busy      = io.stages.orR
   private val running      = io.running
   private val regs         = io.regs
   private val opFlags      = io.opFlags
@@ -140,7 +139,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     if (config.totalBits == 16) h else Fp16Fp32.widen(h)
   private def pixelCentre(i: UInt): UInt =
     if (config.totalBits == 32) pixelToFP32Half(i) else coordToRegWidth(pixelToFP16Half(i))
-  private val coordReadEn = io.decode || (is_busy && busy_counter >= 2.U)
+  private val coordReadEn = io.decode || io.stages(cfg.cBusyLoad - 1, 1).orR
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
   // Muxed ahead of the registers, not on the read path, so compute mode adds
@@ -191,18 +190,18 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * physical register-file copies, one per simultaneously-needed operand --
     * see the `regFile` declaration above for the area rationale).
     *
-    * Shader execution needs rs1/rs2/rs3 all valid by busy_counter==4 (when the
+    * Shader execution needs rs1/rs2/rs3 all valid by stage 4 (when the
     * FMA/frcp/frsq/int-ALU pipeline captures them -- unchanged from the
     * original 3-port design). With one port, SyncReadMem's 1-cycle read
     * latency means the 3 reads must be issued on 3 *different* prior cycles:
-    *   decode (rs1) -> busy_counter==7 (rs2, + rs1's result now ready) ->
-    *   busy_counter==6 (rs3, + rs2's result now ready) -> busy_counter==5
-    *   (rs3's result now ready) -> busy_counter==4 (all 3 held, pipeline
+    *   decode (rs1) -> stage 7 (rs2, + rs1's result now ready) ->
+    *   stage 6 (rs3, + rs2's result now ready) -> stage 5
+    *   (rs3's result now ready) -> stage 4 (all 3 held, pipeline
     *   starts, same trigger value as before the retiming).
     * Each result is captured into its own hold register the cycle it becomes
     * ready and stays stable from then on (regs.rs1/rs2/rs3 don't change
     * during a single instruction's execution, so re-reading was always
-    * redundant -- BorgCore only advances the PC at busy_counter==1).
+    * redundant -- BorgCore only advances the PC at stage 1).
     *
     * MMIO reads (software register access while idle) reuse the same port;
     * mutually exclusive with the shader-execution window by construction
@@ -218,12 +217,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // subtract/shift width-growth adds are provably always zero here.
     val mmioAddr = ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)
 
-    // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6; all three at decode with
+    // Issue cycles: rs1 at decode, rs2 at stage 7, rs3 at stage 6; all three at decode with
     // three ports.
     val atDecode = io.decode
     val three = regFilesBC.nonEmpty
-    val atRs2 = if (three) atDecode else is_busy && busy_counter === cfg.cRs2.U
-    val atRs3 = if (three) atDecode else is_busy && busy_counter === cfg.cRs3.U
+    val atRs2 = if (three) atDecode else at(cfg.cRs2)
+    val atRs3 = if (three) atDecode else at(cfg.cRs3)
 
     regFile.io.rd.addr := Mux(mmioEn, mmioAddr, if (three) regs.rs1 else Mux(atDecode, regs.rs1, Mux(atRs2, regs.rs2, regs.rs3)))
     regFile.io.rd.en   := mmioEn || atDecode || atRs2 || atRs3
@@ -235,15 +234,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mmioAddrDel = RegEnable(mmioAddr, mmioEn)
 
     // Capture cycles: one cycle after each issue (SyncReadMem's read latency)
-    // -- rs1's result lands at busy==7, rs2's at busy==6, rs3's at busy==5.
+    // -- rs1's result lands at stage 7, rs2's at stage 6, rs3's at stage 5.
     val rs1IdxDel = RegEnable(regs.rs1, atDecode)
     val rs2IdxDel = RegEnable(regs.rs2, atRs2)
     val rs3IdxDel = RegEnable(regs.rs3, atRs3)
-    val atHoldA = is_busy && busy_counter === cfg.cRs2.U
-    val atHoldB = is_busy && busy_counter === (if (three) cfg.cHoldC else cfg.cRs3).U
+    val atHoldA = at(cfg.cRs2)
+    val atHoldB = at(if (three) cfg.cHoldC else cfg.cRs3)
     val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atHoldA)
     val holdB = RegEnable(resolveCoordReg(dataB, rs2IdxDel), 0.U(config.totalBits.W), atHoldB)
-    val holdC = RegEnable(resolveCoordReg(dataC, rs3IdxDel), 0.U(config.totalBits.W), is_busy && busy_counter === cfg.cHoldC.U)
+    val holdC = RegEnable(resolveCoordReg(dataC, rs3IdxDel), 0.U(config.totalBits.W), at(cfg.cHoldC))
     val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
 
     (holdA, holdB, holdC, mmioD)
@@ -285,8 +284,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
         // Registered result ready for write-back/snoop at counter==1.
-        fma.io.pipeEn1 := is_busy && busy_counter === cfg.cOperands.U
-        fma.io.pipeEn2 := is_busy && busy_counter === cfg.cPipeEn2.U
+        fma.io.pipeEn1 := at(cfg.cOperands)
+        fma.io.pipeEn2 := at(cfg.cPipeEn2)
         fma.io.out
       }
     // @doc:end
@@ -350,8 +349,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // path, not the FMA path. Its operands come from holdA, which an extra FMA
     // stage makes available EARLIER (cRs2 moves up), and its result still has
     // to land at write-back (counter==1), which never moves.
-    val valReg  = RegEnable(rawVal,  is_busy && busy_counter === 3.U)
-    val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
+    val valReg  = RegEnable(rawVal,  at(3))
+    val nextReg = RegEnable(rawNext, at(3))
 
     val special = Module(new Fp16Special)
     // Fp16Special stays FP16-internal (existing LUT hardware) regardless of
@@ -377,7 +376,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   /** Integer ALU (16-bit, on the raw register bits). Flags latch at `start` like
     * the FP ops; results are combinational on the operands, valid at write-back
-    * (busy_counter==1), same as frcp. Returns (result, is_integer_op). */
+    * (stage 1), same as frcp. Returns (result, is_integer_op). */
   private def wireIntAlu(recA_raw: UInt, recB_raw: UInt, start: Bool): (UInt, Bool) = {
     val is_iadd_reg = RegInit(false.B)
     val is_ishl_reg = RegInit(false.B)
@@ -488,7 +487,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val wbRd     = RegEnable(regs.rd, 0.U, io.fmaStart)
     val wbCsrw   = RegEnable(io.opFlags.csrw, false.B, io.fmaStart)
     val wbCsr    = RegEnable(io.opFlags.csr, 0.U, io.fmaStart)
-    val pipe_write = running && is_busy && busy_counter === 1.U && wbWrites && (wbExany || io.execActive)
+    val pipe_write = running && at(1) && wbWrites && (wbExany || io.execActive)
     val w_en = mmio_write || pipe_write
     // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:
     // this branch is only selected when mmio_write is true, which bounds
@@ -504,7 +503,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeReg(w_addr, w_en, w_data)
-    io.csrWrite.en   := running && is_busy && busy_counter === 1.U && wbCsrw && io.execActive
+    io.csrWrite.en   := running && at(1) && wbCsrw && io.execActive
     io.csrWrite.addr := wbCsr
     io.csrWrite.data := recA_raw
 

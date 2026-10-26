@@ -15,18 +15,18 @@ import chisel3.util.*
   * times.  At `fragLanes==1` (current default) a single lane reproduces the
   * original monolithic core bit-for-bit.
   *
-  * Pipeline timing (busy_counter counts cfg.cBusyLoad→0; 7→0 at fmaStages=3,
-  * 8→0 at 4, 9→0 at 5 -- see BorgConfig's cPipeEn2/cOperands/cRs2 table):
+  * Pipeline timing (an instruction moves through stages cfg.cBusyLoad→1; 7→1 at fmaStages=3,
+  * 8→1 at 4, 9→1 at 5 -- see BorgConfig's cPipeEn2/cOperands/cRs2 table):
   *   cRs2..cHoldC: rs1/rs2/rs3 read serially, one per cycle, off the lane's single
   *         register-file port (was 3 parallel ports/copies -- see BorgLane's
   *         `regFile` doc comment for the area rationale); each result is
   *         captured into a hold register the cycle after it's issued. With
-  *         cfg.regReadPorts == 3 all three are read at decode (5→0 at fmaStages=3).
+  *         cfg.regReadPorts == 3 all three are read at decode (5→1 at fmaStages=3).
   *   cOperands..2: Stage 1 — operand reads valid (now held, not live); op-type flags
   *         latched (in the lane) at decode
   *   2→1:  Lane pipeline register captures the FMA mid-result
   *   1:    Stage 2 — round; register file written
-  *   0:    idle — next instruction can start
+  *   none: idle — next instruction can start
   */
 
 /** One instruction-cache line's state when it lives in a RAM (BorgCore.icacheLinesRam). */
@@ -182,8 +182,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:end
 
   // --- Pipeline Control ---
-  val busy_counter = RegInit(0.U(cfg.busyCounterWidth.W))
-  val is_busy = busy_counter > 0.U
+  // Bit k - 1: an instruction in stage k, counting down from cfg.cBusyLoad (operands read) to 1
+  // (write-back). The stall FSMs hold or squash it.
+  val stages = RegInit(0.U(cfg.cBusyLoad.W))
+  def at(k: Int): Bool = stages(k - 1)
+  val is_busy = stages.orR
+  val holdPipe = WireDefault(false.B); val squashPipe = WireDefault(false.B)
 
   // --- Branch decision (declared before the fetch that consumes it) ---
   //
@@ -230,7 +234,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val pcAdvance = if (cfg.pipelined) 2 else 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC =
-    Mux(is_busy && busy_counter === pcAdvance.U, pcAfterThis, programCounter)
+    Mux(at(pcAdvance), pcAfterThis, programCounter)
   val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
   private val rasterWord = drawRasterRom.map { rom =>
     val short = io.drawSingle.get && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
@@ -271,7 +275,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val readsLast = lastWrites && lastRd =/= 0.U &&
     Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
       .map { case (used, rs) => used && rs === lastRd }.reduce(_ || _)
-  val overlap = cfg.pipelined.B && is_busy && busy_counter === 1.U && !readsLast
+  val overlap = cfg.pipelined.B && at(1) && !readsLast
   val decoding = running && (!is_busy || overlap)
   val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
   when(fma_start) {
@@ -288,9 +292,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   lanes.foreach { lane =>
     lane.io.regs        := regs
     lane.io.opFlags     := opFlags
-    lane.io.busyCounter := busy_counter
+    lane.io.stages      := stages
     lane.io.running     := running
-    lane.io.isBusy      := is_busy
     lane.io.fmaStart    := fma_start
     lane.io.decode      := decoding
     lane.io.seqBusy     := io.seqBusy
@@ -470,15 +473,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   // @doc:end
 
-  /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
+  /** Fetch/execute FSM: issue into the stages, advance them, advance the PC. */
   private def runPipeline(fma_start: Bool): Unit = {
     // @doc:fetch-execute
-    when(is_busy) {
-      busy_counter := busy_counter - 1.U
-      when(busy_counter === pcAdvance.U) {
-        programCounter := pcAfterThis
-      }
-    }
+    stages := Cat(fma_start && !opFlags.barrier, stages(cfg.cBusyLoad - 1, 1))
+    when(at(pcAdvance)) { programCounter := pcAfterThis }
     when(decoding && !texResumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
         running      := false.B
@@ -492,8 +491,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         running      := false.B
         atBarrierReg := true.B
         barrierPCReg := (programCounter + 1.U)(cfg.pcBits - 1, 0)
-      }.otherwise {
-        busy_counter := cfg.cBusyLoad.U
       }
     }
 
@@ -506,8 +503,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(io.control.reset) {
       programCounter := io.control.startPC
       running := false.B
-      busy_counter := 0.U
+      stages := 0.U
     }
+    when(holdPipe) { stages := stages }
+    when(squashPipe) { stages := 0.U }
     // @doc:end
 
     when(io.coreTrigger.valid) {
@@ -564,7 +563,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** ISA v2 operands that are no register: x0, LUI's zero, AUIPC's address, immediates. Latched
     * with the uniform read. */
   private def wireRvOperands(): (Valid[UInt], Valid[UInt]) = {
-    val op_en = decoding || (is_busy && busy_counter >= 2.U)
+    val op_en = decoding || stages(cfg.cBusyLoad - 1, 1).orR
     val rv = RvInt(fetchedInstruction)
     val w = cfg.totalBits
     def latch(valid: Bool, bits: UInt) = {
@@ -583,7 +582,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * lanes' operand mux.  The address is instruction-derived (shared), so one
     * read serves every lane. */
   private def wireUniformRead(): (UInt, UInt) = {
-    val op_en = decoding || (is_busy && busy_counter >= 2.U)
+    val op_en = decoding || stages(cfg.cBusyLoad - 1, 1).orR
     val op_en_del = RegNext(op_en, false.B)
     val funct3_del = RegEnable(opFlags.funct3, op_en)
 
@@ -797,7 +796,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     def finish(): Unit = {
       st := sIdle
       is_tex_reg := false.B; is_texa_reg := false.B; is_texs_reg := false.B
-      busy_counter := 0.U
+      squashPipe := true.B
       programCounter := programCounter + 1.U
       texResumeDelay := true.B
     }
@@ -814,29 +813,29 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     sampler.io.respReady := st === sAck
 
-    when(is_busy && busy_counter === cfg.cOperands.U && is_texs_reg) {
+    when(at(cfg.cOperands) && is_texs_reg) {
       sAddrReg := lead(uOps); sCtlReg := lead(vOps)
       finish()
     }
-    when(is_busy && busy_counter === cfg.cOperands.U && is_texa_reg) {
+    when(at(cfg.cOperands) && is_texa_reg) {
       for (i <- 0 until N) { auxW(i) := uOps(i); auxLod(i) := vOps(i); auxRef(i) := cOps(i) }
       finish()
     }
-    when(is_busy && busy_counter === cfg.cOperands.U && is_tex_reg && st === sIdle) {
+    when(at(cfg.cOperands) && is_tex_reg && st === sIdle) {
       sampler.io.req.valid := true.B
       rdReg := regs.rd
-      busy_counter := busy_counter
+      holdPipe := true.B
       st := sWait
     }
     when(st === sWait) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       when(sampler.io.resp.valid) {
         respLane := sampler.io.resp.bits.lane; respData := sampler.io.resp.bits.data
         wbK := 0.U; st := sWB
       }
     }
     when(st === sWB) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       memWrites.zipWithIndex.foreach { case (mw, i) =>
         mw.en   := i.U === respLane && execMask(i)
         mw.addr := rdReg + wbK
@@ -845,7 +844,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(wbK === 3.U) { st := sAck }.otherwise { wbK := wbK + 1.U }
     }
     when(st === sAck) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       when(sampler.io.done) { finish() }.otherwise { st := sWait }
     }
 
@@ -875,16 +874,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val active = RegInit(false.B)
     val issue = RegInit(0.U(log2Up(N + 1).W)); val back = RegInit(0.U(log2Up(N + 1).W))
     val rdReg = RegInit(0.U(5.W))
-    when(is_busy && busy_counter === cfg.cOperands.U && isOp && !active) {
+    when(at(cfg.cOperands) && isOp && !active) {
       active := true.B; issue := 0.U; back := 0.U; rdReg := regs.rd
-      busy_counter := busy_counter
+      holdPipe := true.B
     }
     val wide = (v: UInt) => if (config.totalBits > 16) v.pad(32) else Fp16Fp32.widen(v(15, 0))
     unit.io.log := isLog
     unit.io.in.valid := active && issue < N.U
     unit.io.in.bits  := wide(VecInit(aOps)(issue((log2Up(N) max 1) - 1, 0)))
     when(active) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       when(issue < N.U) { issue := issue + 1.U }
     }
     when(active && unit.io.out.valid) {
@@ -897,7 +896,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       back := back + 1.U
       when(back === (N - 1).U) {
         active := false.B; isOp := false.B
-        busy_counter := 0.U
+        squashPipe := true.B
         programCounter := programCounter + 1.U
         texResumeDelay := true.B
       }
@@ -907,19 +906,19 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** ZTEST stall. Same freeze-at-operands shape as TEX/TEXA and LOAD/STORE, but
     * there is no per-lane loop here: the dispatcher tests every lane of the
     * quad itself (it owns the tile buffer) and answers once. Resuming by
-    * setting busy_counter to 0 skips the lanes' write-back cycle, so ZTEST
+    * squashing the stages skips the lanes' write-back cycle, so ZTEST
     * writes no register, exactly like STORE. */
   private def wireZTest(): Unit = {
     val is_ztest_reg = RegInit(false.B)
     when(decoding && fetchedInstruction =/= 0.U) {
       is_ztest_reg := opFlags.ztest
     }
-    val waiting = is_busy && busy_counter === cfg.cOperands.U && is_ztest_reg
+    val waiting = at(cfg.cOperands) && is_ztest_reg
     io.zTestReq := waiting
     when(waiting) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       when(io.zTestDone) {
-        busy_counter   := 0.U
+        squashPipe   := true.B
         programCounter := programCounter + 1.U
         is_ztest_reg   := false.B
         // IMEM still holds the ZTEST word for a cycle, same as the other stall FSMs.
@@ -933,11 +932,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     *
     * Structurally the same shape as [[wireSampler]], and deliberately so:
     * latch the op at fetch, start once operands are valid, freeze
-    * `busy_counter` so the pipeline stalls, serialize over lanes, then resume
+    * the stages so the pipeline stalls, serialize over lanes, then resume
     * past the instruction. Two consequences of freezing at 4 are load-bearing
     * rather than incidental:
     *
-    *  - the lane's own ALU write-back fires at `busy_counter === 1`, which is
+    *  - the lane's own ALU write-back fires at stage 1, which is
     *    never reached while frozen, so a LOAD/STORE produces no spurious
     *    arithmetic result even though BorgLane has no decode for it;
     *  - the register read ports stay valid, so the address and store-data
@@ -1029,7 +1028,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.memBusy      := memState =/= sMemIdle
 
     // Start once operands are valid, exactly like TEX/TEXA.
-    when(is_busy && busy_counter === cfg.cOperands.U && (is_load_reg || is_store_reg)) {
+    when(at(cfg.cOperands) && (is_load_reg || is_store_reg)) {
       memRdReg := regs.rd
       memLane  := 0.U
       memState := sMemReq
@@ -1037,7 +1036,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     // FATTR is one access for the whole quad, not one per lane: the three
     // per-vertex values are the same for every fragment of the triangle.
-    when(is_busy && busy_counter === cfg.cOperands.U && is_fattr_reg) {
+    when(at(cfg.cOperands) && is_fattr_reg) {
       memRdReg := regs.rd
       attrK    := 0.U
       memState := sAttrReq
@@ -1051,7 +1050,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_store_reg := false.B
       is_sout_reg  := false.B
       is_fattr_reg := false.B
-      busy_counter := 0.U
+      squashPipe := true.B
       programCounter := programCounter + 1.U
       // Same one-cycle suppression as the other stall FSMs: IMEM still holds the stale
       // LOAD/STORE opcode for a cycle after we resume.
@@ -1065,7 +1064,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }.otherwise {
         memLane      := memLane + 1.U
         memState     := sMemReq
-        busy_counter := busy_counter
+        holdPipe := true.B
       }
     }
 
@@ -1086,12 +1085,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                      !((is_store_reg || isAmo) && !io.seqBusy && io.laneHelper.get(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       finishLane()
     }
 
     when(memState === sMemReq && laneActive) {
-      busy_counter    := busy_counter   // hold operands stable
+      holdPipe    := true.B   // hold operands stable
       io.gpuMem.get.addr  := byteAddr
       io.gpuMem.get.req   := is_load_reg
       io.gpuMem.get.wr    := is_store_reg
@@ -1113,7 +1112,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // AMO: the new value goes to the same word, then rd gets the old one.
     when(memState === sAmoWr) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       io.gpuMem.get.addr  := byteAddr
       io.gpuMem.get.wr    := true.B
       io.gpuMem.get.wdata := amoNew
@@ -1121,7 +1120,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     when(memState === sMemWB) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       memWrites.zipWithIndex.foreach { case (mw, i) =>
         mw.en   := i.U === memLane && !(rvMem && memRdReg === 0.U)
         mw.addr := memRdReg
@@ -1190,7 +1189,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     /** Read FATTR's word from DRAM, then write it back (and cache it). */
     def attrFromMemory(): Unit = {
-      busy_counter       := busy_counter
+      holdPipe       := true.B
       io.gpuMem.get.addr := byteAddr
       io.gpuMem.get.req  := true.B
       when(io.gpuMem.get.ready) {
@@ -1200,7 +1199,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     when(memState === sAttrReq) {
       if (cfg.fattrCacheEnabled) {
-        busy_counter := busy_counter
+        holdPipe := true.B
         fcAddrReg    := byteAddr(GpuMemIO.AddrBits - 1, 2)
         memState     := sAttrLook
       } else {
@@ -1209,7 +1208,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     fcReadData.foreach { e =>
       when(memState === sAttrLook) {
-        busy_counter := busy_counter
+        holdPipe := true.B
         val eTag   = e(fcWidth - 1, 8 + config.totalBits)
         val eEpoch = e(8 + config.totalBits - 1, config.totalBits)
         when(!fcSweeping && eEpoch === fcEpoch && eTag === fcAddrReg) {
@@ -1225,7 +1224,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     when(memState === sAttrWB) {
-      busy_counter := busy_counter
+      holdPipe := true.B
       // A word that came from DRAM (the cache missed) is now in memDataReg.
       fcFill := fcFromMem
       memWrites.zipWithIndex.foreach { case (mw, i) =>
@@ -1246,7 +1245,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:branch
   /** Conditional branch: `BRZ`/`BRNZ rs1, target`.
     *
-    * Evaluated at busy_counter 4 -- the same point wireSampler and
+    * Evaluated at stage cOperands -- the same point wireSampler and
     * wireMemStall take their operands, for the same reason (the register read
     * ports are settled) -- and consumed at 1, where the PC advances. The
     * one-cycle-early `nextPC` already reads the target, so a taken branch
@@ -1279,7 +1278,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val takeIt = (rv.br && rvLead) || rv.jal
     val offset = Mux(rv.jal, rv.jalOff, rv.brOff)
 
-    when(is_busy && busy_counter === cfg.cOperands.U) {
+    when(at(cfg.cOperands)) {
       brTakenReg  := opFlags.branch && takeIt
       brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
       val rvSplit = rvConds.zip(execMask.asBools).map { case (c, on) => on && c =/= rvLead }.reduce(_ || _)
@@ -1296,7 +1295,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     // Consumed by the PC advance this cycle; must not survive into the next
     // instruction or every op after a taken branch would branch too.
-    when(is_busy && busy_counter === 1.U) { brTakenReg := false.B }
+    when(at(1)) { brTakenReg := false.B }
   }
   // @doc:end
 
@@ -1319,7 +1318,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * the full mask instead would re-activate lanes the enclosing `if` had
     * already masked off, which is the classic bug here.
     *
-    * Evaluated at busy_counter 4, the same point every other operand-reading
+    * Evaluated at stage cOperands, the same point every other operand-reading
     * FSM uses.
     *
     * Not covered: a divergent LOOP, where lanes exit at different iterations.
@@ -1341,7 +1340,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val spIdx  = execSp(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
     val spPrev = (execSp - 1.U)(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
 
-    when(is_busy && busy_counter === cfg.cOperands.U && opFlags.execOp) {
+    when(at(cfg.cOperands) && opFlags.execOp) {
       when(opFlags.expush) {
         when(execSp === EXEC_STACK_DEPTH.U) {
           execFault := true.B          // no room; results will be wrong
