@@ -63,6 +63,14 @@ object BorgPipelineTests extends TestSuite {
       utest.assert(cu - cp == 1)
     }
 
+    utest.test("immediate_is_no_hazard") {
+      // Each ADDI's immediate (the rs2 field) equals the rd of the IADD before it.
+      val prog = (3 to 9 by 2).flatMap(rd => Seq(Instructions.IADD(1, 2, rd), Opcodes.ADDI(rd + 1, 1, rd)))
+      val (cu, cp, r) = both("IADD, ADDI with imm = rd before", ints, prog, 3 to 10)
+      utest.assert(r == (3 to 10).map(rd => BigInt(if (rd % 2 == 1) 8 else 4 + rd)))
+      utest.assert(cu - cp == prog.length)
+    }
+
     utest.test("branch_target_with_the_early_fetch") {
       // r5 counts the iterations of a loop over r1 = 5 .. 1.
       val minusOne = (BigInt(1) << 32) - 1

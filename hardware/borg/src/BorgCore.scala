@@ -267,7 +267,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // One-entry scoreboard: the instruction in write-back, and whether it writes a register the
   // next one reads (its operands are read in that same cycle).
   val lastWrites = RegInit(false.B); val lastRd = RegInit(0.U(5.W))
-  val readsLast = lastWrites && lastRd =/= 0.U && Seq(regs.rs1, regs.rs2, regs.rs3).map(_ === lastRd).reduce(_ || _)
+  val next = RvInt(fetchedInstruction)
+  val readsLast = lastWrites && lastRd =/= 0.U &&
+    Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
+      .map { case (used, rs) => used && rs === lastRd }.reduce(_ || _)
   val overlap = cfg.pipelined.B && is_busy && busy_counter === 1.U && !readsLast
   val decoding = running && (!is_busy || overlap)
   val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
