@@ -178,7 +178,12 @@ test-cocotb-soc-borg-rtl: generate_verilog
 rust-project:
 	python3 scripts/rust_project.py
 
-test-borgvk:
+# A fresh checkout (CI) has no mesa build; native compilers, the devshell's CC targets RISC-V.
+mesa/build-borg/build.ninja:
+	CC=cc CXX=g++ meson setup mesa/build-borg -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
+	  -Dcpp_rtti=false -Dtools=drm-shim -Dbuild-tests=false
+
+test-borgvk: mesa/build-borg/build.ninja
 	meson test -C mesa/build-borg --suite borg
 
 test-chisel-borg:
