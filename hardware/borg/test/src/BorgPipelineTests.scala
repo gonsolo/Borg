@@ -18,10 +18,11 @@ object BorgPipelineTests extends TestSuite {
 
   /** (cycles from start until the core stops, the registers in `readBack`) */
   private def run(cfg: BorgConfig, operands: Seq[(Int, BigInt)], prog: Seq[BigInt],
-                  readBack: Seq[Int]): (Int, Seq[BigInt]) = {
+                  readBack: Seq[Int], quad: Boolean = false): (Int, Seq[BigInt]) = {
     var result = (0, Seq.empty[BigInt])
     simulate(new BorgCore(cfg)) { core =>
       idleInputs(core)
+      if (quad) pokeQuad(core)
       resetCore(core)
       operands.foreach { case (i, b) => writeReg(core, i, b) }
       (prog :+ BigInt(0)).zipWithIndex.foreach { case (instr, slot) => writeImem(core, slot, instr) }
@@ -42,6 +43,19 @@ object BorgPipelineTests extends TestSuite {
     println(f"  $name%-34s cycles $cu -> $cp, ${rp.map(b => f"0x$b%x").mkString(",")}")
     utest.assert(rp == ru)
     (cu, cp, rp)
+  }
+
+  private def withMem(cfg: BorgConfig, prog: Seq[BigInt], readBack: Seq[Int],
+                      mem: scala.collection.mutable.Map[BigInt, BigInt]): Seq[BigInt] = {
+    var result = Seq.empty[BigInt]
+    simulate(new BorgCore(cfg)) { core =>
+      idleInputs(core)
+      resetCore(core)
+      (prog :+ BigInt(0)).zipWithIndex.foreach { case (instr, slot) => writeImem(core, slot, instr) }
+      startAndWaitWithMem(core, mem)
+      result = readBack.map(readReg(core, _))
+    }
+    result
   }
 
   private val ints = Seq(1 -> BigInt(5), 2 -> BigInt(3))
@@ -80,6 +94,44 @@ object BorgPipelineTests extends TestSuite {
         Instructions.BRNZ(1, -2))
       val (_, _, r) = both("loop of 5", Seq(1 -> BigInt(5), 2 -> minusOne, 5 -> BigInt(0), 6 -> BigInt(1)), prog, Seq(1, 5))
       utest.assert(r == Seq(BigInt(0), BigInt(5)))
+    }
+
+    utest.test("write_after_write_keeps_program_order") {
+      // An FP result and an integer one to the same register, both orders.
+      val prog = Seq(Instructions.ADD(7, 7, 3), Instructions.IADD(1, 2, 3),
+                     Instructions.IADD(1, 2, 4), Instructions.ADD(7, 7, 4))
+      val (_, _, r) = both("FADD/IADD to one register", ints :+ (7 -> floatToBits(1.0f)), prog, Seq(3, 4))
+      utest.assert(r == Seq(BigInt(8), floatToBits(2.0f)))
+    }
+
+    utest.test("taken_branch_right_after_an_independent_instruction") {
+      val prog = Seq(Opcodes.ADDI(3, 0, 7), Opcodes.BEQ(8, 0, 0), Opcodes.ADDI(4, 0, 99), Opcodes.ADDI(5, 0, 5))
+      val (_, _, r) = both("ADDI, taken BEQ", Seq(4 -> BigInt(0), 5 -> BigInt(0)), prog, Seq(3, 4, 5))
+      utest.assert(r == Seq(BigInt(7), BigInt(0), BigInt(5)))
+    }
+
+    utest.test("load_feeds_the_next_instruction") {
+      val prog = Seq(Opcodes.ADDI(1, 0, 0x100), Opcodes.LW(2, 1, 0), Instructions.IADD(2, 2, 3),
+                     Opcodes.SW(4, 1, 3), Opcodes.ADDI(5, 0, 1))
+      val mems = Seq(piped, unpiped).map { cfg =>
+        val mem = scala.collection.mutable.Map(BigInt(0x100) -> BigInt(21))
+        (withMem(cfg, prog, Seq(2, 3, 5), mem), mem.get(0x104))
+      }
+      println(s"  LW, dependent IADD, SW: ${mems.head}")
+      utest.assert(mems.head == mems(1))
+      utest.assert(mems.head == (Seq(BigInt(21), BigInt(42), BigInt(1)), Some(BigInt(42))))
+    }
+
+    utest.test("expush_leaves_the_instruction_before_it_unmasked") {
+      // r5 = 0, 1, 0, 1 across the quad: EXPUSH masks lane 0, the only one readable. r8's ADD is
+      // still in flight when EXPUSH changes the mask; r6's issues after it.
+      val prog = Seq(Instructions.F2I(30, 5)) ++ (10 to 14).map(Instructions.ADD(7, 7, _)) ++
+        Seq(Instructions.ADD(7, 7, 8), Instructions.EXPUSH(rs1 = 5), Instructions.ADD(7, 7, 6), Instructions.EXPOP())
+      val ops = Seq(6 -> floatToBits(9.0f), 8 -> floatToBits(9.0f), 7 -> floatToBits(1.0f))
+      val res = Seq(SIMT, SIMT.copy(pipelined = false)).map(run(_, ops, prog, Seq(6, 8), quad = true))
+      println(s"  lane 0 r6, r8 = ${res.map(_._2.map(b => bitsToFloat(b)))}, cycles ${res.map(_._1)}")
+      utest.assert(res(0)._2 == res(1)._2)
+      utest.assert(res(0)._2 == Seq(floatToBits(9.0f), floatToBits(2.0f)))
     }
   }
 }
