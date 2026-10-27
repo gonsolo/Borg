@@ -109,7 +109,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // loadOp = LOAD: brings a tile's attachments back from DRAM (the flusher's
   // reverse). Shares the flusher's reset copy: the two are one attachment path.
   val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil, cfg.tileDepthBits, cfg.samples)) }
-  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass, cfg.tileDepthBits, rawExt)) }
+  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.tileDepthBits, rawExt)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
   val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
@@ -618,20 +618,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tile.io.extActive.foreach(_ := FlushFormat.is64(attFormat))
     tile.io.srgb := attSrgb
     tile.io.extClear.foreach(_ := attClearExt)
-
-    // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) --------------
-    // The sequencer renders the tile once per sample and folds each finished
-    // pass into the accumulator; `resolve` switches the read port to the
-    // average for the flush.
-    tile.io.pass.foreach { p =>
-      val sp = s.io.pass.get
-      p.sampleIdx  := sp.sampleIdx
-      rast.io.passSample.get := sp.sampleIdx
-      p.accumEn    := sp.accumEn
-      p.accumFirst := sp.accumFirst
-      p.resolve    := sp.resolve
-      sp.accumBusy := p.accumBusy
-    }
   }
 
   /** Step 25.4.1: Wire BorgTileFlusher with real DRAM writes.
@@ -716,20 +702,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     val stencilTileBase = stencilBaseReg + msScale(seqTileOffset >> 1)
 
-    // Per-sample attachments. At msaaMultiPass the tile buffer holds only the
-    // pass's sample, so store and load name it; otherwise they walk them all.
+    // Per-sample attachments: store and load walk every sample.
     when(bus.is_writing && bus.address === BorgGpuRegs.attach_ms_offset) {
       attachMsReg := bus.data_in(0) && (cfg.samples > 1).B
     }
-    def passSample(m: Valid[UInt]): Unit = {
-      m.valid := cfg.msaaMultiPass.B
-      m.bits  := s.io.pass.map(_.sampleIdx).getOrElse(0.U)
-    }
     f.io.msStore.foreach(_ := attachMsReg)
-    f.io.msSample.foreach(passSample)
     ld.io.msLoad.foreach(_ := attachMsReg)
-    ld.io.msSample.foreach(passSample)
-    s.io.mmio.attachMs := attachMsReg
     s.io.mmio.singleSample := singleSample
     f.io.stencil.foreach(_ := tile.io.stencilRead.get)
     f.io.stencilBase.foreach(_ := Mux(seqFlushActive, stencilTileBase, stencilBaseReg))

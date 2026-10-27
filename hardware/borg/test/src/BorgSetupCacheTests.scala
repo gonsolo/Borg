@@ -52,11 +52,5 @@ object BorgSetupCacheTests extends TestSuite {
         interleaved(borg, "32 uniforms")
       }
     }
-    utest.test("interleaved_triangles_keep_their_setup_with_one_uniform_page_multipass") {
-      simulate(new BorgTestWrapper(suiteCfg.copy(maxUniforms = 32, tileColorBits = 8,
-                                                 msaaMultiPass = true))) { borg =>
-        interleaved(borg, "32 uniforms, multi-pass")
-      }
-    }
   }
 }

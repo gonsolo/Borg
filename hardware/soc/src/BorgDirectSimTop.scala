@@ -13,8 +13,8 @@ import borg.{Borg, BorgConfig, GpuMemIO}
   * memory port (`gpuMem`) from a flat byte array, so the simulated hardware is
   * exactly the `Borg` module that sits behind the CPU on the SoC targets.
   *
-  * Config follows `BORG_SIM_CFG` (default `simt`), the same as the SoC sims, so
-  * the goldens made through the firmware path stay comparable.
+  * Config is `Simt`, the same as the SoC sims, so the goldens made through the
+  * firmware path stay comparable.
   *
   * Emit FIRRTL: `mill hardware.soc.runMain soc.BorgDirectSimMain`
   */

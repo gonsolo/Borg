@@ -8,8 +8,7 @@ import chisel3.simulator.SharedSim._
 import utest._
 
 /** Multisampled attachments stored and loaded per sample (ATTACH_MS), end to
-  * end, in both MSAA storage schemes: every sample resident in the tile
-  * buffer, and msaaMultiPass (one live plane, one pass per sample -- Wafer).
+  * end, with every sample resident in the tile buffer.
   *
   * The probe is per-sample stencil. Render 1 writes stencil 7 to exactly the
   * samples its triangle covers; the diagonal edge leaves pixels partly
@@ -81,16 +80,6 @@ object BorgAttachmentMsTests extends TestSuite {
     }
     utest.test("msaa_coverage_is_per_sample_with_resident_samples") {
       simulate(new BorgTestWrapper(suiteCfg)) { borg => coverage(borg, "resident") }
-    }
-    utest.test("msaa_coverage_is_per_sample_with_multipass_msaa") {
-      simulate(new BorgTestWrapper(suiteCfg.copy(tileColorBits = 8, msaaMultiPass = true))) { borg =>
-        coverage(borg, "multi-pass")
-      }
-    }
-    utest.test("per_sample_attachments_round_trip_with_multipass_msaa") {
-      simulate(new BorgTestWrapper(suiteCfg.copy(tileColorBits = 8, msaaMultiPass = true))) { borg =>
-        roundTrip(borg, "multi-pass")
-      }
     }
   }
 }

@@ -74,23 +74,20 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val playAddr = Output(UInt(GpuMemIO.AddrBits.W))
   val playDone = Input(Bool())
 
-  // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) ----------------
-  // Flipped: BorgTileBuffer declares the directions, this pass drives them.
-  val pass = if (cfg.msaaMultiPass) Some(Flipped(new TilePassIO(cfg.samples))) else None
 }
 
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgTileSequencerIO(cfg))
 
-  val nStates = 23
+  val nStates = 22
   val states = Enum(nStates)
   val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sLoadFsConst :: sStartPass2 ::
        sReadBinCount :: sClearTile :: sLoadTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
-       sNextBinTri :: sNextRenderTile :: sAccumWait :: _) = states
+       sNextBinTri :: sNextRenderTile :: _) = states
   // (A pattern binds at most 22 names.) Render lists: play a state block; back to the triangle.
-  val sPlayState = states(21); val sResumeTri = states(22)
+  val sPlayState = states(20); val sResumeTri = states(21)
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
@@ -112,35 +109,6 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // reusing one flat register across both was a pre-split economy that no
   // longer applies once each pass is its own module.)
   val clearCounter = RegInit(0.U(5.W))
-
-  // --- Multi-pass MSAA ---------------------------------------------------
-  // At msaaMultiPass the tile is rendered once per sample rather than with
-  // every sample resident. passCtr counts the passes; the sample a pass
-  // renders is passCtr + 1 (mod samples), so SAMPLE 0 GOES LAST -- its colour
-  // and Z are then still in the working plane at flush time, which is exactly
-  // what the sample-zero depth resolve reads, so the accumulator carries no Z.
-  //
-  // accumDone gates `resolve`: a tile that skipped its passes entirely (an
-  // empty bin, flushed straight from the clear colour) must flush the working
-  // plane, not an average against a stale accumulator.
-  val passCtr   = if (cfg.msaaMultiPass) Some(RegInit(0.U(log2Up(cfg.samples).W))) else None
-  val accumDone = if (cfg.msaaMultiPass) Some(RegInit(false.B)) else None
-  private def lastPass: Bool =
-    passCtr.map(_ === (cfg.samples - 1).U).getOrElse(true.B)
-  // A single-sample render starts at the last pass, whose sample is 0: one
-  // pass, nothing accumulated, the working plane flushed as is.
-  private def firstPass: UInt = Mux(io.mmio.singleSample, (cfg.samples - 1).U, 0.U)
-
-  // Multi-pass control defaults. sampleIdx trails passCtr by one so sample 0
-  // is rendered LAST (see passCtr's comment); the 2-bit add wraps 3 -> 0.
-  // `resolve` is asserted only across the flush, and only once at least one
-  // pass has been accumulated.
-  io.pass.foreach { p =>
-    p.sampleIdx  := (passCtr.get + 1.U)(log2Up(cfg.samples) - 1, 0)
-    p.accumEn    := false.B
-    p.accumFirst := passCtr.get === 0.U
-    p.resolve    := accumDone.get && (state === sWaitFlush || state === sWaitFlushSync)
-  }
 
   // setupLoadIdx: tracks DMA word count during sLoadTriSetup (for the has_uvs
   // snoop) and is reused for the covDelta snoop in sLoadCovDelta.
@@ -332,7 +300,6 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       is(sWaitFlush)       { handleWaitFlush() }
       is(sWaitFlushSync)   { handleWaitFlushSync() }
       is(sNextRenderTile)  { handleNextRenderTile() }
-      is(sAccumWait)       { handleAccumWait() }
       is(sPlayState)       { when(io.playDone) { state := sLoadFragShader } }
       is(sResumeTri)       { uniformPage := savedPage; resumeTri := false.B; state := sEnqueueTile }
     }
@@ -418,11 +385,6 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleReadBinCount(): Unit = {
-    // A new tile starts at pass 0 with an empty accumulator. Reset here, not
-    // in sClearTile: sClearTile is re-entered once per PASS, this state only
-    // once per tile.
-    passCtr.foreach(_ := firstPass)
-    accumDone.foreach(_ := false.B)
     attPass := 0.U
     // SyncReadMem data is valid NOW (1 cycle after read was issued in
     // sStartPass2/sNextRenderTile). Capture it immediately -- the output
@@ -491,10 +453,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       // frame (had rendered content) -- clean empty tiles already hold the
       // right value in DRAM, so we can skip the 64-word SDRAM write entirely.
       when(binTriCount === 0.U) {
-        // At msaaMultiPass with per-sample attachments an empty tile still
-        // runs every pass (see handleWaitFlushSync), so never skip it.
-        val msPasses = (cfg.msaaMultiPass.B && io.mmio.attachMs) || io.mmio.attCount > 1.U
-        when(msPasses || tileWasDirty) {
+        // Every colour attachment flushes, empty or not.
+        when(io.mmio.attCount > 1.U || tileWasDirty) {
           state := sWaitFlush        // was dirty: must write clear colour to DRAM
         }.otherwise {
           state := sNextRenderTile   // already clean: skip flush
@@ -657,41 +617,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
         // Don't re-clear tile buffer -- fragments accumulate on top of clear color
         state := sReadBinEntry
       }.otherwise {
-        if (cfg.msaaMultiPass) {
-          // Every triangle covering this tile has now been rasterized for
-          // THIS pass's sample. Unless it was the last pass, fold the working
-          // plane into the accumulator and go round again for the next one.
-          // Per-sample attachments (ATTACH_MS): every pass flushes its own
-          // sample; there is nothing to accumulate.
-          when(lastPass || io.mmio.attachMs) {
-            state := sWaitFlush
-          }.otherwise {
-            clearCounter := 0.U
-            state := sAccumWait
-          }
-        } else {
-          state := sWaitFlush
-        }
+        state := sWaitFlush
       }
-    }
-  }
-
-  /** Fold the finished pass's colour into the accumulator, then restart the
-    * tile for the next sample. The sweep is 16 entries plus the SyncReadMem
-    * read latency; 20 cycles covers it with the same margin sClearTile uses. */
-  private def handleAccumWait(): Unit = {
-    clearTileComplete := true.B
-    when(clearCounter === 0.U) {
-      io.pass.foreach(_.accumEn := true.B)
-      clearCounter := 1.U
-    }.elsewhen(clearCounter < 20.U) {
-      clearCounter := clearCounter + 1.U
-    }.otherwise {
-      clearCounter := 0.U
-      accumDone.foreach(_ := true.B)
-      passCtr.foreach(pc => pc := pc + 1.U)
-      binTriIdx := 0.U
-      state := sClearTile
     }
   }
 
@@ -707,34 +634,15 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleWaitFlushSync(): Unit = {
-    // The tile again for the next colour attachment, from its first sample.
-    def nextAttachment(): Unit = {
+    // The tile again for the next colour attachment.
+    when(!io.flusher.busy) {
       when(attPass =/= io.mmio.attCount - 1.U) {
         attPass := attPass + 1.U
-        passCtr.foreach(_ := firstPass)
-        accumDone.foreach(_ := false.B)
         binTriIdx    := 0.U
         clearCounter := 0.U
         state        := sClearTile
       }.otherwise {
         state := sNextRenderTile
-      }
-    }
-    when(!io.flusher.busy) {
-      if (cfg.msaaMultiPass) {
-        // Per-sample attachments: that was one pass's sample. Go round again
-        // for the next -- even for an empty tile, whose every sample region
-        // still needs its clear (or loaded) value.
-        when(io.mmio.attachMs && !lastPass) {
-          passCtr.foreach(pc => pc := pc + 1.U)
-          binTriIdx    := 0.U
-          clearCounter := 0.U
-          state        := sClearTile
-        }.otherwise {
-          nextAttachment()
-        }
-      } else {
-        nextAttachment()
       }
     }
   }

@@ -25,7 +25,7 @@ object BorgRealSdramSimMain extends App {
 
   Emit.emitAndCollect(new BorgSimTop(clockMhz, realSdram = true), targetDir, allFiles)
   // Must match BorgSimTop's BORG_CFG, as in BorgSimMain.
-  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.simCfg), targetDir, allFiles)
+  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Simt), targetDir, allFiles)
 
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/sim_files.txt"))
   allFiles.toList.sorted.foreach(fw.println)

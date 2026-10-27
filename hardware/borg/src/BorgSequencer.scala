@@ -53,12 +53,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // TILE_LOAD.keep: a tile no triangle of this render reaches is left alone
   // (no clear, no load, no flush) -- a render that continues an attachment.
   val tileKeep        = Input(Bool())
-  // ATTACH_MS: multisampled attachments stored/loaded per sample. At
-  // msaaMultiPass each pass then flushes its own sample instead of folding it
-  // into the resolve accumulator.
-  val attachMs        = Input(Bool())
-  // SAMPLE_MASK_CFG bit 6, rasterizationSamples = 1: at msaaMultiPass a tile
-  // takes one pass (sample 0) instead of `samples`.
+  // SAMPLE_MASK_CFG bit 6, rasterizationSamples = 1.
   val singleSample    = Input(Bool())
   // DRAW_CFG's record stride (triangle t at setupBase + t << shift).
   val recordShift     = Input(UInt(4.W))
@@ -145,10 +140,6 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val flusher = new SeqFlusherIO
   val iter = new SeqIteratorIO(cfg.coordWidth)
 
-  // Multi-pass MSAA control, passed straight through from Pass 2 (only Pass 2
-  // renders tiles). Flipped for the same reason as there: BorgTileBuffer owns
-  // the directions.
-  val pass = if (cfg.msaaMultiPass) Some(Flipped(new TilePassIO(cfg.samples))) else None
   val dma = new SeqDmaIO(cfg)
 
   val busy = Output(Bool())
@@ -389,16 +380,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.record.get.attrFlush := p2.io.start
     io.topLeft.get := p2.io.topLeft.get
   }
-  // Pass-control is Pass 2's alone; Pass 1 never touches the tile buffer.
-  io.pass.foreach { w =>
-    val t = p2.io.pass.get
-    w.sampleIdx  := t.sampleIdx
-    w.accumEn    := t.accumEn
-    w.accumFirst := t.accumFirst
-    w.resolve    := t.resolve
-    t.accumBusy  := w.accumBusy
-  }
-
   p2.io.mmio := io.mmio
   p2.io.curBufIdx := curBufIdx
   // Pass 2 asks for a triangle's state block when it is not the one in the registers.

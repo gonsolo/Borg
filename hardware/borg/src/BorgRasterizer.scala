@@ -100,7 +100,6 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val zTestReq   = Input(Bool())
   val zTestDone  = Output(Bool())
   val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
-  val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
   val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
 
   // Dispatcher FSM phase (exposed for sequencer pipeline drain)
@@ -172,7 +171,6 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.zTestReq := io.zTestReq
   io.zTestDone         := dispatcher.io.zTestDone
   io.laneHelper        := dispatcher.io.laneHelper
-  dispatcher.io.passSample.foreach(_ := io.passSample.get)
   io.occSamples        := dispatcher.io.occSamples
 
   // --- Forward iterator outputs ---

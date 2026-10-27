@@ -142,38 +142,6 @@ case class BorgConfig(
     // value, which is why the dispatcher's serialized per-sample tile write
     // (see hasBlend) exists.
     hasStencil: Boolean = false,
-    // --- MSAA storage strategy ------------------------------------------
-    //
-    // false (default): every sample of the tile is resident at once --
-    // `samples` copies of the colour/Z, stencil and destination-alpha planes.
-    // 4x MSAA costs 536,286 um2 on GF180 for 3,584 bits, because only 43% of
-    // a 16-deep flop array is storage; the other 57% is its read mux and
-    // write decode, paid twelve times over.
-    //
-    // true: render each tile ONCE PER SAMPLE, keeping a single plane of each
-    // plus a per-pixel colour accumulator, and average at the end. Storage
-    // drops to ~206,000 um2 -- 8.9% of the whole design -- for roughly 4x the
-    // fragment work, because every pass re-shades the tile.
-    //
-    // This is still MSAA, not supersampling, and therefore conformant: each
-    // pass interpolates at the PIXEL CENTRE and shades identically, and only
-    // the coverage test and the depth/stencil write target the pass's own
-    // sample. The shaded value is the same every pass, so the accumulated
-    // average is exactly the MSAA resolve. Vulkan requires the fragment
-    // shader to run *at least* max(ceil(minSampleShading * rasterizationSamples), 1)
-    // times per fragment; running it more often is permitted.
-    //
-    // The semantics multi-pass WOULD disturb -- interpolateAtSample,
-    // gl_SampleID, the `sample` qualifier -- are all gated behind the
-    // optional sampleRateShading feature, which borgvk reports false
-    // (borgvk_device.c advertises only textureCompressionETC2), so the CTS
-    // cases covering them are skipped.
-    //
-    // LATENT CONSTRAINT: a fragment shader with storage writes or atomics
-    // would execute them four times instead of once, which IS observable.
-    // Borg has no fragment load/store today; adding it later would silently
-    // break conformance unless this is revisited.
-    msaaMultiPass: Boolean = false,
     // --- Extended ISA -------------------------------------------------
     //
     // Two knobs rather than one so the wafer.space area/feature tradeoff can
@@ -271,8 +239,6 @@ case class BorgConfig(
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
-  require(!msaaMultiPass || samples > 1,
-          "msaaMultiPass is meaningless at samples == 1 (there is nothing to accumulate)")
   require(tileColorBits == 16 || tileColorBits == 8,
           s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
@@ -441,38 +407,6 @@ object BorgConfig {
                           hasStencil = false, hasCompute = false, hasDepthFlush = false,
                           hasPerfCounters = false)
 
-  // --- Simulation configs for validating msaaMultiPass end to end ---------
-  //
-  // A fair comparison needs BOTH sides quantized: msaaMultiPass requires
-  // tileColorBits = 8, so measuring it against the plain Simt (which stores
-  // FP16) would show colour-quantization differences and call them MSAA.
-  // These two differ ONLY in where the samples live.
-  //
-  //   SimtQ    resident samples, UNORM8 tile colour
-  //   SimtQMp  one live plane + accumulator, UNORM8 tile colour
-  //
-  // Both render 4x MSAA and average the same four sample colours -- SimtQ in
-  // the flusher, SimtQMp in the accumulator -- so a correct implementation
-  // renders the SAME image. Any divergence is a real bug in the pass loop,
-  // the accumulator or the resolve.
-  val SimtQ   = Simt.copy(tileColorBits = 8)
-  val SimtQMp = SimtQ.copy(msaaMultiPass = true)
-
-  /** Which config the Verilator/Arcilator sim tops elaborate, from
-    * `BORG_SIM_CFG`. Default `simt` keeps every existing sim run unchanged.
-    *
-    * MUST be used by BorgSimTop AND BorgSimMain's Peripherals: firtool splits
-    * per module, so two different configs in one emission silently overwrite
-    * each other's BorgCore/BorgShaderDispatcher (see BorgSimMain's own note).
-    */
-  def simCfg: BorgConfig = sys.env.getOrElse("BORG_SIM_CFG", "simt") match {
-    case "simt"    => Simt
-    case "simt8"   => SimtQ
-    case "simt8mp" => SimtQMp
-    case other     => throw new IllegalArgumentException(
-      s"BORG_SIM_CFG=$other; expected simt, simt8 or simt8mp")
-  }
-
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
   // bridge; QspiSocTop, the cocotb CPU SoC harness, builds from this too).
   // Default's feature set, sized down to fit the slot. Every line here is a
@@ -533,19 +467,7 @@ object BorgConfig {
     // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
     fmaStages        = 4,
     regReadPorts     = 1,
-    pipelined        = false,
-    // 2026-09-21: the ONLY target that needs this either. Measured on GF180,
-    // rendering each tile once per sample instead of keeping every sample
-    // resident saves 346,969 um2 -- 9.32% of the whole design:
-    //
-    //   tile memories  12 -> 4     536,814 -> 189,845 um2  (-64.6%)
-    //   stored bits    3,584 -> 1,376
-    //
-    // The cost is roughly 4x the fragment work, which this target can afford
-    // and the ULX3S/sim Default cannot: the wafer.space submission is gated
-    // on fitting and routing, not on frame rate. Conformance is unaffected --
-    // see msaaMultiPass's own doc for why this is still MSAA.
-    msaaMultiPass    = true
+    pipelined        = false
     // Compute is on, as in Default: Vulkan requires a queue family with
     // compute. It was off only while the 1x1 slot was tight.
   )

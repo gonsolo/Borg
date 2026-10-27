@@ -232,10 +232,9 @@ object BorgDrawTests extends TestSuite {
   }
 
   /** A 2x2 quad build, whose vertex shader shades the three corners at once,
-    * and the Wafer sizing: one uniform page, multi-pass MSAA, split FMA. */
+    * and the Wafer sizing: one uniform page, UNORM8 tile colour, split FMA. */
   val quadCfg  = suiteCfg.copy(fragLanes = 4)
-  val waferCfg = suiteCfg.copy(fragLanes = 4, maxUniforms = 32, tileColorBits = 8,
-                               msaaMultiPass = true, fmaStages = 4)
+  val waferCfg = suiteCfg.copy(fragLanes = 4, maxUniforms = 32, tileColorBits = 8, fmaStages = 4)
 
   def run(name: String, cfg: BorgConfig = suiteCfg)(body: DrawRig => Unit): Unit =
     // BORG_DRAW_RIG=scala: the memory model in Scala and a simulator per scene, as a cross-check.
@@ -688,9 +687,8 @@ object BorgDrawTests extends TestSuite {
 
   /** An sRGB RGBA8 attachment: the flusher encodes the shader's linear colour, the loader decodes
     * it again, and TLD reads the destination as linear FP16, so reading it and writing it back
-    * stores the same bytes. Edge pixels resolve in linear, or, with the 8-bit tile's multi-pass
-    * accumulator, as the average of the stored sRGB codes. */
-  def srgbAttachment(rig: DrawRig, codeAverage: Boolean = false): Unit = {
+    * stores the same bytes. Edge pixels resolve in linear. */
+  def srgbAttachment(rig: DrawRig): Unit = {
     import Instructions._
     val tri = Seq(at(0.25, 0.25, 1.0), at(8, 0.5, 4.0), at(0.5, 8, 2.0))
     val in = (for (py <- 0 until Size; px <- 0 until Size if inside(tri, px + 0.5, py + 0.5)) yield (px, py)).toSet
@@ -709,8 +707,7 @@ object BorgDrawTests extends TestSuite {
     val second = in.toSeq.map { case (x, y) => rig.pixel(x, y) }.distinct
     // Edge pixels resolve k of 4 samples against the black clear, averaged in linear.
     def enc(l: Double) = math.round((if (l <= 0.0031308) 12.92 * l else 1.055 * math.pow(l, 1 / 2.4) - 0.055) * 255).toInt
-    val resolved = (1 to 4).map(k => if (codeAverage) (188 * k / 4, 128 * k / 4, 255 * k / 4)
-                                     else (enc(0.5 * k / 4), enc(g * k / 4.0), enc(k / 4.0))).toSet
+    val resolved = (1 to 4).map(k => (enc(0.5 * k / 4), enc(g * k / 4.0), enc(k / 4.0))).toSet
     println(s"  sRGB RGBA8: $c1 pixels stored as $first (expect (188,128,255) and edge resolves); loaded, TLD, stored: $second")
     utest.assert(first.contains((188, 128, 255)) && first.forall(resolved) && second == first && c2 == c1)
   }
@@ -969,7 +966,7 @@ object BorgDrawQuadTests extends TestSuite {
   }
 }
 
-/** The Wafer sizing: one uniform page, multi-pass MSAA, split FMA. */
+/** The Wafer sizing: one uniform page, UNORM8 tile colour, split FMA. */
 object BorgDrawWaferTests extends TestSuite {
   import BorgDrawTests._
   val tests = Tests {
@@ -980,7 +977,7 @@ object BorgDrawWaferTests extends TestSuite {
       run("RAW colour formats, Wafer sizing", waferCfg)(rawFormats)
     }
     utest.test("srgb_attachment_in_the_tile_path") {
-      run("sRGB attachment, Wafer sizing", waferCfg)(srgbAttachment(_, codeAverage = true))
+      run("sRGB attachment, Wafer sizing", waferCfg)(srgbAttachment(_))
     }
     utest.test("d16_depth_is_invariant_across_store_and_reload") {
       run("D16 invariance, Wafer sizing", waferCfg)(depthInvariance)

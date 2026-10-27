@@ -105,9 +105,6 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // Each sample of the tile goes to its own region, `sample x tile size`
   // past the tile base (colour 32/64, depth 32/64, stencil 16 bytes).
   val msStore  = if (samples > 1) Some(Input(Bool())) else None
-  // msaaMultiPass: the tile buffer holds only the pass's own sample, so a
-  // per-sample flush stores just that one. Absent: every sample, in turn.
-  val msSample = if (samples > 1) Some(Input(Valid(UInt(log2Up(samples).W)))) else None
 
   // Optional depth-attachment write-out (Step 50 item 14 groundwork; absent
   // unless hasDepthFlush). Historically Z was NEVER written to DRAM -- the
@@ -504,13 +501,10 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         formatReg := io.format
         srgbReg   := io.srgb
         colorOffReg := io.colorOff
-        // Per sample: one given sample (msaaMultiPass), else all in turn.
+        // Per sample: every sample in turn.
         val ms = io.msStore.getOrElse(false.B)
         msReg      := ms
-        io.msSample.foreach { m =>
-          sampleSel  := Mux(ms && m.valid, m.bits, 0.U)
-          lastSample := !ms || m.valid
-        }
+        if (samples > 1) { sampleSel := 0.U; lastSample := !ms }
         part      := 0.U
         issueIdx  := 0.U
         capIdx    := 0.U

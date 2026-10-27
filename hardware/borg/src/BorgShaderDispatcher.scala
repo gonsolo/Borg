@@ -108,10 +108,6 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // Only meaningful while a fragment shader runs; false otherwise, so a
   // compute or MMIO run is never affected.
   val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
-  // msaaMultiPass: the sample this pass renders. Only that sample's early
-  // result decides whether a lane is a helper -- the other samples' planes
-  // are not live in this pass.
-  val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
   // Occlusion queries: how many samples passed the per-fragment tests this
   // cycle (0 on cycles that ran no test). Borg.scala accumulates it.
   val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
@@ -636,13 +632,6 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // historical behaviour and its documented limitation; in the serialized
     // path it walks every sample.
     val dstIdx: UInt = sampleCtr.map(_.asUInt).getOrElse(0.U)
-    // At msaaMultiPass only one sample plane is live and the tile buffer fans
-    // it out across every read lane, so read lane 0 and let the rest optimize
-    // away. Indexing by dstIdx there would keep four lanes of wiring alive for
-    // four copies of the same value -- measured as +2.8% routing demand.
-    // dstIdx still drives the WRITE coverage: that is what selects the pass's
-    // own sample in the tile buffer.
-    val srcIdx: UInt = if (cfg.msaaMultiPass) 0.U else dstIdx
 
     val (blendR, blendG, blendB) = if (cfg.hasBlend) {
       val cfgIn = io.blendCfg.get
@@ -652,10 +641,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       src.b := ColorQuantize.quantize8(frag_b(laneIdx))
       src.a := ColorQuantize.quantize8(frag_a.get(laneIdx))
       val dst = Wire(new Rgba8)
-      dst.r := ColorQuantize.quantize8(io.tileRead.data(srcIdx).r)
-      dst.g := ColorQuantize.quantize8(io.tileRead.data(srcIdx).g)
-      dst.b := ColorQuantize.quantize8(io.tileRead.data(srcIdx).b)
-      dst.a := io.alphaRead.get(srcIdx)
+      dst.r := ColorQuantize.quantize8(io.tileRead.data(dstIdx).r)
+      dst.g := ColorQuantize.quantize8(io.tileRead.data(dstIdx).g)
+      dst.b := ColorQuantize.quantize8(io.tileRead.data(dstIdx).b)
+      dst.a := io.alphaRead.get(dstIdx)
       val out = BorgBlend.blend(cfgIn, src, dst)
       // The alpha channel's own blend result, stored back to the plane. With
       // blending off the fragment's source alpha passes through, matching how
@@ -674,8 +663,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // Only the R/G/B bits are consumed here; the A bit gates the alpha
       // plane's write instead (io.alphaWriteMask above), so the colour and
       // alpha stores are maskable independently, as Vulkan requires.
-      val dstRgb = Seq(io.tileRead.data(srcIdx).r, io.tileRead.data(srcIdx).g,
-                       io.tileRead.data(srcIdx).b)
+      val dstRgb = Seq(io.tileRead.data(dstIdx).r, io.tileRead.data(dstIdx).g,
+                       io.tileRead.data(dstIdx).b)
       val masked = blended.zip(dstRgb).zipWithIndex.map { case ((b, d), i) =>
         Mux(cfgIn.colorWriteMask(i), b, d)
       }
@@ -703,12 +692,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     }
     // The extension plane is written only for a RAW64 attachment (the tile
     // buffer's extActive), and rewritten as read under ZTEST like colour.
-    io.extWrite.foreach(_ := Mux(earlyActive, io.extRead.get(srcIdx), frag_raw1.get(laneIdx)))
+    io.extWrite.foreach(_ := Mux(earlyActive, io.extRead.get(dstIdx), frag_raw1.get(laneIdx)))
     // The ZTEST sub-phase updates depth/stencil only: colour is rewritten as
     // read (exact round trip) and destination alpha is not written at all.
-    io.tileWrite.data.r := Mux(earlyActive, io.tileRead.data(srcIdx).r, outR)
-    io.tileWrite.data.g := Mux(earlyActive, io.tileRead.data(srcIdx).g, outG)
-    io.tileWrite.data.b := Mux(earlyActive, io.tileRead.data(srcIdx).b, outB)
+    io.tileWrite.data.r := Mux(earlyActive, io.tileRead.data(dstIdx).r, outR)
+    io.tileWrite.data.g := Mux(earlyActive, io.tileRead.data(dstIdx).g, outG)
+    io.tileWrite.data.b := Mux(earlyActive, io.tileRead.data(dstIdx).b, outB)
     io.alphaWriteMask.foreach(m => when(earlyActive) { m := false.B })
     // depthWriteEnable: on a passing fragment, write the new Z (historical
     // behaviour, write_en=1) or preserve the stored one (write_en=0, which
@@ -729,7 +718,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // historical unconditional store.
     // After ZTEST the depth is already final in the tile buffer: keep it.
     io.tileWrite.data.z := (if (cfg.samples == 1 || needPerSample)
-                              Mux(io.depthWriteEn && !earlyDone, zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z)
+                              Mux(io.depthWriteEn && !earlyDone, zAt(laneIdx, dstIdx), io.tileRead.data(dstIdx).z)
                             else zClamp(frag_z(laneIdx)))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
@@ -771,7 +760,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // fragments through (VK_CULL_MODE_NONE/FRONT).
     val stencilRes = if (cfg.hasStencil) {
       Some(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get, io.stencilRead.get(dstIdx),
-                                depthPasses(zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z)))
+                                depthPasses(zAt(laneIdx, dstIdx), io.tileRead.data(dstIdx).z)))
     } else None
 
     // "The fragment reached the per-fragment tests at all": covered by the
@@ -797,7 +786,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     if (needPerSample) {
       // Serialized: one sample per cycle, one-hot coverage.
       val testOk = stencilRes.map(_.pass)
-        .getOrElse(depthPasses(zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z))
+        .getOrElse(depthPasses(zAt(laneIdx, dstIdx), io.tileRead.data(dstIdx).z))
       val depthOk = Mux(earlyDone, earlyPass(laneIdx)(dstIdx), testOk)
       val pass = reachedDyn(dstIdx) && depthOk
       val oneHot = UIntToOH(dstIdx, cfg.samples)
@@ -805,11 +794,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       io.tileWrite.en       := pass
       when(earlyActive) { earlyPass(laneIdx)(dstIdx) := pass }
       // Sample counting happens where the tests do: in the ZTEST sub-phase
-      // for early tests, else here -- never both. At msaaMultiPass the loop
-      // walks every sample but only the pass's own is live.
+      // for early tests, else here -- never both.
       // A single-sample render counts only sample 0 of its identical copies.
-      val countThis = io.passSample.map(_ === dstIdx).getOrElse(true.B) &&
-                      (!io.sampleCfg.single || dstIdx === 0.U)
+      val countThis = !io.sampleCfg.single || dstIdx === 0.U
       io.occSamples := (pass && !earlyDone && countThis).asUInt
       stencilRes.foreach { r =>
         io.stencilWrite.get       := r.newValue
@@ -843,7 +830,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     }
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d smp=%d idx=%d Z=0x%x zOld=0x%x cov=0x%x\n",
       laneCtr, dstIdx, io.shaderTileIndex(laneIdx), frag_z(laneIdx),
-      io.tileRead.data(srcIdx).z, io.tileWrite.coverage)
+      io.tileRead.data(dstIdx).z, io.tileWrite.coverage)
 
     // Lane advance. On the serialized path this only runs after the last
     // sample of the lane -- the tile read stays valid across all of them, so
@@ -984,10 +971,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // whether or not the shader uses ZTEST; after ZTEST, so is a lane none of
   // whose samples passed.
   for (i <- 0 until N) {
-    val passedEarly = io.passSample match {
-      case Some(ps) => earlyPass(i)(ps)
-      case None     => earlyPass(i).reduce(_ || _)
-    }
+    val passedEarly = earlyPass(i).reduce(_ || _)
     val failedEarly = earlyDone && !passedEarly
     io.laneHelper(i) := phase === sFrag &&
       (!inside_flag(i) || !io.scissorPass(i) || killed(i) || failedEarly)

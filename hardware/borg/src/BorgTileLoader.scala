@@ -40,11 +40,9 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
   // D32_SFLOAT depth attachment (DEPTH_FORMAT), only with FP32 tile depth.
   val depthD32    = if (hasDepth && zBits == 32) Some(Input(Bool())) else None
   // Per-sample attachments (ATTACH_MS), the flusher's layout: each sample of
-  // the tile in its own region, one tile size apart. msSample (msaaMultiPass)
-  // names the one sample the tile buffer holds; otherwise every sample in
-  // turn, each written to its own plane only.
+  // the tile in its own region, one tile size apart; every sample in turn,
+  // each written to its own plane only.
   val msLoad   = if (samples > 1) Some(Input(Bool())) else None
-  val msSample = if (samples > 1) Some(Input(Valid(UInt(log2Up(samples).W)))) else None
 
   // Values for aspects that are NOT loaded: the tile's clear values. Every
   // loaded entry is written whole (colour, Z, alpha and stencil together),
@@ -109,7 +107,6 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   val zWord1  = Reg(UInt(32.W))            // D32: the pair's second entry
   val d32     = RegInit(false.B)
   val msReg      = RegInit(false.B)
-  val msGiven    = RegInit(false.B)        // msaaMultiPass: one given sample
   val sampleSel  = RegInit(0.U(math.max(1, log2Up(samples)).W))
   val lastSample = RegInit(true.B)
   val sampleIdx: UInt = if (samples > 1) sampleSel(log2Up(samples) - 1, 0) else 0.U
@@ -162,11 +159,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
         d32     := io.depthD32.getOrElse(false.B)
         val ms = io.msLoad.getOrElse(false.B)
         msReg := ms
-        io.msSample.foreach { m =>
-          msGiven    := ms && m.valid
-          sampleSel  := Mux(ms && m.valid, m.bits, 0.U)
-          lastSample := !ms || m.valid
-        }
+        if (samples > 1) { sampleSel := 0.U; lastSample := !ms }
         cBase   := io.colorBase
         io.depthBase.foreach(zBase := _)
         io.stencilBase.foreach(sBase := _)
@@ -249,9 +242,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
 
   io.write.en  := state === sWrite0 || state === sWrite1
   // Every sample (a resolved attachment), or only the sample being loaded.
-  // msaaMultiPass holds just that sample in its one plane, which takes the
-  // pass's own coverage bit -- all bits cover it.
-  io.write.coverage := Mux(msReg && !msGiven, UIntToOH(sampleIdx, samples), Fill(samples, 1.U(1.W)))
+  io.write.coverage := Mux(msReg, UIntToOH(sampleIdx, samples), Fill(samples, 1.U(1.W)))
   io.write.idx := entry + second.asUInt
   // The sRGB decode reads its table a cycle ahead, from sLookup and sWrite0.
   val (rN, gN, bN, _) = rgba8(state === sWrite0)
