@@ -385,7 +385,9 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     // form of the approximation Vulkan allows (w only for 3D); LOD = log2(rho).
     is(sLod) {
       val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && (N >= 3).B && !unnorm
-      when(!needQuad) {
+      // One level and one filter: the LOD changes nothing.
+      val matters = levels =/= 1.U || magLin =/= minLin
+      when(!needQuad || !matters) {
         quadLod := 0.S; lane := 0.U; state := sLane
       }.otherwise {
         val a = args
