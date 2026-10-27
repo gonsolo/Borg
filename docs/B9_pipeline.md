@@ -1,13 +1,13 @@
 # Pipeline
 
-Status: design for review, 2026-10-22, updated 2026-10-25 after B8, not implemented. It builds
-on ISA v2 (B8, on main since 2026-10-25). A pipeline that writes several instructions' results in
+Status: step 1 built and on main (2026-10-27), on every target; step 2 is the plan. It builds on
+ISA v2 (B8, on main since 2026-10-25). A pipeline that writes several instructions' results in
 flight cannot also watch register numbers: B8 removed every such role except the dispatcher's
 snoop of the raster ROM's registers, which went first (Order, step 0, 2026-10-25).
 
-## Today
+## Before the pipeline
 
-One instruction at a time per quad, no overlap (`BorgCore.scala`, `BorgConfig.scala:335-369`):
+One instruction at a time per quad, no overlap:
 
 | Cycle (busy counter) | What happens |
 |---|---|
@@ -90,6 +90,47 @@ Forwarding (results from X1 or Xn into D's operands) and early write-back of sho
 come only if the stall counters show that dependent instructions dominate. They cost a
 multiplexer per operand per lane and timing on the operand path.
 
+### As built
+
+`BorgCore.scala`, `BorgLane.scala`. An instruction issues at decode, reading rs1, rs2 and rs3
+from the lane's three register-file copies, then moves through stages 5 to 1: operands held at 5,
+valid at 4, the FMA until 2, write-back at 1. Each stage carries its instruction's operands and
+flags (`BorgLane.later`); decode of the next instruction happens during write-back. The next
+instruction issues every cycle unless:
+
+- it reads a register an instruction in flight writes: it waits until the writer is in
+  write-back, and the lane's write-through bypass hands it that word (a dependent instruction
+  issues 5 cycles after its producer, 6 without the bypass);
+- it follows a branch;
+- it, or the instruction before it, runs a unit's state machine (memory, TEX, FATTR, SOUT) or is
+  `HALT` or `BARRIER`: the stages drain first. The memory state machine holds the pipeline from
+  its first cycle.
+
+Immediates are no hazard. Unlike the plan, there is no scoreboard: the register check compares
+against the stages in flight. Wafer runs the same pipeline (`231d3c58`); its three read ports
+replace the overlapped reads planned below, and its area and clock with them are not measured yet.
+
+Measured (direct_sim, 128 × 128, cycles per frame):
+
+| Change | vkcube | stencilcube |
+|---|---|---|
+| Before the pipeline (after Order step 0) | 3,106,510 | 6,465,714 |
+| Step 1: issue every cycle, three read ports, stage valid bits | 1,957,408 | 4,111,116 |
+| Write-through bypass | 1,804,370 | 3,798,098 |
+| borgc schedules for the pipeline's latency | 1,655,427 | 3,494,516 |
+| Sampler: skip LOD for one level, ack on latch, skip zero multiplies, fold the axis state | 1,499,725 | |
+| borgc refines 1/x, inversesqrt and division in every stage (precision) | 1,580,095 | |
+
+vkcube's fragment shader after the bypass: 1.53 M cycles, of them 0.29 M issuing (5.3 cycles per
+instruction), 0.60 M waiting on a register, 0.62 M draining. Of the drain, 88% is a unit holding
+the pipeline: TEX 59%, memory 21%, FATTR 11%. TEX takes 263 cycles per quad with only about 32 of
+them memory: the sampler's state machine, not memory, is the limit, so a texel cache buys 1-3%
+with NEAREST.
+
+ULX3S (vkcube SoC): step 1 costs +1,174 yosys LUT4 against the +800 to +1,500 estimated, most of
+the growth flops (+511 per lane); nextpnr 73,489 LUTs (87%) at 19.70 MHz. With the bypass 73,243
+LUTs at 19.57 MHz; the critical path starts at the uniform RAM.
+
 ## Step 2: several quads in flight (ULX3S only)
 
 With one quad, the interlocks waste every cycle a dependent instruction or a TEX waits. A second
@@ -111,6 +152,8 @@ Expected: close to one instruction per cycle when four quads have work, and TEX 
 latency hidden instead of stalled.
 
 ## Wafer
+
+Superseded: Wafer runs step 1 with three read ports (see "As built"). The plan was:
 
 One quad, register files in flops, one read port. The step-1 pipeline with a single port: D
 reads one operand per cycle into the operand latches while the previous instruction executes, so
@@ -172,7 +215,10 @@ fragment lanes stay.
 
 The performance counters (`perf_total`, `perf_frag`, stall counters; see the reference note on
 Borg perf counters) get, per quad: instructions issued, cycles stalled on a register, on the
-write port, on memory, on TEX, on a branch. Each step reports cycles per instruction on the
+write port, on memory, on TEX, on a branch. Built as `perf_issue` (the last word of the MMIO
+map): write 0..6 to pick instructions issued, waits on a register, behind a branch, for a
+drain, of those the waits for empty stages and while a unit holds them, and drain instructions
+issued. Each step reports cycles per instruction on the
 borgc corpus, the quick driver corpus and the cube (frames per second on the board), next to
 LUTs, FFs, block RAM and Fmax.
 
@@ -185,12 +231,15 @@ LUTs, FFs, block RAM and Fmax.
    `rast_zf`, `rast_frag_z`, `rast_sample_z0..3` (0x818-0x823); the draw ROM grew from 51 to 61
    words (6 more per pixel at one sample, 4 more at MSAA): vkcube 2.96 M to 3.11 M cycles per
    frame (+5.0%) until CSR writes are short in the pipeline; ULX3S yosys +329 LUT4.
-1. The step-1 pipeline on ULX3S and Default, behind `BorgConfig.pipelined`; Wafer keeps the v1
-   sequencing until its own step.
-2. borgc's scheduler gets the distance goal; measure.
-3. Wafer: overlapped operand reads.
-4. Step 2 on ULX3S: block-RAM register files, then 2 quads, then 4.
-5. Forwarding, early write-back of short operations, non-blocking memory within a quad: each
+1. The step-1 pipeline. Done 2026-10-27, with the write-through bypass; since one-design on
+   every target, without `BorgConfig.pipelined`.
+2. borgc's scheduler gets the distance goal; measure. Done 2026-10-27: the latency scheduler
+   (mesa `c92731f09c0`), vkcube −8.3%.
+3. Wafer: overlapped operand reads. Superseded by three read ports on Wafer.
+4. Next, against the drain share: branch redirect at X1; pipelined LOD multiplies in the sampler
+   for mipmapped textures (72 cycles to about 30).
+5. Step 2 on ULX3S: block-RAM register files, then 2 quads, then 4.
+6. Forwarding, early write-back of short operations, non-blocking memory within a quad: each
    only if the counters show its stall dominates.
 
 Each step: Chisel unit tests for the hazards it adds (one test per row of the hazard table),
