@@ -304,8 +304,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     def info(k: Int): StageInfo = infos(cfg.cBusyLoad - k)
     def any(ks: Seq[Int])(p: StageInfo => Bool): Bool = ks.map(k => at(k) && p(info(k))).reduce(_ || _)
     val reads = Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
-    // No forwarding: a source waits until its writer has passed write-back.
-    val hazard = any(1 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
+    // A source waits until its writer is in write-back; the lane's bypass gives it that word.
+    val hazard = any(2 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
       reads.map { case (used, rs) => used && rs === i.rd }.reduce(_ || _))
     val stops = fetchedInstruction === 0.U || opFlags.barrier || issued.drain
     val behindBranch = any(redirect to cfg.cBusyLoad)(_.branch)

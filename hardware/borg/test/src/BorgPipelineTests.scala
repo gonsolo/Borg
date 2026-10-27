@@ -69,12 +69,12 @@ object BorgPipelineTests extends TestSuite {
       utest.assert(cp == prog.length + piped.cBusyLoad)
     }
 
-    utest.test("dependent_instruction_waits_for_write_back") {
+    utest.test("dependent_instruction_issues_at_write_back") {
       val prog = (3 to 10).map(rd => Instructions.IADD(rd - 1, 2, rd))
-      val (cu, cp, r) = both("8 chained IADDs", Seq(2 -> BigInt(3)), prog, Seq(10))
+      val (_, cp, r) = both("8 chained IADDs", Seq(2 -> BigInt(3)), prog, Seq(10))
       utest.assert(r == Seq(BigInt(27)))   // r3 = r2 + r2, then + r2 per step
-      // Only the HALT overlaps: every IADD reads the register the one before writes.
-      utest.assert(cu - cp == 1)
+      // Each IADD issues while the one it reads is in write-back.
+      utest.assert(cp == prog.length * piped.cBusyLoad + 1)
     }
 
     utest.test("immediate_is_no_hazard") {

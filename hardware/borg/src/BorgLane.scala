@@ -262,10 +262,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val rs2IdxDel = RegEnable(regs.rs2, atRs2)
     val rs3IdxDel = RegEnable(regs.rs3, atRs3)
     def held(k: Int): Bool = if (cfg.pipelined) io.advance else at(k)
-    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), held(cfg.cRs2))
-    val holdB = RegEnable(resolveCoordReg(dataB, rs2IdxDel), 0.U(config.totalBits.W),
+    // cfg.pipelined: a read in the cycle its register is written takes the written word.
+    val wr = regFile.io.wr
+    val wrDataDel = RegEnable(wr.data, atDecode)
+    def bypass(data: UInt, rs: UInt): UInt =
+      if (cfg.pipelined) Mux(RegEnable(wr.en && wr.addr === rs, false.B, atDecode), wrDataDel, data) else data
+    val holdA = RegEnable(resolveCoordReg(bypass(regFile.io.rd.data, regs.rs1), rs1IdxDel), 0.U(config.totalBits.W), held(cfg.cRs2))
+    val holdB = RegEnable(resolveCoordReg(bypass(dataB, regs.rs2), rs2IdxDel), 0.U(config.totalBits.W),
       held(if (three) cfg.cHoldC else cfg.cRs3))
-    val holdC = RegEnable(resolveCoordReg(dataC, rs3IdxDel), 0.U(config.totalBits.W), held(cfg.cHoldC))
+    val holdC = RegEnable(resolveCoordReg(bypass(dataC, regs.rs3), rs3IdxDel), 0.U(config.totalBits.W), held(cfg.cHoldC))
     val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
 
     (holdA, holdB, holdC, mmioD)
