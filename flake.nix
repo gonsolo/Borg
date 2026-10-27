@@ -13,12 +13,31 @@
     system = "x86_64-linux";
     pkgs = import nixpkgs {inherit system;};
 
-    # cocotb does not support Python 3.14 yet: its tests run on 3.13 with their own PYTHONPATH.
-    cocotbForTests = pkgs.python313.withPackages (p: [p.cocotb p.numpy p.riscv-model]);
+    # cocotb 2.1.0 supports Python 3.14; nixpkgs still has 2.0.1.
+    python3 = pkgs.python3.override {
+      packageOverrides = _: super: {
+        cocotb = super.cocotb.overridePythonAttrs (old: rec {
+          version = "2.1.0";
+          meta = old.meta // {problems = builtins.removeAttrs (old.meta.problems or {}) ["unsupportedPython"];};
+          src = pkgs.fetchFromGitHub {
+            owner = "cocotb";
+            repo = "cocotb";
+            tag = "v${version}";
+            hash = "sha256-MND6d+5ymlGT597kt6rWN9ylmoGvexIylzsgjY0NRe8=";
+          };
+          # The version comes from VERSION; the tarball's .git_archival.txt has a tag it cannot parse.
+          nativeBuildInputs = old.nativeBuildInputs ++ [super.setuptools-git-versioning];
+          postPatch = old.postPatch + "rm -f .git_archival.txt\n";
+          propagatedBuildInputs = old.propagatedBuildInputs ++ [super.pytest]; # imported by cocotb 2.1
+          doCheck = false;
+        });
+      };
+    };
 
-    pythonEnv = pkgs.python3.withPackages (p: [
+    pythonEnv = python3.withPackages (p: [
       p.cairosvg
       p.chevron
+      p.cocotb
       p.gdstk
       p.gitpython
       p.graphviz # gen_hw_diagram.py
@@ -152,7 +171,6 @@
           pkgs.pkgsCross.riscv64.buildPackages.gcc # Linux userspace and borgvk for RV64 ($CROSS64)
           pkgs.pkgsCross.riscv64.buildPackages.binutils
           pythonEnv
-          cocotbForTests
           pkgs.ffmpeg # docs/talk: make video
         ];
 
@@ -182,7 +200,6 @@
 
         shellHook = ''
           export GONSOLO_PROJECT="borg_tinyqv"
-          export COCOTB_PYTHONPATH="${cocotbForTests}/${pkgs.python313.sitePackages}"
           export OPENSBI_SRC="${opensbiSrc}"
           export LINUX_SRC="${linuxSrc}"
           export RUST_LIB_SRC="${pkgs.rustPlatform.rustLibSrc}"

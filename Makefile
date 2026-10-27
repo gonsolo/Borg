@@ -1,5 +1,4 @@
-# cocotb's own python3.13 site-packages (flake.nix): the shell's PYTHONPATH mixes in 3.14 ones.
-TEST_SOC  := env PYTHONPATH=$$COCOTB_PYTHONPATH make -C test/soc -B
+TEST_SOC  := make -C test/soc -B
 MILL_JOBS := $(if $(CI),1,12)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
