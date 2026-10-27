@@ -15,18 +15,11 @@ import chisel3.util.*
   * times.  At `fragLanes==1` (current default) a single lane reproduces the
   * original monolithic core bit-for-bit.
   *
-  * Pipeline timing (an instruction moves through stages cfg.cBusyLoad→1; 7→1 at fmaStages=3,
-  * 8→1 at 4, 9→1 at 5 -- see BorgConfig's cPipeEn2/cOperands/cRs2 table):
-  *   cRs2..cHoldC: rs1/rs2/rs3 read serially, one per cycle, off the lane's single
-  *         register-file port (was 3 parallel ports/copies -- see BorgLane's
-  *         `regFile` doc comment for the area rationale); each result is
-  *         captured into a hold register the cycle after it's issued. With
-  *         cfg.regReadPorts == 3 all three are read at decode (5→1 at fmaStages=3).
-  *   cOperands..2: Stage 1 — operand reads valid (now held, not live); op-type flags
-  *         latched (in the lane) at decode
-  *   2→1:  Lane pipeline register captures the FMA mid-result
-  *   1:    Stage 2 — round; register file written
-  *   none: idle — next instruction can start
+  * Pipeline (docs/B9_pipeline.md): an instruction issues at decode, reading rs1/rs2/rs3 from the
+  * lane's three register-file copies, then moves through stages cfg.cBusyLoad→1 (5→1 at
+  * fmaStages=3): operands held at cHoldC, valid at cOperands, the FMA until 2, write-back at 1.
+  * The next instruction issues every cycle unless it reads a register an instruction in flight
+  * writes (the lane bypasses the one in write-back), follows a branch, or waits for a stall FSM.
   */
 
 /** One instruction-cache line's state when it lives in a RAM (BorgCore.icacheLinesRam). */
@@ -165,7 +158,7 @@ class IssueStatsIO extends Bundle {
   val drains     = Bool()
 }
 
-/** What the issue logic needs to know about an instruction in flight (cfg.pipelined). */
+/** What the issue logic needs to know about an instruction in flight. */
 class StageInfo extends Bundle {
   val writes = Bool()
   val rd     = UInt(5.W)
@@ -250,8 +243,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val barrierPCReg = RegInit(0.U(cfg.pcBits.W))
 
   // --- Instruction Fetch ---
-  // cfg.pipelined: the PC advances at issue, a branch's one stage after its operands.
-  private val redirect = if (cfg.pipelined) cfg.cOperands - 1 else 1
+  // The PC advances at issue, a branch's one stage after its operands.
+  private val redirect = cfg.cOperands - 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC = Wire(UInt(cfg.pcBits.W))
   val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
@@ -294,14 +287,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   issued.branch := opFlags.branch
   issued.drain  := opFlags.load || opFlags.store || opFlags.sout || opFlags.fattr || opFlags.tex ||
     opFlags.texa || opFlags.texs || opFlags.ztest || next.fexp2 || next.flog2
-  val canIssue = WireDefault(!is_busy)
+  val canIssue = Wire(Bool())
   val decoding = running && canIssue
   val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
-  val redirecting = WireDefault(at(redirect))   // the PC goes to pcAfterThis
-  nextPC := Mux(redirecting, pcAfterThis, programCounter)
-  io.issueStats := 0.U.asTypeOf(io.issueStats)
+  val redirecting = Wire(Bool())   // the PC goes to pcAfterThis
   io.issueStats.issued := fma_start && !opFlags.barrier
-  if (cfg.pipelined) {
+  locally {
     // info(k): the instruction in stage k, valid while at(k).
     val infos = Seq.iterate(RegEnable(issued, fma_start), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
     def info(k: Int): StageInfo = infos(cfg.cBusyLoad - k)
@@ -327,9 +318,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   runPipeline(fma_start)
   // The flags of the instruction at its operands (stage cOperands).
-  val flagsX = if (cfg.pipelined)
-    BorgLane.later(cfg, !holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), fma_start), cfg.cBusyLoad - cfg.cOperands)
-  else opFlags
+  val flagsX = BorgLane.later(!holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), fma_start), cfg.cBusyLoad - cfg.cOperands)
 
   // --- Shared uniform-RAM read (broadcast to every lane) ---
   val (uniform_data, funct3_del) = wireUniformRead()

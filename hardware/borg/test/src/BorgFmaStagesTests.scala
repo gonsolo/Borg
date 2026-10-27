@@ -13,7 +13,7 @@ import BorgCoreTestHelpers._
   * Raising fmaStages inserts pipeline registers inside BorgFma, which
   * means BorgCore's whole instruction countdown shifts: busy_counter loads
   * later, the three register reads and pipeEn1 move with it, and the counter
-  * itself needs a wider register. BorgConfig's cRs2/cHoldC/cOperands/cPipeEn2
+  * itself needs a wider register. BorgConfig's cHoldC/cOperands/cPipeEn2
   * derive all of that from fmaStages -- these tests are what make that
   * derivation trustworthy.
   *
@@ -47,15 +47,14 @@ object BorgFmaStagesTests extends TestSuite {
     out
   }
 
-  /** Same results at fmaStages 3 and 4, and with one read port and no overlap. */
+  /** Same results at fmaStages 3 and 4. */
   private def bothStages(name: String, operands: Seq[(Int, BigInt)],
                          prog: Seq[BigInt], readBack: Seq[Int]): Unit = {
     val r3 = runProg(cfg3, operands, prog, readBack)
     val r4 = runProg(cfg4, operands, prog, readBack)
-    val r1 = runProg(cfg3.copy(regReadPorts = 1, pipelined = false), operands, prog, readBack)
     println(f"  $name%-28s stages=3: ${r3.map(b => f"0x$b%x").mkString(",")}%-24s " +
             f"stages=4: ${r4.map(b => f"0x$b%x").mkString(",")}")
-    utest.assert(r3 == r4 && r3 == r1)
+    utest.assert(r3 == r4)
   }
 
   val tests = Tests {
@@ -63,18 +62,13 @@ object BorgFmaStagesTests extends TestSuite {
     // The derived constants themselves -- cheap, and they pin the table in
     // BorgConfig's comment so a future edit can't silently shift a phase.
     utest.test("phase_constants_match_the_documented_table") {
-      val c3 = BorgConfig.Test.copy(regReadPorts = 1, pipelined = false)
-      val c4 = c3.copy(fmaStages = 4)
-      val c5 = c3.copy(fmaStages = 5)
-      // (cBusyLoad, cRs3, cHoldC, cOperands, cPipeEn2)
-      utest.assert((c3.cBusyLoad, c3.cRs3, c3.cHoldC, c3.cOperands, c3.cPipeEn2) == (7, 6, 5, 4, 3))
-      utest.assert((c4.cBusyLoad, c4.cRs3, c4.cHoldC, c4.cOperands, c4.cPipeEn2) == (8, 7, 6, 5, 3))
-      utest.assert((c5.cBusyLoad, c5.cRs3, c5.cHoldC, c5.cOperands, c5.cPipeEn2) == (9, 8, 7, 6, 4))
-      // Three read ports: all operands at decode, held at holdC.
-      val p3 = Seq(3, 4, 5).map(n => BorgConfig.Test.copy(fmaStages = n))
-      utest.assert(p3.map(c => (c.cBusyLoad, c.cRs2, c.cRs3, c.cHoldC)) == Seq((5, 5, 5, 5), (6, 6, 6, 6), (7, 7, 7, 7)))
+      val Seq(c3, c4, c5) = Seq(3, 4, 5).map(n => BorgConfig.Test.copy(fmaStages = n))
+      // (cBusyLoad, cHoldC, cOperands, cPipeEn2)
+      utest.assert((c3.cBusyLoad, c3.cHoldC, c3.cOperands, c3.cPipeEn2) == (5, 5, 4, 3))
+      utest.assert((c4.cBusyLoad, c4.cHoldC, c4.cOperands, c4.cPipeEn2) == (6, 6, 5, 3))
+      utest.assert((c5.cBusyLoad, c5.cHoldC, c5.cOperands, c5.cPipeEn2) == (7, 7, 6, 4))
       // The counter must actually be able to hold its load value.
-      (Seq(c3, c4, c5) ++ p3).foreach { c =>
+      Seq(c3, c4, c5).foreach { c =>
         utest.assert((1 << c.busyCounterWidth) > c.cBusyLoad)
       }
       println("  phase constants + counter width OK for stages 3/4/5")

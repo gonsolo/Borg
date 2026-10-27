@@ -296,9 +296,8 @@ pass 2 loads exactly one, or holds more than one occlusion query.
   `storeOp = STORE` or `loadOp = LOAD` on a multisampled attachment. Leave it
   clear for a multisampled attachment that is only resolved (`storeOp =
   DONT_CARE` plus a resolve attachment): that path averages on chip and writes
-  one tile. With every sample resident (ULX3S) one flush and one load walk all
-  samples. At msaaMultiPass (Wafer) each pass loads and flushes its own sample
-  instead of accumulating; empty tiles run every pass too.
+  one tile. Every sample is resident, so one flush and one load walk all
+  samples.
 - **Empty tiles are always flushed** when loading. The dirty-tile skip
   assumes DRAM already holds the clear colour, which no longer holds.
 

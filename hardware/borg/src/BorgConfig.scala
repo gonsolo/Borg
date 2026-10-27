@@ -216,19 +216,11 @@ case class BorgConfig(
     // NOTE: raising this alone is NOT functionally correct -- each extra stage
     // adds a pipeline cycle, so BorgCore's busy_counter must widen from 3 bits
     // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
-    fmaStages: Int = 3,
-    // Register-file read ports per lane: 3 reads rs1, rs2 and rs3 together at decode (two more
-    // LUTRAM copies, docs/B9_pipeline.md); 1 reads them in turn, for Wafer's flop register file.
-    regReadPorts: Int = 3,
-    // The next instruction decodes and reads its operands in this one's write-back cycle, unless it
-    // reads this one's rd (docs/B9_pipeline.md, step 1).
-    pipelined: Boolean = true
+    fmaStages: Int = 3
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
-  require(!pipelined || regReadPorts == 3, "pipelined needs three register-file read ports")
-  require(regReadPorts == 1 || regReadPorts == 3, s"regReadPorts must be 1 or 3, got $regReadPorts")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
@@ -282,15 +274,10 @@ case class BorgConfig(
   // stage 3 (the y_* registers after magR), which pushes pipeEn2 out too.
   //
   //            stages=3   stages=4   stages=5
-  //   load/rs2      7          8          9
-  //   rs3           6          7          8
-  //   holdC         5          6          7
+  //   holdC         5          6          7     (issue: rs1, rs2, rs3 read)
   //   pipeEn1       4          5          6     (= operands valid)
   //   pipeEn2       3          3          4
   //   write-back    1          1          1
-  //
-  // With three read ports all operands are read at decode and held at holdC, so the counter
-  // loads holdC: 5, 6 or 7.
   private def fmaExtraMid: Int = if (fmaStages >= 4) 1 else 0
   private def fmaExtraLate: Int = if (fmaStages >= 5) 1 else 0
 
@@ -300,10 +287,8 @@ case class BorgConfig(
     * TEX/TEXA, LOAD/STORE and evaluates branches. */
   def cOperands: Int = cPipeEn2 + 1 + fmaExtraMid
   def cHoldC: Int = cOperands + 1
-  def cRs3: Int = if (regReadPorts == 3) cHoldC else cOperands + 2
-  def cRs2: Int = if (regReadPorts == 3) cHoldC else cOperands + 3
-  /** Value busy_counter loads when an instruction issues. */
-  def cBusyLoad: Int = cRs2
+  /** Stages an instruction passes through after issue. */
+  def cBusyLoad: Int = cHoldC
   def busyCounterWidth: Int = chisel3.util.log2Ceil(cBusyLoad + 1)
 }
 
@@ -436,9 +421,7 @@ object BorgConfig {
     // chains -- at -5.6 ns and -12.8 ns against the 125 ns budget. That is
     // exactly the stage fmaStages=4 splits. Costs one cycle per FMA; the
     // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
-    fmaStages        = 4,
-    regReadPorts     = 1,
-    pipelined        = false
+    fmaStages        = 4
     // Compute is on, as in Default: Vulkan requires a queue family with
     // compute. It was off only while the 1x1 slot was tight.
   )
