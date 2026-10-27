@@ -7,7 +7,7 @@ Execution order:
                      Both generate steps must finish before the parallel phase so
                      that render suites (which call generate_verilog_sim via make)
                      do not race Mill against the chisel suites.
-  Parallel:          chisel:borg · chisel:hutt · software · cocotb:soc-core ·
+  Parallel:          chisel:borg · chisel:hutt · chisel:soc · software · cocotb:soc-core ·
                      render:arcilator:vkcube-cts-uart (stamp already exists, no Mill call)
   After soc-core:    cocotb:soc-borg  (shares test/soc/ dir with soc-core)
 """
@@ -97,6 +97,9 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("chisel › hutt",
               f"cd '{root}' && {mill} hardware.hutt.test",
               depends_on="chisel › borg"),
+        Suite("chisel › soc",
+              f"cd '{root}' && {mill} hardware.soc.test",
+              depends_on="chisel › hutt"),
         Suite("isa    › mesa copy",
               f"make -C '{root}' isa-copy-check"),
         Suite("repo   › no generated files",
