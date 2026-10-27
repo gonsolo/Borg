@@ -268,7 +268,7 @@ def _finish(suite: Suite, root: Path) -> None:
 def main() -> None:
     root     = Path(__file__).resolve().parent.parent
     ncpus    = int(os.environ.get("MILL_JOBS", os.cpu_count() or 4))
-    mill     = f"mill --no-server -j {ncpus}"
+    mill     = f"mill {'--no-server ' if os.environ.get('CI') else ''}-j {ncpus}"
     # PYTHONPATH=$COCOTB_PYTHONPATH (not the ambient shell PYTHONPATH, which
     # this process also inherits): nix's devShell aggregates PYTHONPATH from
     # every python.withPackages input regardless of interpreter version, so
