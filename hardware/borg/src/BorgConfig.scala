@@ -300,6 +300,7 @@ case class BorgConfig(
   require(tileColorBits == 16 || tileColorBits == 8,
           s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
+  require(!pipelined || regReadPorts == 3, "pipelined needs three register-file read ports")
   require(regReadPorts == 1 || regReadPorts == 3, s"regReadPorts must be 1 or 3, got $regReadPorts")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.

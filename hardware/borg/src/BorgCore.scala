@@ -282,6 +282,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lastWrites := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite; lastRd := regs.rd
   }
   runPipeline(fma_start)
+  // The flags of the instruction at its operands (stage cOperands).
+  val flagsX = if (cfg.pipelined)
+    BorgLane.later(cfg, !holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), fma_start), cfg.cBusyLoad - cfg.cOperands)
+  else opFlags
 
   // --- Shared uniform-RAM read (broadcast to every lane) ---
   val (uniform_data, funct3_del) = wireUniformRead()
@@ -296,6 +300,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.running     := running
     lane.io.fmaStart    := fma_start
     lane.io.decode      := decoding
+    lane.io.advance     := !holdPipe
     lane.io.seqBusy     := io.seqBusy
     lane.io.uniformData := uniform_data
     lane.io.funct3Del   := funct3_del
@@ -392,8 +397,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lanes.zipWithIndex.foreach { case (lane, i) =>
       val (xHi, xLo) = if ((i & 2) != 0) (3, 2) else (1, 0)
       val (yHi, yLo) = if ((i & 1) != 0) (3, 1) else (2, 0)
-      val hi = Mux(opFlags.fine, Mux(opFlags.ddy, pick(yHi), pick(xHi)), Mux(opFlags.ddy, pick(2), pick(1)))
-      val lo = Mux(opFlags.fine, Mux(opFlags.ddy, pick(yLo), pick(xLo)), pick(0))
+      val hi = Mux(flagsX.fine, Mux(flagsX.ddy, pick(yHi), pick(xHi)), Mux(flagsX.ddy, pick(2), pick(1)))
+      val lo = Mux(flagsX.fine, Mux(flagsX.ddy, pick(yLo), pick(xLo)), pick(0))
       lane.io.crossA := hi
       lane.io.crossC := neg(lo)
     }
@@ -1342,8 +1347,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val spIdx  = execSp(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
     val spPrev = (execSp - 1.U)(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
 
-    when(at(cfg.cOperands) && opFlags.execOp) {
-      when(opFlags.expush) {
+    when(at(cfg.cOperands) && flagsX.execOp) {
+      when(flagsX.expush) {
         when(execSp === EXEC_STACK_DEPTH.U) {
           execFault := true.B          // no room; results will be wrong
         }.otherwise {
@@ -1352,7 +1357,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           execMask := execMask & perLaneTrue
         }
       }
-      when(opFlags.exelse) {
+      when(flagsX.exelse) {
         when(execSp === 0.U) {
           execFault := true.B          // EXELSE outside any EXPUSH
         }.otherwise {
@@ -1361,7 +1366,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           execMask := execStack(spPrev) & (~execMask).asUInt
         }
       }
-      when(opFlags.expop) {
+      when(flagsX.expop) {
         when(execSp === 0.U) {
           execFault := true.B
           execMask  := ((1 << cfg.fragLanes) - 1).U
@@ -1371,7 +1376,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         }
       }
       if (BorgDebug.trace) printf("[EXEC] pc=%d push=%d else=%d pop=%d cond=0x%x mask=0x%x sp=%d\n",
-        programCounter, opFlags.expush, opFlags.exelse, opFlags.expop,
+        programCounter, flagsX.expush, flagsX.exelse, flagsX.expop,
         perLaneTrue, execMask, execSp)
     }
 
