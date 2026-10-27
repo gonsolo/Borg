@@ -835,8 +835,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_texa_reg := opFlags.texa
       is_texs_reg := opFlags.texs
     }
-    val sIdle :: sWait :: sWB :: sAck :: Nil = Enum(4)
+    val sIdle :: sWait :: sWB :: Nil = Enum(3)
     val st = RegInit(sIdle)
+    val lastResp = RegInit(false.B)
     val rdReg = RegInit(0.U(5.W))
     val wbK   = RegInit(0.U(2.W))
     val respLane = RegInit(0.U(log2Up(N).W))
@@ -860,7 +861,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val a = sampler.io.req.bits.lane(i)
       a.u := uOps(i); a.v := vOps(i); a.w := auxW(i); a.lod := auxLod(i); a.dref := auxRef(i)
     }
-    sampler.io.respReady := st === sAck
+    // Taken into respData at once: the sampler works on the next lane during the write-back.
+    sampler.io.respReady := st === sWait
 
     when(at(cfg.cOperands) && is_texs_reg) {
       sAddrReg := lead(uOps); sCtlReg := lead(vOps)
@@ -880,6 +882,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       holdPipe := true.B
       when(sampler.io.resp.valid) {
         respLane := sampler.io.resp.bits.lane; respData := sampler.io.resp.bits.data
+        lastResp := sampler.io.done
         wbK := 0.U; st := sWB
       }
     }
@@ -890,11 +893,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         mw.addr := rdReg + wbK
         mw.data := respData(wbK)
       }
-      when(wbK === 3.U) { st := sAck }.otherwise { wbK := wbK + 1.U }
-    }
-    when(st === sAck) {
-      holdPipe := true.B
-      when(sampler.io.done) { finish() }.otherwise { st := sWait }
+      when(wbK === 3.U) {
+        when(lastResp) { finish() }.otherwise { st := sWait }
+      }.otherwise { wbK := wbK + 1.U }
     }
 
     // The memory port: the sampler's while it runs.
