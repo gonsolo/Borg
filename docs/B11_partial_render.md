@@ -1,7 +1,7 @@
 # Partial render
 
 Status: built 2026-10-27 (`BorgDrawTests.a_full_bin_renders_in_parts`,
-`a_render_list_renders_in_parts`); ULX3S and Wafer area not measured yet.
+`a_render_list_renders_in_parts`); ULX3S +205 LUTs, +24 FFs; Wafer `BorgSequencer` +5,615 µm².
 
 ## The gap
 
