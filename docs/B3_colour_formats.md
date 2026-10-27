@@ -1,8 +1,8 @@
 # Colour Attachment Formats: RAW Words and Shader Blending
 
 Status: implemented and tested in simulation, September 2026, on branch
-`feat/vulkan-conformance-gaps`, in every build with the draw front end and
-blending (`BorgConfig.drawEnabled && hasBlend`, Wafer included).
+`feat/vulkan-conformance-gaps`, in every build with blending
+(`BorgConfig.hasBlend`, Wafer included).
 
 Vulkan 1.0 requires some thirty colour attachment formats: 8, 16 and 32-bit
 UNORM, SINT, UINT and SFLOAT channels, sRGB, 10-bit, up to 128 bits per

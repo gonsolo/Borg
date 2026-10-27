@@ -93,7 +93,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val rast      = withReset(resetCopy("rast"))   { Module(new BorgRasterizer(cfg)) }
   // RAW colour formats' 64-bit form needs the tile's extension word; it
   // rides the alpha plane's machinery, like the RAW formats themselves.
-  private val rawExt = cfg.drawEnabled && cfg.hasBlend
+  private val rawExt = cfg.hasBlend
   val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend, cfg.hasStencil, cfg.tileDepthBits, rawExt)) }   // before tile — see note above
   // loadOp = LOAD: brings a tile's attachments back from DRAM (the flusher's
   // reverse). Shares the flusher's reset copy: the two are one attachment path.
@@ -376,10 +376,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val geoWr    = Mux(b.io.busy, b.io.gpuMem.wr,    true.B)
     val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
 
-    // The core is a master only in a build that has LOAD/STORE (which
-    // TEX/TEXA also requires -- see BorgConfig.samplerEnabled). Without it
-    // the mux collapses to the three-way form it had before, rather than
-    // carrying a permanently-idle fourth input.
+    // The core (LOAD/STORE, FATTR/SOUT, TEX/TEXA) is the last master.
     val coreMem = core.io.memBusy
     def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt = Mux(coreMem, sel(core.io.gpuMem), fallback)
     def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool = Mux(coreMem, sel(core.io.gpuMem), fallback)
@@ -1031,53 +1028,47 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                        BorgGpuRegs.depth_scale_offset, BorgGpuRegs.depth_offset_offset,
                        BorgGpuRegs.draw_vs_const_offset, BorgGpuRegs.draw_fs_const_offset,
                        BorgGpuRegs.depth_bias_const_offset, BorgGpuRegs.depth_bias_slope_offset)
-    val wordRegs = Option.when(cfg.drawEnabled)(words.map(_ => RegInit(0.U(32.W))))
+    val w = words.map(_ => RegInit(0.U(32.W)))
     // A sequencer render is always a draw. DRAW_CFG's mode bit only picks
     // the program of the MMIO pixel path (CMD_ENQUEUE/ITER): 0 is the edge
     // test with three planes, 1 the draw raster program.
-    val drawMode = cfg.drawEnabled.B && (cfgReg(0) || s.io.busy)
+    val drawMode = cfgReg(0) || s.io.busy
     when(bus.is_writing && bus.address === BorgGpuRegs.draw_cfg_offset) { cfgReg := bus.data_in }
-    wordRegs.foreach(_.zip(words).foreach { case (r, off) =>
-      when(bus.is_writing && bus.address === off) { r := bus.data_in }
-    })
+    for ((r, off) <- w.zip(words)) when(bus.is_writing && bus.address === off) { r := bus.data_in }
     s.io.mmio.recordShift := cfgReg(9, 6)
-    s.io.mmio.vsConstBase := wordRegs.map(_(12)).getOrElse(0.U)
-    s.io.mmio.fsConstBase := wordRegs.map(_(13)).getOrElse(0.U)
-    s.io.draw.foreach { d =>
-      val w = wordRegs.get
-      d.topology := cfgReg(2, 1); d.indexType := cfgReg(4, 3); d.restart := cfgReg(5)
-      d.recordShift := cfgReg(9, 6)
-      d.vertexCount := w(0); d.instanceCount := w(1); d.firstVertex := w(2); d.firstInstance := w(3)
-      d.vertexOffset := w(4); d.indexBase := w(5)
-      for (i <- 0 until 4) d.viewport(i) := w(6 + i)
-      d.depthScale := w(10); d.depthOffset := w(11)
-      d.singleSample := singleSample
-      d.depthBiasConst := w(14); d.depthBiasSlope := w(15); d.depthD32 := depthD32Reg
-    }
-    s.io.csrWriteLanes.foreach(_ := core.io.csrWrite)
-    core.io.drawMode.foreach(_ := drawMode)
-    core.io.drawSingle.foreach(_ := (cfg.samples == 1).B || singleSample)
-    core.io.setupShort.foreach(_ := ((cfg.samples == 1).B || singleSample) && wordRegs.map(w => w(14) === 0.U && w(15) === 0.U).getOrElse(true.B))
-    rast.io.drawMode.foreach(_ := drawMode)
-    rast.io.topLeft.foreach(_ := s.io.topLeft.get)
+    s.io.mmio.vsConstBase := w(12)
+    s.io.mmio.fsConstBase := w(13)
+    val d = s.io.draw
+    d.topology := cfgReg(2, 1); d.indexType := cfgReg(4, 3); d.restart := cfgReg(5)
+    d.recordShift := cfgReg(9, 6)
+    d.vertexCount := w(0); d.instanceCount := w(1); d.firstVertex := w(2); d.firstInstance := w(3)
+    d.vertexOffset := w(4); d.indexBase := w(5)
+    for (i <- 0 until 4) d.viewport(i) := w(6 + i)
+    d.depthScale := w(10); d.depthOffset := w(11)
+    d.singleSample := singleSample
+    d.depthBiasConst := w(14); d.depthBiasSlope := w(15); d.depthD32 := depthD32Reg
+    s.io.csrWriteLanes := core.io.csrWrite
+    core.io.drawMode := drawMode
+    core.io.drawSingle := (cfg.samples == 1).B || singleSample
+    core.io.setupShort := ((cfg.samples == 1).B || singleSample) && w(14) === 0.U && w(15) === 0.U
+    rast.io.drawMode := drawMode
+    rast.io.topLeft := s.io.topLeft
     // The walker owns r30/r31 while it runs a vertex shader; compute
     // otherwise (the two never overlap).
-    core.io.ids.foreach { ids =>
-      val computeIds = compute.map(_.io.lanes).getOrElse(0.U.asTypeOf(ids))
-      ids := s.io.ids.map(w => Mux(w.mode, w, computeIds)).getOrElse(computeIds)
-    }
-    core.io.record.foreach(_ := s.io.record.get)
+    val computeIds = compute.map(_.io.lanes).getOrElse(0.U.asTypeOf(core.io.ids))
+    core.io.ids := Mux(s.io.ids.mode, s.io.ids, computeIds)
+    core.io.record := s.io.record
 
     // A write to DESC_FLUSH forgets the descriptors the texture unit has cached.
-    core.io.descWritten.foreach(_ := bus.is_writing && bus.address === BorgGpuRegs.desc_flush_offset)
+    core.io.descWritten := bus.is_writing && bus.address === BorgGpuRegs.desc_flush_offset
 
     when(bus.is_writing && bus.address === BorgGpuRegs.sample_mask_cfg_offset) { smCfg := bus.data_in(6, 0) }
     rast.io.sampleCfg.mask       := smCfg(cfg.samples - 1, 0)
     rast.io.sampleCfg.alphaToCov := smCfg(4)
     rast.io.sampleCfg.shaderMask := smCfg(5)
     rast.io.sampleCfg.single     := singleSample
-    core.io.laneCoverage.foreach(_ := rast.io.laneCoverage)
-    core.io.laneDst.foreach(_ := rast.io.laneDst)
+    core.io.laneCoverage := rast.io.laneCoverage
+    core.io.laneDst := rast.io.laneDst
     core.io.pixelOrigin.x := pixelOriginX; core.io.pixelOrigin.y := pixelOriginY
     // Colour attachments 1..3; attachment 0 is the historical one.
     val attCfg = RegInit(0.U(8.W)); val attFmtReg = RegInit(0.U(12.W))
@@ -1128,7 +1119,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     attLoad    := sel(tileLoadColor, Seq(attCfg(2), attCfg(3), attCfg(4)))
     attFirst   := pass === 0.U
     attLast    := pass === passes - 1.U
-    core.io.attIndex.foreach(_ := Cat(slice, att))
+    core.io.attIndex := Cat(slice, att)
     rast.io.pixelOrigin.x := pixelOriginX; rast.io.pixelOrigin.y := pixelOriginY
   }
 

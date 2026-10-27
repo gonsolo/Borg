@@ -152,21 +152,18 @@ object BorgCoreTestHelpers {
     // tests that never execute a memory instruction.
     core.io.gpuMem.data.poke(0.U)
     core.io.gpuMem.ready.poke(false.B)
-    core.io.ids.foreach { c =>
-      c.mode.poke(false.B)
-      c.laneMask.poke(0.U)
-      c.r30.foreach(_.poke(0.U))
-      c.r31.foreach(_.poke(0.U))
-    }
+    core.io.ids.mode.poke(false.B)
+    core.io.ids.laneMask.poke(0.U)
+    core.io.ids.r30.foreach(_.poke(0.U))
+    core.io.ids.r31.foreach(_.poke(0.U))
     core.io.gpuMem.waccept.poke(false.B)
-    core.io.drawMode.foreach(_.poke(false.B))
-    core.io.drawSingle.foreach(_.poke(false.B))
-    core.io.setupShort.foreach(_.poke(false.B))
-    core.io.descWritten.foreach(_.poke(false.B))
-    core.io.laneCoverage.foreach(_.foreach(_.poke(0.U)))
-    core.io.record.foreach { r =>
-      r.outBase.poke(0.U); r.outInterleave.poke(false.B); r.outCorner.poke(0.U); r.attrBase.poke(0.U)
-    }
+    core.io.drawMode.poke(false.B)
+    core.io.drawSingle.poke(false.B)
+    core.io.setupShort.poke(false.B)
+    core.io.descWritten.poke(false.B)
+    core.io.laneCoverage.foreach(_.poke(0.U))
+    val r = core.io.record
+    r.outBase.poke(0.U); r.outInterleave.poke(false.B); r.outCorner.poke(0.U); r.attrBase.poke(0.U)
     core.clock.step(1)
   }
 

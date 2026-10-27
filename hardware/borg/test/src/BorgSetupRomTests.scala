@@ -47,7 +47,7 @@ object BorgSetupRomTests extends TestSuite {
     Seq(W / 2, W / 2, W / 2, W / 2, 0.5, 0.25, 1.0, -0.125, -0.375, 0.375)
       .zipWithIndex.foreach { case (f, i) => u(BorgSetupRom.uSx + i, f) }
     core.io.seqBusy.poke(true.B)
-    val rec = core.io.record.get
+    val rec = core.io.record
     rec.outBase.poke(recordBase.U); rec.outInterleave.poke(false.B)
     core.io.coreTrigger.valid.poke(true.B); core.io.coreTrigger.isSetup.poke(true.B)
     core.io.coreTrigger.pc.poke(0.U)
@@ -75,7 +75,7 @@ object BorgSetupRomTests extends TestSuite {
   /** Run the draw-mode raster ROM for one pixel; returns E0..E2, Zn, Zf, the barycentrics, 1/w and r29. */
   def runRaster(core: BorgCore, x: Int, y: Int): Seq[Double] = {
     core.io.seqBusy.poke(false.B)             // r30/r31 = the pixel centre
-    core.io.drawMode.get.poke(true.B)
+    core.io.drawMode.poke(true.B)
     core.io.iter(0).x.poke(x.U); core.io.iter(0).y.poke(y.U)
     core.io.coreTrigger.valid.poke(true.B); core.io.coreTrigger.isRast.poke(true.B)
     core.io.coreTrigger.pc.poke(0.U)
@@ -89,7 +89,7 @@ object BorgSetupRomTests extends TestSuite {
       if (started && !running) done = true
     }
     Predef.assert(done, "raster ROM never finished")
-    core.io.drawMode.get.poke(false.B)
+    core.io.drawMode.poke(false.B)
     (BorgRasterRom.planeRegs ++ Seq(5, 6, 7, 8, 29)).map(r => bitsToFloat(readReg(core, r)).toDouble)
   }
 

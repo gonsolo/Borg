@@ -16,14 +16,14 @@ object BorgCoreDrawTests extends TestSuite {
 
   val quad = config
 
-  def ids(core: BorgCore, mode: Boolean, r30: Int => Int, r31: Int => Int): Unit =
-    core.io.ids.foreach { c =>
-      c.mode.poke(mode.B)
-      c.laneMask.poke(((1 << core.cfg.fragLanes) - 1).U)
-      for (i <- 0 until core.cfg.fragLanes) {
-        c.r30(i).poke(r30(i).U); c.r31(i).poke(r31(i).U)
-      }
+  def ids(core: BorgCore, mode: Boolean, r30: Int => Int, r31: Int => Int): Unit = {
+    val c = core.io.ids
+    c.mode.poke(mode.B)
+    c.laneMask.poke(((1 << core.cfg.fragLanes) - 1).U)
+    for (i <- 0 until core.cfg.fragLanes) {
+      c.r30(i).poke(r30(i).U); c.r31(i).poke(r31(i).U)
     }
+  }
 
   val tests = Tests {
 
@@ -57,7 +57,7 @@ object BorgCoreDrawTests extends TestSuite {
         // walker supplies the indices.
         core.io.seqBusy.poke(true.B)
         ids(core, mode = true, i => 100 + i, i => 7)
-        val rec = core.io.record.get
+        val rec = core.io.record
         rec.outBase.poke(0x2000.U); rec.outInterleave.poke(true.B); rec.outCorner.poke(0.U)
 
         // Component 37 (index > 31: both halves of the split immediate) =
@@ -87,7 +87,7 @@ object BorgCoreDrawTests extends TestSuite {
         resetCore(core)
         core.io.seqBusy.poke(true.B)
         ids(core, mode = true, i => 100 + i, i => 7)
-        val rec = core.io.record.get
+        val rec = core.io.record
         rec.outBase.poke(0x2000.U); rec.outInterleave.poke(true.B); rec.outCorner.poke(0.U)
         // Component 5: every corner's VertexIndex, then corner 1's InstanceIndex over it.
         writeImem(core, 0, Instructions.SOUT(rs2 = 30, index = 5))
@@ -110,7 +110,7 @@ object BorgCoreDrawTests extends TestSuite {
         println("\n--- BorgCore: SOUT, setup stride ---")
         idleInputs(core)
         resetCore(core)
-        val rec = core.io.record.get
+        val rec = core.io.record
         rec.outBase.poke(0x4000.U); rec.outInterleave.poke(false.B)
         writeReg(core, 3, floatToBits(2.5f))
         writeImem(core, 0, Instructions.SOUT(rs2 = 3, index = 9))
@@ -128,7 +128,7 @@ object BorgCoreDrawTests extends TestSuite {
         println("\n--- BorgCore: FATTR ---")
         idleInputs(core)
         resetCore(core)
-        val rec = core.io.record.get
+        val rec = core.io.record
         rec.attrBase.poke(0x3000.U)
         rec.outBase.poke(0x5000.U); rec.outInterleave.poke(true.B)
         val idx = 41

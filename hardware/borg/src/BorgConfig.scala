@@ -134,20 +134,9 @@ case class BorgConfig(
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute
-  def fattrCacheEnabled: Boolean = drawEnabled
-  /** The draw front end (docs/B1_geometry_front_end.md): SOUT/FATTR, and
-    * VertexIndex/InstanceIndex in r30/r31. Always present; its optional ports go next. */
-  def drawEnabled: Boolean = true
-  /** r30/r31 can carry sequencer-provided integer IDs instead of the pixel
-    * centre: compute's invocation IDs, or a vertex shader's indices. */
-  def hasInvocationIds: Boolean = computeEnabled || drawEnabled
-  /** The descriptor-based texture unit, TEX/TEXA (docs/B2_texture_unit.md):
-    * FP32 results, the core's memory port. */
-  def samplerEnabled: Boolean = drawEnabled
-  /** Planes whose MSAA sample deltas travel with a triangle: the three edges,
-    * plus the depth plane Zn on a draw-front-end build (the far plane's are
-    * Zn's, negated). */
-  def coveragePlanesStored: Int = if (drawEnabled) 4 else 3
+  /** Planes whose MSAA sample deltas travel with a triangle: the three edges
+    * and the depth plane Zn (the far plane's are Zn's, negated). */
+  def coveragePlanesStored: Int = 4
   /** Tile-buffer depth width. Follows the datapath: an FP32 build keeps depth
     * FP32 end to end, which holds every D16/D24 value distinctly and
     * D32_SFLOAT exactly; FP16 cannot (see ColorZ). */

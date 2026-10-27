@@ -41,9 +41,9 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // now -- see Opcodes.MATCH_EXANY_V2.
   val execAny     = Input(Bool())
   // This lane's coverage mask, for SMASK.
-  val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None
+  val covMask     = Input(UInt(cfg.samples.W))
   // This lane's destination word, for TLD.
-  val dstWord     = if (cfg.drawEnabled) Some(Input(Vec(2, UInt(32.W)))) else None
+  val dstWord     = Input(Vec(2, UInt(32.W)))
   val stages      = Input(UInt(cfg.cBusyLoad.W))   // BorgCore.stages
   val running     = Input(Bool())
   val fmaStart    = Input(Bool())
@@ -55,7 +55,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val iter        = Input(new Coord(cfg.coordWidth))
   val pixelOrigin = Input(new Coord(14))   // the render window's origin
   // --- Compute or vertex stage: r30/r31 read these raw integers instead ---
-  val ids         = if (cfg.hasInvocationIds) Some(Input(new LaneIdsIO(cfg))) else None
+  val ids         = Input(new LaneIdsIO(cfg))
 
   // --- Shared uniform-RAM read (done once in BorgCore) ---
   val uniformData = Input(UInt(cfg.totalBits.W)) // op_en_del-gated read result
@@ -133,8 +133,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // nothing to the register-file read timing.
   when(coordReadEn) {
     val gx = io.iter.x +& io.pixelOrigin.x; val gy = io.iter.y +& io.pixelOrigin.y
-    coordX := io.ids.map(c => Mux(c.mode, c.r30, pixelCentre(gx))).getOrElse(pixelCentre(gx))
-    coordY := io.ids.map(c => Mux(c.mode, c.r31, pixelCentre(gy))).getOrElse(pixelCentre(gy))
+    coordX := Mux(io.ids.mode, io.ids.r30, pixelCentre(gx))
+    coordY := Mux(io.ids.mode, io.ids.r31, pixelCentre(gy))
   }
 
   // --- Register reads + uniform operand mux ---
@@ -175,7 +175,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A sequencer-run shader reads 0 here (legacy vertex/setup shaders use r31
     // as a zero), unless the sequencer supplies IDs -- a vertex shader's
     // VertexIndex/InstanceIndex.
-    val idsMode = io.ids.map(_.mode).getOrElse(false.B)
+    val idsMode = io.ids.mode
     Mux(isCoordReg, Mux(!io.seqBusy || idsMode, Mux(idx === 30.U, coordX, coordY), 0.U), raw)
   }
 
@@ -384,8 +384,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_isrl_reg, isrl,
                  Mux(is_isltu_reg, isltu,
                  Mux(is_exany_reg, exany,
-                 Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
+                 Mux(is_smask_reg, io.covMask.pad(w),
+                 Mux(is_tld_reg, Mux(tld_sel_reg, io.dstWord(1), io.dstWord(0)).pad(w),
                  Mux(is_f2h_reg,  f2h, h2f))))))))))))))))
     val is_int = is_rvx_reg || is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||

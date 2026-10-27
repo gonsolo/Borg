@@ -39,9 +39,9 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // FragCoord) are the framebuffer's, not the window's.
   val pixelOrigin        = Input(new Coord(14))
   // The colour attachment the current tile pass renders (ATTIDX).
-  val attIndex           = if (cfg.drawEnabled) Some(Input(UInt(3.W))) else None   // attachment + 4 * slice
+  val attIndex           = Input(UInt(3.W))   // attachment + 4 * slice
   // Per lane, the colour attachment's word at its pixel (TLD).
-  val laneDst            = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))) else None
+  val laneDst            = Input(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
   val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
 
@@ -89,7 +89,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // Raw invocation IDs for r30/r31 and the lanes a trigger starts with:
   // compute's (BorgComputeSequencer), or a vertex shader's VertexIndex and
   // InstanceIndex (the draw walker).
-  val ids = if (cfg.hasInvocationIds) Some(Input(new InvocationIdsIO(cfg))) else None
+  val ids = Input(new InvocationIdsIO(cfg))
   // Compute mode, the other direction: did the invocation that just stopped
   // (coreStatus.running -> false) stop at a BARRIER, and if so, where should
   // it resume. Valid from the same cycle running drops until the next
@@ -113,16 +113,16 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val icacheFlush = Input(Bool())
 
   // Draw front end: where SOUT and FATTR go (see Opcodes.MATCH_SOUT_V2).
-  val record = if (cfg.drawEnabled) Some(Input(new CoreRecordIO)) else None
+  val record = Input(new CoreRecordIO)
   // DRAW_CFG's mode: the raster ROM runs the draw front end's program.
-  val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
+  val drawMode = Input(Bool())
   // One sample: the raster ROM stops before the per-sample depths.
-  val drawSingle = if (cfg.drawEnabled) Some(Input(Bool())) else None
-  val setupShort = if (cfg.drawEnabled) Some(Input(Bool())) else None   // single sample, no depth bias
+  val drawSingle = Input(Bool())
+  val setupShort = Input(Bool())   // single sample, no depth bias
   // A pulse that forgets the texture unit's cached descriptors (DESC_FLUSH).
-  val descWritten  = if (cfg.samplerEnabled) Some(Input(Bool())) else None
+  val descWritten  = Input(Bool())
   // Per lane, the samples the current fragment covers (SMASK).
-  val laneCoverage = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))) else None
+  val laneCoverage = Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
   val issueStats   = Output(new IssueStatsIO)
 }
 
@@ -183,10 +183,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val rasterRom  = VecInit(BorgRasterRom.instructions.map(_.U(32.W)))
   val fetchRast  = RegInit(false.B)
   // The draw front end's triangle setup (BorgSetupRom), fetched the same way.
-  val setupRom   = Option.when(cfg.drawEnabled)(VecInit(BorgSetupRom.instructions.map(_.U(32.W))))
+  val setupRom   = VecInit(BorgSetupRom.instructions.map(_.U(32.W)))
   val fetchSetup = RegInit(false.B)
   // ...and its per-pixel program, which replaces the edge test in draw mode.
-  val drawRasterRom = Option.when(cfg.drawEnabled)(VecInit(BorgRasterRom.drawInstructions.map(_.U(32.W))))
+  val drawRasterRom = VecInit(BorgRasterRom.drawInstructions.map(_.U(32.W)))
 
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
   // @doc:end
@@ -245,17 +245,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC = Wire(UInt(cfg.pcBits.W))
   val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
-  private val rasterWord = drawRasterRom.map { rom =>
-    val short = io.drawSingle.get && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
-    Mux(io.drawMode.get, Mux(short, 0.U, rom(rasterRomAddrReg)), rasterRom(rasterRomAddrReg))
-  }.getOrElse(rasterRom(rasterRomAddrReg))
+  private val rasterShort = io.drawSingle && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
+  private val rasterWord =
+    Mux(io.drawMode, Mux(rasterShort, 0.U, drawRasterRom(rasterRomAddrReg)), rasterRom(rasterRomAddrReg))
+  private val setupStop = io.setupShort && rasterRomAddrReg === BorgSetupRom.shortPc.U
   val fetchedInstruction =
     Mux(fetchRast, rasterWord,
-      setupRom.map { rom =>
-        val stop = io.setupShort.get && rasterRomAddrReg === BorgSetupRom.shortPc.U
-        Mux(fetchSetup, Mux(stop, 0.U, rom(rasterRomAddrReg)), instructionMemory.read(imemIndex(nextPC)))
-      }
-        .getOrElse(instructionMemory.read(imemIndex(nextPC))))
+      Mux(fetchSetup, Mux(setupStop, 0.U, setupRom(rasterRomAddrReg)), instructionMemory.read(imemIndex(nextPC))))
   // False while the fetched word is not the program's word at that PC (an
   // instruction-cache miss or fill); nothing issues until it is. Always true
   // without the cache.
@@ -351,16 +347,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // EXANY's whole multi-cycle execution window.
   lanes.foreach(_.io.execAny := execMask.orR)
   lanes.zipWithIndex.foreach { case (lane, i) =>
-    lane.io.covMask.foreach(_ := io.laneCoverage.get(i))
-    lane.io.dstWord.foreach(_ := io.laneDst.get(i))
-  }
-
-  io.ids.foreach { c =>
-    lanes.zipWithIndex.foreach { case (lane, i) =>
-      lane.io.ids.get.mode := c.mode
-      lane.io.ids.get.r30  := c.r30(i)
-      lane.io.ids.get.r31  := c.r31(i)
-    }
+    lane.io.covMask := io.laneCoverage(i)
+    lane.io.dstWord := io.laneDst(i)
+    lane.io.ids.mode := io.ids.mode
+    lane.io.ids.r30  := io.ids.r30(i)
+    lane.io.ids.r31  := io.ids.r31(i)
   }
 
   // Per-lane pixel coordinate (2×2 quad fanned out by the iterator).
@@ -396,8 +387,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
   wireICache()
   // --- TEX/TEXA: the descriptor-based texture unit, on the same port ---
-  if (cfg.samplerEnabled)
-    wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
+  wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
 
   // --- FEXP2/FLOG2: one unit, the lanes in turn, on the same port ---
   wireExpLog(lanes.map(_.io.recARaw), lanes.map(_.io.memWrite))
@@ -481,15 +471,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.isrl   := rv.srl
     flags.isltu  := rv.sltu
     flags.ztest  := rv.ztest
-    val draw = cfg.drawEnabled
-    flags.sout   := (if (draw) rv.sout else false.B)
-    flags.fattr  := (if (draw) rv.fattr else false.B)
-    val smp = cfg.samplerEnabled
-    flags.tex    := (if (smp) rv.texd else false.B)
-    flags.texs   := (if (smp) rv.texs else false.B)
-    flags.smask  := (if (draw) rv.csrMask else false.B)
-    flags.tld    := (if (draw) rv.tld else false.B)
-    flags.texa   := (if (smp) rv.texad else false.B)
+    flags.sout   := rv.sout
+    flags.fattr  := rv.fattr
+    flags.tex    := rv.texd
+    flags.texs   := rv.texs
+    flags.smask  := rv.csrMask
+    flags.tld    := rv.tld
+    flags.texa   := rv.texad
     flags.funct3 := Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U))
     flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
     flags.csrw := rv.csrrw
@@ -599,8 +587,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       v.valid := RegEnable(valid, false.B, op_en); v.bits := RegEnable(bits(w - 1, 0), op_en)
       v
     }
-    val csrValue = MuxLookup(rv.csr, 0.U(w.W))(Seq(Csr.Root.U -> io.root) ++
-      io.attIndex.map(a => Csr.Attachment.U -> a.pad(w)))
+    val csrValue = MuxLookup(rv.csr, 0.U(w.W))(Seq(Csr.Root.U -> io.root,
+      Csr.Attachment.U -> io.attIndex.pad(w)))
     (latch(rv.aZero || rv.auipc || rv.csrrs && !rv.csrReg && !rv.csrWin,
            Mux(rv.csrrs, csrValue, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W)))),
      latch(rv.bZero || rv.bImm || rv.csrrs, Mux(rv.bImm, rv.imm, 0.U(32.W))))
@@ -800,7 +788,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                           memWrites: Seq[MemWritePort]): Unit = {
     val N = cfg.fragLanes
     val sampler = Module(new BorgSampler(cfg))
-    sampler.io.invalidate := io.descWritten.get
+    sampler.io.invalidate := io.descWritten
 
     val auxW = Reg(Vec(N, UInt(32.W))); val auxLod = Reg(Vec(N, UInt(32.W))); val auxRef = Reg(Vec(N, UInt(32.W)))
     val is_tex_reg  = RegInit(false.B)
@@ -1032,10 +1020,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A vertex shader's SOUT index: bits 7:0 the component, bits 9:8 = k + 1 to store corner k's
     // lane only (0 = every corner), so a varying can go out as a0, a1 - a0, a2 - a0.
     val soutSel = compIdx(9, 8)
-    val soutLaneOk = io.record.map { rec =>
+    val rec = io.record
+    val soutLaneOk =
       !(is_sout_reg && rec.outInterleave && soutSel =/= 0.U && (rec.outCorner +& memLane) =/= soutSel - 1.U)
-    }.getOrElse(true.B)
-    val byteAddr = io.record.map { rec =>
+    val byteAddr = {
       val times3 = (compIdx << 1) +& compIdx
       val comp   = compIdx(7, 0)
       val corner = rec.outCorner +& memLane
@@ -1043,7 +1031,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val soutAddr = (rec.outBase +& (word << 2))(GpuMemIO.AddrBits - 1, 0)
       val attrAddr = (rec.attrBase +& ((times3 +& attrK) << 2))(GpuMemIO.AddrBits - 1, 0)
       Mux(is_fattr_reg, attrAddr, Mux(is_sout_reg, soutAddr, lsAddr))
-    }.getOrElse(lsAddr)
+    }
 
     io.gpuMem.req   := false.B
     io.gpuMem.addr  := 0.U
@@ -1159,7 +1147,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // FATTR: fetch word k and write it to rd+k of every active lane, three
     // times -- from the varying cache when it holds the word, else from DRAM.
     //
-    // The varying cache (cfg.fattrCacheEnabled): a direct-mapped cache of
+    // The varying cache: a direct-mapped cache of
     // record words, each entry {word address, epoch, value}. Pass 2 re-reads
     // the same few words for every quad of a triangle and again in every
     // tile the triangle touches. Pass 1 wrote them all before Pass 2 started
@@ -1175,7 +1163,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val fcLog2    = cfg.fattrCacheLog2
     val fcTagBits = GpuMemIO.AddrBits - 2
     val fcWidth   = fcTagBits + 8 + config.totalBits      // tag, epoch, data
-    val fcMem     = Option.when(cfg.fattrCacheEnabled)(SyncReadMem(1 << fcLog2, UInt(fcWidth.W)))
+    val fcMem     = SyncReadMem(1 << fcLog2, UInt(fcWidth.W))
     val fcEpoch    = RegInit(1.U(8.W))
     val fcSweeping = RegInit(true.B)
     val fcSweepIdx = RegInit(0.U(math.max(fcLog2, 1).W))
@@ -1188,30 +1176,27 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         .map(i => w(math.min((i + 1) * fcLog2, fcTagBits) - 1, i * fcLog2).pad(fcLog2))
         .reduce(_ ^ _)
     }
-    val fcReadData = fcMem.map(_.read(fcIndex(byteAddr), memState === sAttrReq))
+    val fcReadData = fcMem.read(fcIndex(byteAddr), memState === sAttrReq)
     val fcFill     = WireDefault(false.B)
     // Registered outside any `when`, so it sees every cycle: sAttrWB came
     // straight from a DRAM read (sAttrMem), not from a cache hit.
-    val fcFromMem  = RegNext(memState === sAttrMem, false.B) && cfg.fattrCacheEnabled.B
-    fcMem.foreach { m =>
-      val flush = io.record.get.attrFlush
-      when(fcSweeping) {
-        fcSweepIdx := fcSweepIdx + 1.U
-        when(fcSweepIdx === ((1 << fcLog2) - 1).U) { fcSweeping := false.B }
+    val fcFromMem  = RegNext(memState === sAttrMem, false.B)
+    when(fcSweeping) {
+      fcSweepIdx := fcSweepIdx + 1.U
+      when(fcSweepIdx === ((1 << fcLog2) - 1).U) { fcSweeping := false.B }
+    }
+    when(io.record.attrFlush) {
+      when(fcEpoch === 255.U) {
+        fcEpoch := 1.U; fcSweeping := true.B; fcSweepIdx := 0.U
+      }.otherwise {
+        fcEpoch := fcEpoch + 1.U
       }
-      when(flush) {
-        when(fcEpoch === 255.U) {
-          fcEpoch := 1.U; fcSweeping := true.B; fcSweepIdx := 0.U
-        }.otherwise {
-          fcEpoch := fcEpoch + 1.U
-        }
-      }
-      // One write port: the sweep wins over a fill, which only costs a hit.
-      when(fcSweeping) {
-        m.write(fcSweepIdx, 0.U(fcWidth.W))
-      }.elsewhen(fcFill) {
-        m.write(fcIndex(byteAddr), Cat(fcAddrReg, fcEpoch, memDataReg))
-      }
+    }
+    // One write port: the sweep wins over a fill, which only costs a hit.
+    when(fcSweeping) {
+      fcMem.write(fcSweepIdx, 0.U(fcWidth.W))
+    }.elsewhen(fcFill) {
+      fcMem.write(fcIndex(byteAddr), Cat(fcAddrReg, fcEpoch, memDataReg))
     }
 
     /** Read FATTR's word from DRAM, then write it back (and cache it). */
@@ -1225,30 +1210,24 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     when(memState === sAttrReq) {
-      if (cfg.fattrCacheEnabled) {
-        holdPipe := true.B
-        fcAddrReg    := byteAddr(GpuMemIO.AddrBits - 1, 2)
-        memState     := sAttrLook
-      } else {
-        attrFromMemory()                 // no cache: straight to DRAM, as ever
+      holdPipe  := true.B
+      fcAddrReg := byteAddr(GpuMemIO.AddrBits - 1, 2)
+      memState  := sAttrLook
+    }
+    when(memState === sAttrLook) {
+      holdPipe := true.B
+      val eTag   = fcReadData(fcWidth - 1, 8 + config.totalBits)
+      val eEpoch = fcReadData(8 + config.totalBits - 1, config.totalBits)
+      when(!fcSweeping && eEpoch === fcEpoch && eTag === fcAddrReg) {
+        memDataReg := fcReadData(config.totalBits - 1, 0)
+        memState   := sAttrWB
+      }.otherwise {
+        memState := sAttrMem
       }
     }
-    fcReadData.foreach { e =>
-      when(memState === sAttrLook) {
-        holdPipe := true.B
-        val eTag   = e(fcWidth - 1, 8 + config.totalBits)
-        val eEpoch = e(8 + config.totalBits - 1, config.totalBits)
-        when(!fcSweeping && eEpoch === fcEpoch && eTag === fcAddrReg) {
-          memDataReg := e(config.totalBits - 1, 0)
-          memState   := sAttrWB
-        }.otherwise {
-          memState := sAttrMem
-        }
-      }
-      when(memState === sAttrMem) {
-        attrFromMemory()
-        // memDataReg lands next cycle; fill from sAttrWB, where it is valid.
-      }
+    when(memState === sAttrMem) {
+      attrFromMemory()
+      // memDataReg lands next cycle; fill from sAttrWB, where it is valid.
     }
     when(memState === sAttrWB) {
       holdPipe := true.B
@@ -1402,8 +1381,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // end of a workgroup that is not a multiple of fragLanes stay masked.
     when(io.control.start || io.coreTrigger.valid) {
       val allLanes = ((1 << cfg.fragLanes) - 1).U
-      execMask := io.ids.map(c => Mux(c.mode && io.coreTrigger.valid, c.laneMask, allLanes))
-                    .getOrElse(allLanes)
+      execMask := Mux(io.ids.mode && io.coreTrigger.valid, io.ids.laneMask, allLanes)
       execSp   := 0.U
     }
   }

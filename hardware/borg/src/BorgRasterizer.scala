@@ -81,15 +81,15 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val covDelta = if (cfg.samples > 1)
     Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
   // Draw front end: see BorgShaderDispatcherIO.drawMode.
-  val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
-  val topLeft  = if (cfg.drawEnabled) Some(Input(Vec(3, Bool()))) else None
+  val drawMode = Input(Bool())
+  val topLeft  = Input(Vec(3, Bool()))
   val sampleCfg    = Input(new SampleMaskConfig(cfg.samples))
   val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
   val srgbColor    = Input(Bool())                          // sRGB attachment: TLD reads linear FP16
   val rawColor     = Input(Bool())                          // see the dispatcher's
   val laneDst      = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
-  val extRead      = if (cfg.drawEnabled && cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
-  val extWrite     = if (cfg.drawEnabled && cfg.hasBlend) Some(Output(UInt(32.W))) else None
+  val extRead      = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
+  val extWrite     = if (cfg.hasBlend) Some(Output(UInt(32.W))) else None
 
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO(cfg.samples, cfg.tileDepthBits)
@@ -148,8 +148,8 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                            iterator.io.shaderIter(i).y +& io.pixelOrigin.y)
   }
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
-  dispatcher.io.drawMode.foreach(_ := io.drawMode.get)
-  dispatcher.io.topLeft.foreach(_ := io.topLeft.get)
+  dispatcher.io.drawMode := io.drawMode
+  dispatcher.io.topLeft := io.topLeft
   dispatcher.io.sampleCfg := io.sampleCfg
   io.laneCoverage := dispatcher.io.laneCoverage
   dispatcher.io.rawColor := io.rawColor

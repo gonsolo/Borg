@@ -132,10 +132,10 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // writes the near and far planes Zn and Zf (rast_zn, rast_zf), which coverage
   // tests like the three edges, and FragCoord.z (rast_frag_z), the fragment's
   // depth unless the shader writes out_depth.
-  val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
+  val drawMode = Input(Bool())
   // Draw mode: which edges are top or left edges -- a sample exactly on an
   // edge is covered only for those (see BorgTileSequencer.topLeft).
-  val topLeft = if (cfg.drawEnabled) Some(Input(Vec(3, Bool()))) else None
+  val topLeft = Input(Vec(3, Bool()))
   // SAMPLE_MASK_CFG: the pipeline's static sample mask, alpha-to-coverage,
   // and the shader's own mask (gl_SampleMask, written to sample_mask).
   val sampleCfg = Input(new SampleMaskConfig(cfg.samples))
@@ -151,8 +151,8 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val laneDst  = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
   // RAW64's word 1: the tile's extension plane (read with the colour, and
   // written from out_c1 whenever the colour is).
-  val extRead  = if (cfg.drawEnabled && cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
-  val extWrite = if (cfg.drawEnabled && cfg.hasBlend) Some(Output(UInt(32.W))) else None
+  val extRead  = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
+  val extWrite = if (cfg.hasBlend) Some(Output(UInt(32.W))) else None
 }
 
 /** SAMPLE_MASK_CFG. */
@@ -213,9 +213,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   // Draw front end: the near (Zn) and far (Zf) planes.
-  private val drawMode = io.drawMode.getOrElse(false.B)
-  private val nPlanes  = if (cfg.drawEnabled) 5 else 3
-  val z_outside = Option.when(cfg.drawEnabled)(RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B)))))
+  private val drawMode = io.drawMode
+  private val nPlanes  = 5
+  val z_outside = RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B))))
 
   // --- MSAA per-sample coverage (Step 50.2) ---------------------------------
   // At samples == 1 coverage is the historical pixel-centre test: all three
@@ -261,14 +261,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     case 1 =>
       VecInit((0 until N).map(i =>
         VecInit(Seq(!e0_outside(i) && !e1_outside(i) && !e2_outside(i) &&
-                    z_outside.map(z => !drawMode || (!z(i)(0) && !z(i)(1))).getOrElse(true.B)))))
+                    (!drawMode || (!z_outside(i)(0) && !z_outside(i)(1)))))))
     case _ =>
       // thresholds per edge: {-d0, -d1, +d1, +d0}  (see covDelta's comment).
       // The far plane Zf = 1 - Zn moves the opposite way to Zn at every
       // sample, so its thresholds are Zn's with the signs swapped.
       val deltas = (0 until cfg.coveragePlanesStored).map(e => (io.covDelta.get(e)(0), io.covDelta.get(e)(1)))
-      val planeDeltas = if (cfg.drawEnabled)
-        deltas :+ ((fnegBits(deltas(3)._1), fnegBits(deltas(3)._2))) else deltas
+      val planeDeltas = deltas :+ ((fnegBits(deltas(3)._1), fnegBits(deltas(3)._2)))
       val thresh = VecInit(planeDeltas.map { case (d0, d1) =>
         VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0).map(ordered))
       })
@@ -280,13 +279,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
           def test(e: Int) = ordered(e_val.get(i)(e)) >= thresh(e)(s)
           // A sample exactly on an edge (E == -delta, +0 and -0 alike)
           // belongs to the triangle only if the edge is top or left.
-          def edge(e: Int) = if (!cfg.drawEnabled) test(e) else {
+          def edge(e: Int) = {
             val v = e_val.get(i)(e); val th = threshRaw(e)(s)
             val tie = v === th || (zeroMag(v) && zeroMag(th))
-            Mux(drawMode, (ordered(v) > thresh(e)(s) && !tie) || (tie && io.topLeft.get(e)), test(e))
+            Mux(drawMode, (ordered(v) > thresh(e)(s) && !tie) || (tie && io.topLeft(e)), test(e))
           }
-          val edges = (0 until 3).map(edge).reduce(_ && _)
-          if (cfg.drawEnabled) edges && (!drawMode || (test(3) && test(4))) else edges
+          (0 until 3).map(edge).reduce(_ && _) && (!drawMode || (test(3) && test(4)))
         })
       })
   }
@@ -324,7 +322,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // The word rides the tile's UNORM8 channels -- byte k in channel k, byte 3
   // in the alpha plane -- which round-trip exactly, so it needs the alpha
   // plane (hasBlend) and nothing else.
-  val rawSupported = cfg.drawEnabled && cfg.hasBlend
+  val rawSupported = cfg.hasBlend
   val frag_raw = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))
   val frag_raw1 = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))     // out_c1, RAW64's word 1
   val dstWord  = RegInit(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W))))))
@@ -345,7 +343,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // Draw mode at MSAA: each sample's own depth (rast_sample_z0..3), used
   // unless the shader writes out_depth, which then holds for all. At one
   // sample the ROM skips them and FragCoord.z (rast_frag_z) is every sample's.
-  val frag_zs  = Option.when(cfg.drawEnabled && cfg.samples == 4)(Reg(Vec(N, Vec(4, UInt(32.W)))))
+  val frag_zs  = Option.when(cfg.samples == 4)(Reg(Vec(N, Vec(4, UInt(32.W)))))
   val zWritten = RegInit(VecInit(Seq.fill(N)(false.B)))
   def zAt(l: UInt, s: UInt): UInt =
     zClamp(frag_zs.map(zs => Mux(drawMode && !zWritten(l) && !io.sampleCfg.single, zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l)))
@@ -484,7 +482,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       e0_outside(i) := false.B
       e1_outside(i) := false.B
       e2_outside(i) := false.B
-      z_outside.foreach(z => z(i).foreach(_ := false.B))
+      z_outside(i).foreach(_ := false.B)
       killed(i) := false.B
       // Re-arm the opaque default every quad: a shader that writes out_c3 on one
       // quad and not the next must not inherit the previous quad's alpha.
@@ -908,19 +906,17 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // for a top or left edge (the tie rule; see io.topLeft).
     def out(e: Int): Bool = {
       val onEdge = c.data(config.totalBits - 2, 0) === 0.U
-      isOutside(c.data) || io.topLeft.map(tl => drawMode && onEdge && !tl(e)).getOrElse(false.B)
+      isOutside(c.data) || (drawMode && onEdge && !io.topLeft(e))
     }
     when(at(Csr.RastE0))     { e0_outside(i) := out(0) }
     when(at(Csr.RastE0 + 1)) { e1_outside(i) := out(1) }
     when(at(Csr.RastE0 + 2)) { e2_outside(i) := out(2) }
-    z_outside.foreach { z =>
-      when(at(Csr.RastZn)) { z(i)(0) := isOutside(c.data) }
-      when(at(Csr.RastZf)) { z(i)(1) := isOutside(c.data) }
-      // FragCoord.z, the depth unless the fragment shader writes its own.
-      when(drawMode && at(Csr.RastFragZ)) { frag_z(i) := c.data(31, 0) }
-      frag_zs.foreach { zs =>
-        for (smp <- 0 until 4) when(at(Csr.RastSampleZ0 + smp)) { zs(i)(smp) := c.data(31, 0) }
-      }
+    when(at(Csr.RastZn)) { z_outside(i)(0) := isOutside(c.data) }
+    when(at(Csr.RastZf)) { z_outside(i)(1) := isOutside(c.data) }
+    // FragCoord.z, the depth unless the fragment shader writes its own.
+    when(drawMode && at(Csr.RastFragZ)) { frag_z(i) := c.data(31, 0) }
+    frag_zs.foreach { zs =>
+      for (smp <- 0 until 4) when(at(Csr.RastSampleZ0 + smp)) { zs(i)(smp) := c.data(31, 0) }
     }
     // MSAA also needs the raw edge magnitudes, not just their signs, to test
     // each sample's offset position: the same writes, kept at full width.

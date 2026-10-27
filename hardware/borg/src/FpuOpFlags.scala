@@ -44,14 +44,14 @@ class FpuOpFlags extends Bundle {
   val exany   = Bool()
   // Early per-fragment tests -- see Opcodes.MATCH_ZTEST_V2.
   val ztest   = Bool()
-  // Draw front end (BorgConfig.drawEnabled) -- see Opcodes.MATCH_SOUT_V2/MATCH_FATTR_V2.
+  // Draw front end -- see Opcodes.MATCH_SOUT_V2/MATCH_FATTR_V2.
   val sout    = Bool()
   val fattr   = Bool()
-  // The descriptor-based texture unit (BorgConfig.samplerEnabled).
+  // The descriptor-based texture unit.
   val tex     = Bool()
   val texa    = Bool()
-  val smask   = Bool()   // SMASK (drawEnabled)
-  val tld     = Bool()   // TLD (drawEnabled)
+  val smask   = Bool()   // SMASK
+  val tld     = Bool()   // TLD
   val fine    = Bool()   // DDX/DDY: fine derivatives (rs2 = 1)
   val isrl    = Bool()   // logical shift right (RISC-V SRL)
   val isltu   = Bool()   // unsigned compare (RISC-V SLTU)

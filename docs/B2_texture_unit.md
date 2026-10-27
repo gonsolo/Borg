@@ -1,8 +1,7 @@
 # Texture Unit: Descriptors, Mipmaps, Formats
 
 Status: implemented and tested in simulation, September 2026, on branch
-`feat/vulkan-conformance-gaps` (`BorgConfig.samplerEnabled`: every FP32
-build with memory ops, Wafer included). Module `BorgSampler`, format table
+`feat/vulkan-conformance-gaps`; in every build. Module `BorgSampler`, format table
 `TexFormat`.
 
 It is Borg's only texture path. It replaced the legacy one (`FTEX`,

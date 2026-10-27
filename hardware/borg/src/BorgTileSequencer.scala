@@ -54,12 +54,12 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Draw front end: the current triangle's varyings in its record (word 48),
   // for FATTR. The dispatcher drains before the next triangle is selected,
   // so every fragment of a triangle sees its own record.
-  val attrBase = if (cfg.drawEnabled) Some(Output(UInt(GpuMemIO.AddrBits.W))) else None
+  val attrBase = Output(UInt(GpuMemIO.AddrBits.W))
   // Draw mode: which of the current triangle's edges are top or left edges
   // (inward normal (a, b) with a > 0, or a == 0 and b > 0). A sample exactly
   // on an edge belongs to the triangle only for those -- the tie rule that
   // makes a shared edge covered exactly once.
-  val topLeft = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
+  val topLeft = Output(Vec(3, Bool()))
   // Multiple colour attachments: the tile is rendered once per attachment,
   // each pass clearing or loading that attachment and flushing to it.
   val attPass = Output(UInt(3.W))
@@ -158,9 +158,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // Top-left flags per setup-cache page, and for the triangle being shaded
   // (latched at selection, like covDeltaActive). Taken from the edge planes'
   // a and b as the record image arrives.
-  val topLeftCache  = Option.when(cfg.drawEnabled)(Reg(Vec(2, Vec(3, Bool()))))
-  val topLeftActive = Option.when(cfg.drawEnabled)(RegInit(VecInit(Seq.fill(3)(true.B))))
-  val planeA = Option.when(cfg.drawEnabled)(Reg(Vec(3, UInt(2.W))))   // a: {negative, zero}
+  val topLeftCache  = Reg(Vec(2, Vec(3, Bool())))
+  val topLeftActive = RegInit(VecInit(Seq.fill(3)(true.B)))
+  val planeA = Reg(Vec(3, UInt(2.W)))   // a: {negative, zero}
   val covDeltaActive = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))) else None
 
@@ -236,8 +236,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.frontFacingOverride := !triIsBackFacing
     io.curTriIndex := binEntryData
     io.attPass := attPass
-    io.attrBase.foreach(_ := (io.mmio.setupBase +& (binEntryData << setupStrideShift) +& (48 * 4).U)(GpuMemIO.AddrBits - 1, 0))
-    io.topLeft.foreach(_ := topLeftActive.get)
+    io.attrBase := (io.mmio.setupBase +& (binEntryData << setupStrideShift) +& (48 * 4).U)(GpuMemIO.AddrBits - 1, 0)
+    io.topLeft := topLeftActive
 
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg
@@ -341,7 +341,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     dmaDescReg   := desc
     io.dma.desc  := desc
     io.dma.start := true.B
-    nextAfterDMA := (if (cfg.drawEnabled) sLoadFsConst else sStartPass2)
+    nextAfterDMA := sLoadFsConst
     constPage    := 0.U
     state        := sWaitDMA
   }
@@ -507,7 +507,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       triState := stateCache(0)
       triIsBackFacing := backFacingReg(0)
       covDeltaActive.foreach(_ := covDeltaCache.get(0))
-      topLeftActive.foreach(_ := topLeftCache.get(0))
+      topLeftActive := topLeftCache(0)
       state       := sEnqueueTile
     }.elsewhen(binEntryData === tagReg(1) && (setupPages > 1).B) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
@@ -515,7 +515,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       triState := stateCache(1)
       triIsBackFacing := backFacingReg(1)
       covDeltaActive.foreach(_ := covDeltaCache.get(1))
-      topLeftActive.foreach(_ := topLeftCache.get(1))
+      topLeftActive := topLeftCache(1)
       state       := sEnqueueTile
     }.otherwise {
       val victim = if (setupPages > 1) cacheVictim else 0.U
@@ -697,25 +697,21 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     when(io.dma.uniformSnoop.en && state === sWaitDMA && nextAfterDMA === firstTransferTarget) {
       setupLoadIdx := setupLoadIdx + 1.U
       // Edge plane k's a (word 3k) and b (3k + 1): the top-left flags.
-      topLeftCache.foreach { cache =>
-        val d = io.dma.uniformSnoop.data
-        val neg = d(cfg.totalBits - 1); val zero = d(cfg.totalBits - 2, 0) === 0.U
-        for (k <- 0 until 3) {
-          when(setupLoadIdx === (3 * k).U) { planeA.get(k) := Cat(neg, zero) }
-          when(setupLoadIdx === (3 * k + 1).U) {
-            val aNeg = planeA.get(k)(1); val aZero = planeA.get(k)(0)
-            val tl = (!aNeg && !aZero) || (aZero && !neg && !zero)
-            cache(uniformPage)(k) := tl
-            topLeftActive.get(k)  := tl
-          }
+      val d = io.dma.uniformSnoop.data
+      val neg = d(cfg.totalBits - 1); val zero = d(cfg.totalBits - 2, 0) === 0.U
+      for (k <- 0 until 3) {
+        when(setupLoadIdx === (3 * k).U) { planeA(k) := Cat(neg, zero) }
+        when(setupLoadIdx === (3 * k + 1).U) {
+          val aNeg = planeA(k)(1); val aZero = planeA(k)(0)
+          val tl = (!aNeg && !aZero) || (aZero && !neg && !zero)
+          topLeftCache(uniformPage)(k) := tl
+          topLeftActive(k) := tl
         }
       }
       when(setupLoadIdx === BorgSetupRom.Record.Meta.U) {
         triIsBackFacing := io.dma.uniformSnoop.data(1)
-        if (cfg.drawEnabled) {
-          triState := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
-          stateCache(uniformPage) := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
-        }
+        triState := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
+        stateCache(uniformPage) := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
         // Remember the facing for the page just loaded (= current
         // uniformPage) so a later cache hit restores it without a reload.
         backFacingReg(uniformPage) := io.dma.uniformSnoop.data(1)

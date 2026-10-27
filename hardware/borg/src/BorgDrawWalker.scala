@@ -67,7 +67,6 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   * record t always belongs to primitive t.
   */
 class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
-  require(cfg.drawEnabled, "the draw walker needs the draw front end (BorgConfig.drawEnabled)")
   val io = IO(new BorgDrawWalkerIO(cfg))
 
   private val (sIdle :: sLoadVS :: sLoadConst :: sWaitDMA :: sAssemble :: sFetchIdx :: sIdxDone :: sRunVS ::

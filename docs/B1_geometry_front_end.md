@@ -1,8 +1,7 @@
 # Geometry Front End: Draws, Homogeneous Setup and Varyings
 
 Status: implemented and tested in simulation, September 2026, on branch
-`feat/vulkan-conformance-gaps` (`BorgConfig.drawEnabled`, i.e. any FP32
-build with memory ops, Wafer included).
+`feat/vulkan-conformance-gaps`; in every build.
 
 The limits check against Vulkan 1.0 found that the geometry front end falls
 short on most of the vertex-to-fragment path. This page describes how the
