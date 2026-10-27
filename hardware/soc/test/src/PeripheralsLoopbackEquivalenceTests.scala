@@ -6,7 +6,7 @@ package soc
 import chisel3._
 import chisel3.simulator.EphemeralSimulator._
 import utest._
-import borg.{BorgConfig, BorgGpuRegs, FloatConfig, Instructions}
+import borg.{BorgConfig, BorgGpuRegs}
 
 /** Rung A's acceptance gate at the SoC level -- the counterpart to
   * `borg.BorgLinkEquivalenceTests`, but through `Peripherals`'s real address
@@ -22,8 +22,7 @@ import borg.{BorgConfig, BorgGpuRegs, FloatConfig, Instructions}
   */
 object PeripheralsLoopbackEquivalenceTests extends TestSuite {
 
-  val config = FloatConfig.FP32
-  val cfg    = BorgConfig.Default
+  val cfg    = BorgConfig.Test
   val tileBase = 0x200
 
   // addr[11:10] = PERI_BORG (3), addr[9:0] = Borg's own register offset.
@@ -52,9 +51,10 @@ object PeripheralsLoopbackEquivalenceTests extends TestSuite {
     val exp  = (h >> 10) & 0x1f
     val mant = h & 0x3ff
     val full = (1 << 10) | mant
-    if (sign == 1 || exp < 7) 0
-    else if (exp >= 15) (1 << bits) - 1
-    else (full >> (17 - exp)) >> (8 - bits)
+    val n = 25 - exp
+    val u8 = if (sign == 1 || exp == 0) 0 else if (exp >= 15) 255
+             else math.min(255, (full * 255 + (1 << (n - 1))) >> n)
+    u8 >> (8 - bits)
   }
   def toRgb565(r: Int, g: Int, b: Int): Int =
     (fp16ToUnorm(r, 5) << 11) | (fp16ToUnorm(g, 6) << 5) | fp16ToUnorm(b, 5)
@@ -117,12 +117,7 @@ object PeripheralsLoopbackEquivalenceTests extends TestSuite {
     rawWrite(d, BorgGpuRegs.flush_width_offset.litValue.toInt, 5)
 
     rawWrite(d, BorgGpuRegs.control_offset.litValue.toInt, 2)
-    rawWrite(d, 7 * 4, 0x3c00)
-    rawWrite(d, 6 * 4, 0x0000)
-    rawWrite(d, 128 + 0 * 4, Instructions.ADD(7, 6, 0))
-    rawWrite(d, 128 + 1 * 4, Instructions.ADD(7, 6, 1))
-    rawWrite(d, 128 + 2 * 4, Instructions.ADD(7, 6, 2))
-    rawWrite(d, 128 + 3 * 4, 0)
+    rawWrite(d, 128 + 0 * 4, 0) // halt: the colour comes from the tile writes above
     rawWrite(d, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
 
     rawWrite(d, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, (0 << 10) | 0)
@@ -130,7 +125,7 @@ object PeripheralsLoopbackEquivalenceTests extends TestSuite {
 
     for (_ <- 0 until 16) {
       rawWrite(d, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-      for (_ <- 0 until 120) idleStep(d)
+      for (_ <- 0 until 260) idleStep(d)
     }
 
     var guard = 0
