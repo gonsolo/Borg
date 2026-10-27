@@ -45,7 +45,7 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWi
   /** GPU memory byte address of the bin list region base (from tbr_bin_base). */
   val binBase     = Input(UInt(GpuMemIO.AddrBits.W))
   /** Bin list row size in bytes: 2 per entry, so a tile holds binRowBytes / 2
-    * triangles (more set `overflow`). */
+    * triangles (more set `full`). */
   val binRowBytes = Input(UInt(binRowBytesWidth.W))
   /** Number of tiles per framebuffer row (= fb_width / 4). */
   val tilesPerRow = Input(UInt(tileRowWidth.W))
@@ -67,11 +67,10 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWi
   /** Triangle count for the tile addressed by countReadAddr (1-cycle latency). */
   val countReadData = Output(UInt(countWidth.W))
 
-  /** Sticky: a tile's bin was full (binRowBytes / 2 entries) when another
-    * triangle touched it. The entry is dropped rather than written into the
-    * next tile's row; the sequencer then renders nothing (see
-    * BorgSequencer.binOverflow). Cleared by clearCounts. */
-  val overflow = Output(Bool())
+  /** A tile's bin was full: the triangle stopped there, and is binned again once the
+    * sequencer has rendered what the bins hold (docs/B11_partial_render.md). Valid
+    * from the triangle's end until the next start. */
+  val full = Output(Bool())
 }
 
 /** BorgBinner — per-tile bin list writer (Step 32.1).
@@ -114,8 +113,8 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     val max = ((1 << countWidth) - 1).U
     Mux(c > max, max, c)
   }
-  val overflowReg = RegInit(false.B)
-  io.overflow := overflowReg
+  val fullReg = RegInit(false.B)
+  io.full := fullReg
 
   // --- FSM ---
   val sIdle :: sReadCount :: sWaitCount :: sWriteDram :: sStoreCount :: sNextTile :: Nil = Enum(6)
@@ -166,7 +165,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
   when(io.clearCounts && !clearing) {
     clearIdx := 0.U
     clearing := true.B
-    overflowReg := false.B
+    fullReg := false.B
     pendingStart := false.B  // new frame — cancel any stale pending
     if (BorgDebug.trace) printf("[BIN] clearCounts pulse\n")
   }
@@ -280,6 +279,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
         bboxMaxX  := maxX
         bboxMaxY  := maxY
         triIdxReg := triId
+        fullReg   := false.B
         tileX     := minX
         tileY     := minY
         pendingStart := false.B
@@ -296,11 +296,12 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     // Cycle 1: SyncReadMem data is now valid. Capture it.
     is(sWaitCount) {
       curCount := countReadData
-      // A full bin drops the entry: writing it would land in the next
-      // tile's row. The render is abandoned instead (overflow).
-      when(countReadData >= capacity) {
-        overflowReg := true.B
-        state       := sNextTile
+      // A bin with no room at all drops the entry, so a full one can always be emptied.
+      when(countReadData >= capacity && capacity =/= 0.U) {
+        fullReg := true.B
+        state   := sIdle
+      }.elsewhen(countReadData >= capacity) {
+        state := sNextTile
       }.otherwise {
         state := sWriteDram
       }

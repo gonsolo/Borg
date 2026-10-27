@@ -1030,13 +1030,8 @@ reg seq_trigger_reg_t {
     desc = "Write bit 0 = 1 to render the draw set up in DRAW_CFG and the
             draw parameters (docs/B1_geometry_front_end.md).  Self-clearing.
             Poll STATUS.seq_busy for completion.  nogen: decoded in Borg.scala.
-            Read: bit 0 = done (sticky, cleared by the next trigger); bit 1 =
-            bin overflow -- a tile touched by more than SEQ_BIN_ROW_BYTES / 2
-            triangles. Binning is completed, but no tile is rendered and
-            nothing is written or counted: the attachments are untouched,
-            so the driver re-issues the same render split into smaller
-            draws (or with larger bin rows), the first with the original
-            loadOp. Cleared when the next render starts binning.";
+            Read: bit 0 = done (sticky, cleared by the next trigger). A full
+            bin makes a partial render (docs/B11_partial_render.md).";
 
     field {
         sw = w; hw = r;
@@ -1045,13 +1040,8 @@ reg seq_trigger_reg_t {
     } start[1] = 0;
 
     field {
-        sw = r; hw = w;
-        desc = "Bit 1: bin overflow (read).";
-    } overflow[1] = 0;
-
-    field {
         sw = w; hw = na;
-    } RSVD[30] = 0;
+    } RSVD[31] = 0;
 };
 
 // --- Vertex Sequencer: vertex shader DRAM address (Step 29.1) ---

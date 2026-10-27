@@ -70,6 +70,8 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Render lists: a triangle whose state block (its record's meta word) is
   // not the one in the registers has it played before it is rasterized.
   val listMode = Input(Bool())
+  // A partial render (docs/B11_partial_render.md) draws only the triangles below this.
+  val triLimit = Input(UInt(17.W))
   val playReq  = Output(Bool())
   val playAddr = Output(UInt(GpuMemIO.AddrBits.W))
   val playDone = Input(Bool())
@@ -491,7 +493,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleWaitBinEntry(): Unit = {
-    state := sLoadTriSetup
+    // Bins are in triangle order: the first entry at the limit ends the tile's list.
+    state := Mux(binEntryData >= io.triLimit, sWaitFlush, sLoadTriSetup)
   }
 
   private def handleLoadTriSetup(): Unit = {

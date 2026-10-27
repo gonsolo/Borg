@@ -515,7 +515,9 @@ object BorgDrawTests extends TestSuite {
     * bit 1 says so. With room for both triangles the same draw renders. */
   /** Render lists: four draws with two fragment states in one render must leave what the
     * same draws leave one render at a time (each loading the colour the last one stored). */
-  def renderList(rig: DrawRig): Unit = {
+  def renderList(rig: DrawRig): Unit = renderListWith(rig, 32)
+  def renderListParts(rig: DrawRig): Unit = renderListWith(rig, 2)
+  def renderListWith(rig: DrawRig, rowBytes: Int): Unit = {
     import Instructions._
     val one = 0x40                               // one sample: a load is then exact
     val tris = Seq(
@@ -532,6 +534,8 @@ object BorgDrawTests extends TestSuite {
       ldU(28, 20),
       BigInt(0))
     val fsConstB = 0xB180; val fsAddrB = 0x5400
+    // State B moves the viewport a pixel: the walker's registers differ between the states too.
+    val viewportB = BorgGpuRegs.viewport_ox_offset -> rig.f32(rig.viewport._3 + 1)
     rig.rom(fsConstB) = rig.f32(1.0)
     val stateOf = Seq(0, 1, 0, 0)                // draws 2 and 3 share a state: no switch between them
     def all = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
@@ -541,7 +545,7 @@ object BorgDrawTests extends TestSuite {
       val b = stateOf(i) == 1
       rig.draw(t, frag = if (b) fsB else rig.fs, keep = i > 0, sampleMaskCfg = 0xF | one,
                extra = (if (i > 0) Seq(BorgGpuRegs.tile_load_offset -> BigInt(1)) else Nil) ++
-                       (if (b) Seq(BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB)) else Nil))
+                       (if (b) Seq(BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB), viewportB) else Nil))
     }
     val ref = all
     Predef.assert(ref.distinct.size > 8, "the reference image is degenerate")
@@ -556,10 +560,11 @@ object BorgDrawTests extends TestSuite {
     val stateAddr = Seq(blocks, blocks + 0x100)
     block(stateAddr(0), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(rig.fsAddr),
                             BorgGpuRegs.seq_frag_len_offset -> BigInt(CsrOutputs(rig.fs).size),
-                            BorgGpuRegs.draw_fs_const_offset -> BigInt(rig.fsConst)))
+                            BorgGpuRegs.draw_fs_const_offset -> BigInt(rig.fsConst),
+                            BorgGpuRegs.viewport_ox_offset -> rig.f32(rig.viewport._3)))
     block(stateAddr(1), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(fsAddrB),
                             BorgGpuRegs.seq_frag_len_offset -> BigInt(CsrOutputs(fsB).size),
-                            BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB)))
+                            BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB), viewportB))
     for (i <- tris.indices) {
       val params = blocks + 0x200 + 0x40 * i
       block(params, Seq(BorgGpuRegs.draw_first_vertex_offset -> BigInt(3 * i),
@@ -567,7 +572,8 @@ object BorgDrawTests extends TestSuite {
       rig.rom(list + 8 * i) = BigInt(stateAddr(stateOf(i))); rig.rom(list + 8 * i + 4) = BigInt(params)
     }
     rig.rom(list + 8 * tris.size) = BigInt(0); rig.rom(list + 8 * tris.size + 4) = BigInt(0)
-    rig.draw(tris.flatten, sampleMaskCfg = 0xF | one, extra = Seq(BorgGpuRegs.render_list_offset -> BigInt(list)))
+    rig.draw(tris.flatten, sampleMaskCfg = 0xF | one, extra = Seq(BorgGpuRegs.render_list_offset -> BigInt(list),
+                                                                  BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(rowBytes)))
     val got = all
     for (y <- 0 until Size; x <- 0 until Size)
       Predef.assert(got(y * Size + x) == ref(y * Size + x),
@@ -575,21 +581,35 @@ object BorgDrawTests extends TestSuite {
     println(s"  4 draws, 2 fragment states, 1 render: all ${Size * Size} pixels equal the draw-by-draw image (${ref.distinct.size} colours)")
   }
 
-  def binOverflow(rig: DrawRig): Unit = {
-    val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
-    val tris = Seq(quad(0), quad(1), quad(2), quad(2), quad(1), quad(3))
-    def status = rawRead(rig.borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt)
-    val fb = rig.fbBase until rig.fbBase + 64 * (Size / 4) * (Size / 4)
-    // Every tile is in both triangles' bounding boxes; a row of 2 bytes
-    // holds one entry.
-    val lost = rig.draw(tris, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(2)))
-    val st = status
-    val written = fb.count(rig.half.contains)
-    println(s"  one entry per bin: status $st, $lost samples, $written framebuffer halfwords written")
-    utest.assert(st == 3 && lost == 0 && written == 0)
-    val full = rig.draw(tris, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(4)))
-    println(s"  two entries per bin: status $status, $full samples (expect ${Size * Size * 4})")
-    utest.assert(status == 1 && full == Size * Size * 4)
+  /** docs/B11_partial_render.md: with one entry per bin every triangle is a part of its own,
+    * and the render must equal the one whose bins hold them all -- colour, depth and the
+    * occlusion count, which sees a triangle drawn twice even where depth hides it. */
+  def partialRender(rig: DrawRig): Unit = {
+    val rnd = new scala.util.Random(11)
+    def v() = at(rnd.nextDouble() * 8, rnd.nextDouble() * 8, 1, z = 0.1 + 0.8 * rnd.nextDouble(),
+                 r = rnd.nextDouble(), g = rnd.nextDouble())
+    val zb = 0x30000
+    val scenes = Seq(
+      ("list", Seq.fill(18)(v()), 0, Seq[Int](), 1),
+      ("strip", Seq.fill(8)(v()), 1, Seq[Int](), 1),
+      ("fan", Seq.fill(8)(v()), 2, Seq[Int](), 1),
+      ("fan, restart", Seq.fill(10)(v()), 2, Seq(0, 1, 2, 3, 4, 0xFFFF, 5, 6, 7, 8, 9), 1),
+      ("list, 2 instances", Seq.fill(15)(v()), 0, Seq[Int](), 2))
+    for ((name, verts, topology, indices, instances) <- scenes; (depth, dname) <- Seq((7 | (1 << 3), "ALWAYS"), (1 | (1 << 3), "LESS"));
+         (mask, ms) <- Seq((0xF | 0x40, 1), (0xF, 4)) if ms == 1 || name == "list") {
+      def shot(rowBytes: Int) = {
+        val occ = rig.draw(verts, topology = topology, indices = indices, restart = indices.nonEmpty, instances = instances,
+          sampleMaskCfg = mask, depthCfg = depth, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(rowBytes),
+            BorgGpuRegs.flush_zb_base_offset -> BigInt(zb), BorgGpuRegs.attach_ms_offset -> BigInt(if (ms == 4) 1 else 0)))
+        val mem = (rig.fbBase until rig.fbBase + 256 * ms by 2) ++ (zb until zb + 128 * ms by 2)
+        (occ, mem.map(rig.half.get))
+      }
+      val (refOcc, ref) = shot(32)
+      val (occ, got) = shot(2)
+      val diff = ref.zip(got).count { case (a, b) => a != b }
+      println(s"  $name, $dname, ${ms}x: occlusion $occ (one render $refOcc), $diff of ${ref.size} halfwords differ")
+      utest.assert(refOcc > 0 && ref.distinct.size > 8 && occ == refOcc && diff == 0)
+    }
   }
 
   /** rasterizationSamples = 1 (SAMPLE_MASK_CFG bit 6): coverage and depth
@@ -927,8 +947,11 @@ object BorgDrawTests extends TestSuite {
     utest.test("render_list_of_draws_with_two_states") {
       run("render list", suiteCfg)(renderList)
     }
-    utest.test("bin_overflow_renders_nothing_and_reports") {
-      run("bin overflow", suiteCfg)(binOverflow)
+    utest.test("a_full_bin_renders_in_parts") {
+      run("partial render", suiteCfg)(partialRender)
+    }
+    utest.test("a_render_list_renders_in_parts") {
+      run("render list in parts", suiteCfg)(renderListParts)
     }
     utest.test("strips_fans_indices_restart_and_instances") {
       run("topologies", suiteCfg)(topologies)

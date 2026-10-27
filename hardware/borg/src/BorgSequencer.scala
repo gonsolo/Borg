@@ -88,6 +88,7 @@ class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
   val bbox = Output(new Bbox(cfg.coordWidth))
   val clearCounts = Output(Bool())
   val busy = Input(Bool())
+  val full = Input(Bool())
   val countReadAddr = Output(UInt(countAddrWidth.W))
   val countReadEn = Output(Bool())
   val countReadData = Input(UInt(countWidth.W))
@@ -145,9 +146,9 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
-  /** The binner dropped an entry this render (BorgBinner.overflow): Pass 2
-    * is skipped, so the render writes nothing and can be re-issued split. */
-  val binOverflow = Input(Bool())
+  /** A later part of a render (docs/B11_partial_render.md): every tile loads every
+    * aspect that has an attachment, and a tile no triangle reaches is kept. */
+  val loadAll = Output(Bool())
 
   // Step 50.2b: per-edge MSAA sample deltas, [edge][k] where k=0 is d0 and
   // k=1 is d1 (the other two samples are sign flips, derived in hardware).
@@ -205,7 +206,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val p2 = Module(new BorgTileSequencer(cfg))
   private val dw = Module(new BorgDrawWalker(cfg))
 
-  private val wIdle :: wPass1 :: wPass2 :: wDone :: wEntry :: wWaitEntry :: wPlayState :: wPlayParams :: wWaitPlay :: wDraw :: Nil = Enum(10)
+  private val (wIdle :: wPass1 :: wPass2 :: wDone :: wEntry :: wWaitEntry :: wPlayState :: wPlayParams :: wWaitPlay :: wDraw ::
+               wPartial :: wPartClear :: wResume :: Nil) = Enum(13)
   private val wstate = RegInit(wIdle)
 
   // --- Render list (docs/B1_geometry_front_end.md, "Render lists") --------
@@ -238,8 +240,19 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // own it, since each is reset to its own idle at the end of its pass.
   private val curBufIdx = RegInit(0.U(1.W))
 
+  // --- Partial render (docs/B11_partial_render.md) ------------------------
+  // A full bin pauses the walker on triangle t: Pass 2 renders the triangles below t,
+  // the bins are cleared, the current draw's blocks are played again (list mode) and
+  // the walker bins t once more. Every part after the first loads what the last stored.
+  private val noLimit   = (1 << 16).U(17.W)
+  private val triLimit  = RegInit(noLimit)
+  private val parted    = RegInit(false.B)
+  private val replaying = RegInit(false.B)   // the blocks are played for a resume, not a new draw
+  private val partClear = WireDefault(false.B)
+
   p2.io.start := false.B
   dw.io.start := false.B
+  dw.io.resume := false.B
   private val p1Done = dw.io.done
   private val nothingToDraw = io.draw.vertexCount === 0.U || io.draw.instanceCount === 0.U
   io.done := false.B
@@ -247,6 +260,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   switch(wstate) {
     is(wIdle) {
       when(io.mmio.start) {
+        parted   := false.B
+        triLimit := noLimit
         when(nothingToDraw) {
           // Nothing to draw: pulse busy and finish. Without this guard the
           // whole pipeline would run and the flusher write every tile.
@@ -276,8 +291,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(io.dma.snoop.valid) { entry(entryWord) := io.dma.snoop.bits; entryWord := 1.U }
       when(!io.dma.busy) {
         when(entry(0) === 0.U) {
-          // End of the list. Nothing drawn, or a bin overflowed: render nothing.
-          when(!anyDraw || io.binOverflow) { wstate := wDone }
+          // End of the list.
+          when(!anyDraw) { wstate := wDone }
             .otherwise { p2.io.start := true.B; wstate := wPass2 }
         }.otherwise {
           wstate := Mux(entry(0) === lastState, wPlayParams, wPlayState)
@@ -291,10 +306,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       wstate := wWaitPlay
     }
     is(wPlayParams) {
+      val next = Mux(replaying, wResume, wDraw)
       player.io.start := entry(1) =/= 0.U
       player.io.addr  := entry(1)
-      afterPlay := wDraw
-      wstate := Mux(entry(1) =/= 0.U, wWaitPlay, wDraw)
+      afterPlay := next
+      wstate := Mux(entry(1) =/= 0.U, wWaitPlay, next)
     }
     is(wWaitPlay) {
       when(player.io.done) { wstate := afterPlay }
@@ -313,15 +329,34 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         anyDraw := true.B
         when(listMode) {
           wstate := wEntry
-        // A bin overflowed: some triangle is missing from some tile, so any
-        // tile rendered now could be wrong. Render and flush nothing.
-        }.elsewhen(io.binOverflow) {
-          wstate := wDone
         }.otherwise {
           p2.io.start := true.B
           wstate := wPass2
         }
+      }.elsewhen(dw.io.paused) {
+        triLimit := dw.io.binner.triIndex
+        p2.io.start := true.B
+        wstate := wPartial
       }
+    }
+    is(wPartial) {
+      when(p2.io.done) {
+        parted    := true.B
+        triLimit  := noLimit
+        partClear := true.B
+        wstate    := wPartClear
+      }
+    }
+    is(wPartClear) {
+      when(!io.binner.busy) {
+        replaying := listMode
+        wstate := Mux(listMode, wPlayState, wResume)
+      }
+    }
+    is(wResume) {
+      replaying := false.B
+      dw.io.resume := true.B
+      wstate := wPass1
     }
     is(wPass2) {
       when(p2.io.done) {
@@ -338,6 +373,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   io.busy            := wstate =/= wIdle
   io.seqShaderActive := dw.io.seqShaderActive
+  io.loadAll         := parted
 
   // --- Pass 1: the draw walker ---
   // Pass 1 alone triggers BorgCore directly (the vertex shader and the setup
@@ -354,12 +390,13 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dw.io.dma.uniformSnoop := io.dma.uniformSnoop
   dw.io.store.ready := io.store.ready
   dw.io.binner.busy := io.binner.busy
+  dw.io.binner.full := io.binner.full
   dw.io.binner.countReadData := io.binner.countReadData
   io.coreTrigger := dw.io.coreTrigger
   io.store.active := dw.io.store.active; io.store.req := dw.io.store.req
   io.store.addr   := dw.io.store.addr;   io.store.wdata := dw.io.store.wdata
   io.binner.start := dw.io.binner.start; io.binner.triIndex := dw.io.binner.triIndex
-  io.binner.bbox  := dw.io.binner.bbox;  io.binner.clearCounts := dw.io.binner.clearCounts
+  io.binner.bbox  := dw.io.binner.bbox;  io.binner.clearCounts := dw.io.binner.clearCounts || partClear
   io.ids := dw.io.ids
   // Pass 1 writes records; Pass 2 reads the current triangle's attributes.
   io.record := dw.io.record
@@ -370,6 +407,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   p2.io.curBufIdx := curBufIdx
   // Pass 2 asks for a triangle's state block when it is not the one in the registers.
   p2.io.listMode := listMode
+  p2.io.triLimit := triLimit
   p2.io.playDone := player.io.done
   when(p2.io.playReq) {
     player.io.start := true.B
@@ -425,5 +463,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.binner.countReadAddr := p2.io.binner.countReadAddr
   io.binner.countReadEn   := p2.io.binner.countReadEn
   p2.io.binner.busy         := io.binner.busy
+  p2.io.binner.full         := io.binner.full
   p2.io.binner.countReadData := io.binner.countReadData
 }

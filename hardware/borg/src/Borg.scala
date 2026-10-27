@@ -698,12 +698,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       tileLoadReg.stencil := bus.data_in(2)
       tileKeepReg         := bus.data_in(3)
     }
-    s.io.mmio.tileKeep := tileKeepReg
+    // A later part of a partial render loads every aspect the last part stored.
+    val aspects = WireDefault(tileLoadReg)
+    aspects.depth   := tileLoadReg.depth || s.io.loadAll && flushDepthBaseReg =/= 0.U
+    aspects.stencil := tileLoadReg.stencil || s.io.loadAll && stencilBaseReg =/= 0.U
+    s.io.mmio.tileKeep := tileKeepReg || s.io.loadAll
     tileLoadColor := tileLoadReg.color
-    s.io.mmio.tileLoad := attLoad || tileLoadReg.depth || tileLoadReg.stencil
+    s.io.mmio.tileLoad := attLoad || aspects.depth || aspects.stencil
     ld.io.start       := s.io.flusher.loadStart
     s.io.flusher.loadBusy := ld.io.busy
-    ld.io.aspects     := tileLoadReg
+    ld.io.aspects     := aspects
     ld.io.aspects.color := attLoad
     ld.io.format      := attFormat
     ld.io.srgb        := attSrgb
@@ -808,8 +812,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data(0).b, depthToFp16(tile.io.read.data(0).z)),
       // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky
       // (set when a render finishes, cleared by the next trigger).
-      // Bit 1: a bin overflowed and the render wrote nothing (BorgBinner).
-      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> Cat(binner.io.overflow, seqDoneSticky),
+      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky,
       (read_addr_del === BorgGpuRegs.occ_count_offset)   -> occCount,
       (read_addr_del === BorgGpuRegs.occ_ctrl_offset)    -> occEnable.asUInt,
       (read_addr_del === BorgGpuRegs.occ_tri_range_offset) -> Cat(occLast, occFirst),
@@ -1116,7 +1119,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     attClearB  := Mux(slice, ColorQuantize.dequantize8(w2(23, 16)), sel(s.io.mmio.clearColorLo(31, 16), attBA.map(_(31, 16))))
     attClearA  := Mux(slice, w2(31, 24), sel(rdlRegs.io.hw.plane_clear_alpha, attBA.map(_(7, 0))))
     attClearExt := Mux(slice, VecInit(attW3)(att), sel(attExt(0), attExt.drop(1)))
-    attLoad    := sel(tileLoadColor, Seq(attCfg(2), attCfg(3), attCfg(4)))
+    attLoad    := sel(tileLoadColor, Seq(attCfg(2), attCfg(3), attCfg(4))) || s.io.loadAll
     attFirst   := pass === 0.U
     attLast    := pass === passes - 1.U
     core.io.attIndex := Cat(slice, att)
@@ -1146,7 +1149,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     b.io.countReadAddr := s.io.binner.countReadAddr
     b.io.countReadEn   := s.io.binner.countReadEn
     s.io.binner.countReadData := b.io.countReadData
-    s.io.binOverflow := b.io.overflow
+    s.io.binner.full := b.io.full
 
     // GpuMem feedback
     b.io.gpuMem.data  := io.gpuMem.data

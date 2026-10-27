@@ -36,6 +36,10 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   // its draw's state block.
   val first     = Input(Bool())
   val stateAddr = Input(UInt(GpuMemIO.AddrBits.W))
+  // A full bin pauses the walker on its triangle until the sequencer has rendered
+  // the bins (docs/B11_partial_render.md); resume bins the triangle again.
+  val paused = Output(Bool())
+  val resume = Input(Bool())
 
   val mmio  = new SeqMmioIO(cfg)
   val draw  = Input(new DrawMmioIO)
@@ -70,9 +74,10 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgDrawWalkerIO(cfg))
 
   private val (sIdle :: sLoadVS :: sLoadConst :: sWaitDMA :: sAssemble :: sFetchIdx :: sIdxDone :: sRunVS ::
-               sWaitVS :: sStage :: sRunSetup :: sWaitSetup :: sBin :: sWaitBin :: sStoreMeta :: sNext :: Nil) = Enum(16)
+               sWaitVS :: sStage :: sRunSetup :: sWaitSetup :: sBin :: sWaitBin :: sStoreMeta :: sNext :: sPaused :: Nil) = Enum(17)
   private val state = RegInit(sIdle)
   private val nextAfterDMA = RegInit(sIdle)
+  private val resuming = RegInit(false.B)
 
   private val d = io.draw
   private val inst  = RegInit(0.U(32.W))
@@ -106,6 +111,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- Defaults ---------------------------------------------------------
   io.busy := state =/= sIdle
   io.done := false.B
+  io.paused := state === sPaused
   io.seqShaderActive := state === sRunVS || state === sWaitVS || state === sRunSetup || state === sWaitSetup
   io.dma.start := false.B
   io.dma.desc  := dmaDescReg
@@ -201,7 +207,8 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       desc.length   := (32 - first).U
       desc.dest     := 1.U
       desc.offset   := first.U
-      when(io.mmio.vsConstBase =/= 0.U) { dma(desc, sAssemble) }.otherwise { state := sAssemble }
+      val next = Mux(resuming, sBin, sAssemble)
+      when(io.mmio.vsConstBase =/= 0.U) { dma(desc, next) }.otherwise { state := next }
     }
     is(sWaitDMA) {
       when(!io.dma.busy) { state := nextAfterDMA }
@@ -323,10 +330,15 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     is(sBin) {
       io.binner.start := true.B
+      resuming := false.B
       state := sWaitBin
     }
     is(sWaitBin) {
-      when(!io.binner.busy) { state := sStoreMeta }
+      when(!io.binner.busy) { state := Mux(io.binner.full, sPaused, sStoreMeta) }
+    }
+    is(sPaused) {
+      // Pass 2 ran in between: its fragment shader and constants replaced ours.
+      when(io.resume) { resuming := true.B; state := sLoadVS }
     }
     is(sStoreMeta) {
       io.store.req := true.B
