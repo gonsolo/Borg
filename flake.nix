@@ -199,7 +199,6 @@
         ];
 
         shellHook = ''
-          export GONSOLO_PROJECT="borg_tinyqv"
           export OPENSBI_SRC="${opensbiSrc}"
           export LINUX_SRC="${linuxSrc}"
           export RUST_LIB_SRC="${pkgs.rustPlatform.rustLibSrc}"
@@ -215,13 +214,10 @@
           export JAVA_HOME=${pkgs.jdk21}
           export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
 
-          echo "Entering $GONSOLO_PROJECT development shell..."
-
           # Named interpreters: a bare python3 on PATH can be any input's own.
           #  python3-borg-rdl:  pythonEnv, for `make rdl`.
           #  python3-librelane: pythonEnv plus librelane's own PYTHONPATH, for padring.py.
           mkdir -p $HOME/bin
-          ln -sf ${pkgs.yosys}/bin/yosys $HOME/bin/yowasp-yosys
           ln -sf ${pythonEnv}/bin/python3 $HOME/bin/python3-borg-rdl
           cat > $HOME/bin/python3-librelane << 'WRAPPER_EOF'
           #!${pkgs.bash}/bin/bash
