@@ -51,6 +51,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val running     = Input(Bool())
   val fmaStart    = Input(Bool())
   val decode      = Input(Bool())   // operand reads: idle, or the previous write-back (cfg.pipelined)
+  val advance     = Input(Bool())   // the stages move on (not held by a stall FSM)
   val seqBusy     = Input(Bool())
 
   // --- Per-lane pixel coordinate ---
@@ -85,6 +86,13 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val recCRaw     = Output(UInt(cfg.totalBits.W))  // TEX's rs3: the control word
 }
 
+object BorgLane {
+  /** `x` as the instruction `n` stages on sees it: a register per stage when cfg.pipelined, else
+    * `x` itself, which holds still while its one instruction is in flight. */
+  def later[T <: Data](cfg: BorgConfig, advance: Bool)(x: T, n: Int): T =
+    if (cfg.pipelined) (0 until n).foldLeft(x)((v, _) => RegEnable(v, advance)) else x
+}
+
 class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgLaneIO(cfg))
 
@@ -112,6 +120,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val running      = io.running
   private val regs         = io.regs
   private val opFlags      = io.opFlags
+  private def later[T <: Data](x: T, n: Int): T = BorgLane.later(cfg, io.advance)(x, n)
+  // The instruction's flags and rd as latched at issue, at the operands and at write-back.
+  private val flagsR = RegEnable(opFlags, 0.U.asTypeOf(opFlags), io.fmaStart)
+  private val flagsX = later(flagsR, cfg.cBusyLoad - cfg.cOperands)
+  private val flagsW = later(flagsR, cfg.cBusyLoad - 1)
+  private val rdW    = later(RegEnable(regs.rd, 0.U, io.fmaStart), cfg.cBusyLoad - 1)
+  // The execution mask as the instruction saw it at its operands.
+  private val activeW = later(io.execActive, cfg.cOperands - 1)
+  private val anyW    = later(io.execAny, cfg.cOperands - 1)
 
   // --- Coordinate expansion (r30/r31 = pixel center i+0.5) ---
   // Deliberately stays FP16-native (rasterizer coordinate generation, per
@@ -152,22 +169,28 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Register reads + uniform operand mux ---
   val (recA, recB, recC, mmioD) = wireGprReads()
-  private val recA_raw = Mux(io.ovA.valid, io.ovA.bits, Mux(io.funct3Del === 1.U, io.uniformData, recA))
-  private val recB_raw = Mux(io.ovB.valid, io.ovB.bits, recB)
+  private val toOperands = cfg.cBusyLoad - cfg.cOperands
+  private val ovA = later(io.ovA, toOperands); private val ovB = later(io.ovB, toOperands)
+  private val recA_raw = Mux(ovA.valid, ovA.bits,
+    Mux(later(io.funct3Del, toOperands) === 1.U, later(io.uniformData, toOperands), recA))
+  private val recB_raw = Mux(ovB.valid, ovB.bits, recB)
   private val recC_raw = recC
   io.recARaw := recA_raw
   io.recBRaw := recB_raw
   io.recCRaw := recC_raw
+  private val aW = later(recA_raw, cfg.cOperands - 1)
+  private val bW = later(recB_raw, cfg.cOperands - 1)
 
   // --- ALU ---
-  val (fma_result, is_frcp_reg, is_frsq_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
-  val special_result = computeFp16Special(recA_raw, is_frcp_reg, is_frsq_reg)
-  val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
+  val fma_result = wireFma(recA_raw, recB_raw, recC_raw)
+  // The special functions' table read: a stage before write-back when pipelined.
+  private val lutStage = if (cfg.pipelined) 2 else 3
+  val special_result = computeFp16Special(later(recA_raw, cfg.cOperands - lutStage),
+    later(flagsR, cfg.cBusyLoad - lutStage).frsq, lutStage)
+  val (int_result, is_int_reg) = wireIntAlu(aW, bW)
 
   // --- Write-back (+ memory/TEX override) ---
-  wireWriteBack(fma_result, special_result,
-                is_frcp_reg, is_frsq_reg,
-                int_result, is_int_reg, mmioD)
+  wireWriteBack(fma_result, special_result, int_result, is_int_reg, mmioD)
 
   io.regReadData := mmioD
 
@@ -238,38 +261,28 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val rs1IdxDel = RegEnable(regs.rs1, atDecode)
     val rs2IdxDel = RegEnable(regs.rs2, atRs2)
     val rs3IdxDel = RegEnable(regs.rs3, atRs3)
-    val atHoldA = at(cfg.cRs2)
-    val atHoldB = at(if (three) cfg.cHoldC else cfg.cRs3)
-    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atHoldA)
-    val holdB = RegEnable(resolveCoordReg(dataB, rs2IdxDel), 0.U(config.totalBits.W), atHoldB)
-    val holdC = RegEnable(resolveCoordReg(dataC, rs3IdxDel), 0.U(config.totalBits.W), at(cfg.cHoldC))
+    def held(k: Int): Bool = if (cfg.pipelined) io.advance else at(k)
+    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), held(cfg.cRs2))
+    val holdB = RegEnable(resolveCoordReg(dataB, rs2IdxDel), 0.U(config.totalBits.W),
+      held(if (three) cfg.cHoldC else cfg.cRs3))
+    val holdC = RegEnable(resolveCoordReg(dataC, rs3IdxDel), 0.U(config.totalBits.W), held(cfg.cHoldC))
     val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
 
     (holdA, holdB, holdC, mmioD)
   }
 
-  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool) = {
+  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt): UInt = {
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
 
-    val is_mul_reg = RegInit(false.B)
-    val is_fma_reg = RegInit(false.B)
-    val is_frcp_reg = RegInit(false.B)
-    val is_frsq_reg = RegInit(false.B)
-    val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
-    val negC_reg = RegInit(false.B); val negProd_reg = RegInit(false.B)
-    when(start) {
-      negC_reg := opFlags.negC; negProd_reg := opFlags.negProd
-      is_mul_reg := opFlags.mul
-      // opFlags.fma is the raw R4-type opcode bit, which TEX/TEXA also set --
-      // this lane runs its real multiply-add datapath on their U/V/ctl
-      // operands too, which is wasted power but harmless: TEX/TEXA's real
-      // result always arrives via the memWrite override below (BorgCore's
-      // wireSampler), last-connect-wins over whatever this path produces.
-      is_fma_reg := opFlags.fma
-      is_frcp_reg := opFlags.frcp
-      is_frsq_reg := opFlags.frsq
-      is_deriv_reg := opFlags.ddx || opFlags.ddy
-    }
+    val is_mul_reg = flagsX.mul
+    // opFlags.fma is the raw R4-type opcode bit, which TEX/TEXA also set --
+    // this lane runs its real multiply-add datapath on their U/V/ctl
+    // operands too, which is wasted power but harmless: TEX/TEXA's real
+    // result always arrives via the memWrite override below (BorgCore's
+    // wireSampler), last-connect-wins over whatever this path produces.
+    val is_fma_reg = flagsX.fma
+    val is_deriv_reg = flagsX.ddx || flagsX.ddy // DDX/DDY: FMA computes crossA + crossC
+    val negC_reg = flagsX.negC; val negProd_reg = flagsX.negProd
 
     // @doc:fma-muxing
     val fma_result = {
@@ -284,13 +297,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
         // Registered result ready for write-back/snoop at counter==1.
-        fma.io.pipeEn1 := at(cfg.cOperands)
-        fma.io.pipeEn2 := at(cfg.cPipeEn2)
+        fma.io.pipeEn1 := (if (cfg.pipelined) io.advance else at(cfg.cOperands))
+        fma.io.pipeEn2 := (if (cfg.pipelined) io.advance else at(cfg.cPipeEn2))
         fma.io.out
       }
     // @doc:end
 
-    (fma_result, is_frcp_reg, is_frsq_reg)
+    fma_result
   }
 
   /** Reciprocal / reciprocal-sqrt / linear->sRGB, sharing one Fp16Special
@@ -302,7 +315,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * untouched -- only the downstream interpolation/edge-case hardware is
     * shared, muxed by which op is latched active this instruction. */
   // @doc:frcp
-  private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool): UInt = {
+  private def computeFp16Special(aLut: UInt, frsqLut: Bool, lutStage: Int): UInt = {
+    val isFrcp = flagsW.frcp; val isFrsq = flagsW.frsq
     // Narrow once, up front: every LUT index below and special.io.in itself
     // must all read the SAME FP16 bit pattern. Reading exp/mant straight off
     // recA_raw's low bits would silently misindex the ROMs at FP32 (bits
@@ -316,16 +330,21 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // overflowed FP16 from 65504 up (1/x = 0) and underflowed below 6e-5
     // (1/x = inf): a triangle's setup determinant is routinely outside both.
     val wide = config.totalBits > 16
-    val e32 = if (wide) recA_raw(30, 23) else 0.U(8.W)
-    val eUnb = e32.zext - 127.S                         // input exponent, unbiased
-    val special32 = e32 === 0.U || e32 === 255.U        // zero/denormal, inf/NaN
-    val oddExp = eUnb(0) && isFrsq
-    val fp16In = if (wide) {
-      val scaled = Cat(recA_raw(31), Mux(oddExp, 128.U(8.W), 127.U(8.W)), recA_raw(22, 0))
-      Mux(special32, Fp16Fp32.narrow(recA_raw), Fp16Fp32.narrow(scaled))
-    } else recA_raw(15, 0)
-    val exp  = fp16In(14, 10)
-    val mant = fp16In(9, 0)
+    def narrowed(a: UInt, frsq: Bool) = {
+      val e32 = if (wide) a(30, 23) else 0.U(8.W)
+      val eUnb = e32.zext - 127.S                       // input exponent, unbiased
+      val special32 = e32 === 0.U || e32 === 255.U      // zero/denormal, inf/NaN
+      val oddExp = eUnb(0) && frsq
+      val in = if (wide) {
+        val scaled = Cat(a(31), Mux(oddExp, 128.U(8.W), 127.U(8.W)), a(22, 0))
+        Mux(special32, Fp16Fp32.narrow(a), Fp16Fp32.narrow(scaled))
+      } else a(15, 0)
+      (in, eUnb, special32, oddExp)
+    }
+    val lutIn = narrowed(aLut, frsqLut)._1
+    val (fp16In, eUnb, special32, oddExp) = narrowed(aW, isFrsq)
+    val exp  = lutIn(14, 10)
+    val mant = lutIn(9, 0)
 
     // rcp's LUT is 33 entries on mant(9,5) (rsq/srgb stay on mant(9,6)); idx is
     // 0..31 so only idx+1 can reach the last entry. A 33-entry Vec requires a
@@ -343,14 +362,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // rcp/rsq LUT entries are 10-bit mantissa estimates; zero-extend to
     // Fp16Special's uniform 16-bit port (exact: delta=val-next is always
     // non-negative for these two monotonically-decreasing curves).
-    val rawVal  = Mux(isFrsq, Cat(0.U(6.W), rsqRawVal),  Cat(0.U(6.W), rcpRawVal))
-    val rawNext = Mux(isFrsq, Cat(0.U(6.W), rsqRawNext), Cat(0.U(6.W), rcpRawNext))
+    val rawVal  = Mux(frsqLut, Cat(0.U(6.W), rsqRawVal),  Cat(0.U(6.W), rcpRawVal))
+    val rawNext = Mux(frsqLut, Cat(0.U(6.W), rsqRawNext), Cat(0.U(6.W), rcpRawNext))
     // Fixed at 3 regardless of cfg.fmaStages: this is the special-function
     // path, not the FMA path. Its operands come from holdA, which an extra FMA
     // stage makes available EARLIER (cRs2 moves up), and its result still has
     // to land at write-back (counter==1), which never moves.
-    val valReg  = RegEnable(rawVal,  at(3))
-    val nextReg = RegEnable(rawNext, at(3))
+    val lutEn   = if (cfg.pipelined) io.advance else at(lutStage)
+    val valReg  = RegEnable(rawVal,  lutEn)
+    val nextReg = RegEnable(rawNext, lutEn)
 
     val special = Module(new Fp16Special)
     // Fp16Special stays FP16-internal (existing LUT hardware) regardless of
@@ -377,43 +397,16 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Integer ALU (16-bit, on the raw register bits). Flags latch at `start` like
     * the FP ops; results are combinational on the operands, valid at write-back
     * (stage 1), same as frcp. Returns (result, is_integer_op). */
-  private def wireIntAlu(recA_raw: UInt, recB_raw: UInt, start: Bool): (UInt, Bool) = {
-    val is_iadd_reg = RegInit(false.B)
-    val is_ishl_reg = RegInit(false.B)
-    val is_ishr_reg = RegInit(false.B)
-    val is_imul_reg = RegInit(false.B)
-    val is_isub_reg = RegInit(false.B)
-    val is_iand_reg = RegInit(false.B)
-    val is_ior_reg  = RegInit(false.B)
-    val is_ixor_reg = RegInit(false.B)
-    val is_islt_reg = RegInit(false.B)
-    val is_f2h_reg  = RegInit(false.B)
-    val is_h2f_reg  = RegInit(false.B)
-    val is_exany_reg = RegInit(false.B)
-    val is_smask_reg = RegInit(false.B)
-    val is_tld_reg = RegInit(false.B)
-    val tld_sel_reg = RegInit(false.B)            // TLD's word: funct3 bit 0
-    val is_isrl_reg = RegInit(false.B); val is_isltu_reg = RegInit(false.B)
-    val is_rvx_reg = RegInit(false.B); val rvx_op_reg = RegInit(0.U(6.W))
-    when(start) {
-      is_rvx_reg := opFlags.rvx; rvx_op_reg := opFlags.rvxOp
-      is_isrl_reg := opFlags.isrl; is_isltu_reg := opFlags.isltu
-      is_smask_reg := opFlags.smask
-      is_tld_reg := opFlags.tld
-      tld_sel_reg := opFlags.funct3(0)
-      is_iadd_reg := opFlags.iadd
-      is_ishl_reg := opFlags.ishl
-      is_ishr_reg := opFlags.ishr
-      is_imul_reg := opFlags.imul
-      is_isub_reg := opFlags.isub
-      is_iand_reg := opFlags.iand
-      is_ior_reg  := opFlags.ior
-      is_ixor_reg := opFlags.ixor
-      is_islt_reg := opFlags.islt
-      is_f2h_reg  := opFlags.f2h
-      is_h2f_reg  := opFlags.h2f
-      is_exany_reg := opFlags.exany
-    }
+  private def wireIntAlu(recA_raw: UInt, recB_raw: UInt): (UInt, Bool) = {
+    val f = flagsW
+    val is_iadd_reg = f.iadd; val is_ishl_reg = f.ishl; val is_ishr_reg = f.ishr
+    val is_imul_reg = f.imul; val is_isub_reg = f.isub; val is_iand_reg = f.iand
+    val is_ior_reg  = f.ior;  val is_ixor_reg = f.ixor; val is_islt_reg = f.islt
+    val is_f2h_reg  = f.f2h;  val is_h2f_reg  = f.h2f;  val is_exany_reg = f.exany
+    val is_smask_reg = f.smask; val is_tld_reg = f.tld
+    val tld_sel_reg = f.funct3(0)            // TLD's word: funct3 bit 0
+    val is_isrl_reg = f.isrl; val is_isltu_reg = f.isltu
+    val is_rvx_reg = f.rvx; val rvx_op_reg = f.rvxOp
     val w     = config.totalBits          // 16
     val mantN = config.sig - 1            // 10 stored mantissa bits
     val bias  = (1 << (config.exp - 1)) - 1   // 15
@@ -432,7 +425,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val islt = Mux(recA_raw.asSInt < recB_raw.asSInt, 1.U(w.W), 0.U(w.W))
     val isrl = (recA_raw >> shamt)(w - 1, 0)
     val isltu = Mux(recA_raw < recB_raw, 1.U(w.W), 0.U(w.W))
-    val exany = Mux(io.execAny, 1.U(w.W), 0.U(w.W))
+    val exany = Mux(anyW, 1.U(w.W), 0.U(w.W))
 
     // F2H/H2F: the boundary conversions of Fp16Fp32 (one narrow is already shared with the special functions).
     val f2h = if (w > 16) Fp16Fp32.narrow(recA_raw).pad(w) else recA_raw
@@ -462,7 +455,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def wireWriteBack(
       fma_result: UInt, special_result: UInt,
-      is_frcp_reg: Bool, is_frsq_reg: Bool,
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
@@ -480,32 +472,26 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // operand; gating EXANY's write-back on execActive like everything else
     // would freeze lane 0's copy the moment lane 0 itself masks off, and the
     // loop could never observe every OTHER lane finishing after that.
-    // Taken with the instruction at issue, not from the live decode: with cfg.pipelined the next
-    // instruction is decoded while this one writes back.
-    val wbWrites = RegEnable(!io.opFlags.branch && !io.opFlags.execOp && !io.opFlags.rvNoWrite, false.B, io.fmaStart)
-    val wbExany  = RegEnable(io.opFlags.exany, false.B, io.fmaStart)
-    val wbRd     = RegEnable(regs.rd, 0.U, io.fmaStart)
-    val wbCsrw   = RegEnable(io.opFlags.csrw, false.B, io.fmaStart)
-    val wbCsr    = RegEnable(io.opFlags.csr, 0.U, io.fmaStart)
-    val pipe_write = running && at(1) && wbWrites && (wbExany || io.execActive)
+    val wbWrites = !flagsW.branch && !flagsW.execOp && !flagsW.rvNoWrite
+    val pipe_write = running && at(1) && wbWrites && (flagsW.exany || activeW)
     val w_en = mmio_write || pipe_write
     // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:
     // this branch is only selected when mmio_write is true, which bounds
     // io.bus.address to the 32-word GPR region.
-    val w_addr = Mux(pipe_write, wbRd, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
+    val w_addr = Mux(pipe_write, rdW, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
     // is_frcp_reg/is_frsq_reg are mutually exclusive (decoded
     // from distinct funct7 values); special_result already internally
     // selects the right op's result (see computeFp16Special's `op` mux).
-    val is_special_reg = is_frcp_reg || is_frsq_reg
+    val is_special_reg = flagsW.frcp || flagsW.frsq
     val w_data = Mux(pipe_write,
       Mux(is_int_reg, int_result,
         Mux(is_special_reg, special_result, fma_result)),
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeReg(w_addr, w_en, w_data)
-    io.csrWrite.en   := running && at(1) && wbCsrw && io.execActive
-    io.csrWrite.addr := wbCsr
-    io.csrWrite.data := recA_raw
+    io.csrWrite.en   := running && at(1) && flagsW.csrw && activeW
+    io.csrWrite.addr := flagsW.csr
+    io.csrWrite.data := aW
 
     // Memory-FSM write-back override (TEX's texel, or LOAD's word).
     // Last-connect wins over the ALU write-back above.

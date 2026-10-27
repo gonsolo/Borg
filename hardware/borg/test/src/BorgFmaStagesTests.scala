@@ -63,7 +63,7 @@ object BorgFmaStagesTests extends TestSuite {
     // The derived constants themselves -- cheap, and they pin the table in
     // BorgConfig's comment so a future edit can't silently shift a phase.
     utest.test("phase_constants_match_the_documented_table") {
-      val c3 = BorgConfig.Test.copy(regReadPorts = 1)
+      val c3 = BorgConfig.Test.copy(regReadPorts = 1, pipelined = false)
       val c4 = c3.copy(fmaStages = 4)
       val c5 = c3.copy(fmaStages = 5)
       // (cBusyLoad, cRs3, cHoldC, cOperands, cPipeEn2)
