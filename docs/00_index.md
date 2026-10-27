@@ -83,5 +83,6 @@ depending on your goal:
 15. [ISA v2](B8_isa_v2.md) — The shader ISA as a RISC-V subset (RV32I, Zfinx, Zmmul, Zbb, Zicond) plus custom GPU ops
 16. [Pipeline](B9_pipeline.md) — Design: an in-order pipeline with interlocks, then several quads in flight
 17. [borgc in SSA](B10_borgc_ssa.md) — Design: basic blocks and SSA in the compiler, exec masks and the linear CFG
+18. [Partial render](B11_partial_render.md) — Design: render what is binned when a bin fills, then continue
 18. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
 19. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
