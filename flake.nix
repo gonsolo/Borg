@@ -96,6 +96,8 @@
         riscv64.buildPackages.gcc # Linux userspace and borgvk for RV64 ($CROSS64)
         riscv64.buildPackages.binutils
       ];
+      # The joined nix-support would carry the riscv32 wrapper's setup hook along.
+      postBuild = "rm -r $out/nix-support";
     };
 
     opensbiSrc = pkgs.opensbi.src;
