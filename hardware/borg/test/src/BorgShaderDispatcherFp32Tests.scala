@@ -36,7 +36,7 @@ import utest._
 object BorgShaderDispatcherFp32Tests extends TestSuite {
   import BorgShaderDispatcherTestHelpers._
 
-  private val FP32_BASE = BorgConfig.Default.copy(fp = FloatConfig.FP32, samples = 1)
+  private val FP32_BASE = BorgConfig.Default.copy(samples = 1)
 
   private def fp32Bits(f: Float): Long =
     java.lang.Float.floatToRawIntBits(f).toLong & 0xffffffffL
@@ -82,7 +82,7 @@ object BorgShaderDispatcherFp32Tests extends TestSuite {
           val w = runPixelFull(d,
             fragZ = 0x3000, oldZ = 0x4000,
             compareOp = CMP_LESS, writeEn = true,
-            srcRgb = (srcBits.toInt, srcBits.toInt, srcBits.toInt))
+            srcRgb = (srcBits.toInt, srcBits.toInt, srcBits.toInt), fp32Out = true)
 
           println(f"  $f%.7f: fp32=0x${srcBits}%08x -> tile=0x${w.r}%04x " +
                   f"(round=0x${expected}%04x, truncate would be 0x${truncated}%04x)")
@@ -106,7 +106,7 @@ object BorgShaderDispatcherFp32Tests extends TestSuite {
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
         val one = fp32Bits(1.0f).toInt
         val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
-          compareOp = CMP_LESS, writeEn = true, srcRgb = (one, one, one))
+          compareOp = CMP_LESS, writeEn = true, srcRgb = (one, one, one), fp32Out = true)
         utest.assert(w.en)
         utest.assert(w.r == refNarrow(1.0f))
         println(f"  FP32 pixel reached the tile write, colour=0x${w.r}%04x")

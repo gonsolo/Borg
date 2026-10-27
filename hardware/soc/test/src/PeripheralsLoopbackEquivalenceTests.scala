@@ -22,8 +22,8 @@ import borg.{BorgConfig, BorgGpuRegs, FloatConfig, Instructions}
   */
 object PeripheralsLoopbackEquivalenceTests extends TestSuite {
 
-  val config = FloatConfig.FP16
-  val cfg    = BorgConfig.Default.copy(fp = FloatConfig.FP16)
+  val config = FloatConfig.FP32
+  val cfg    = BorgConfig.Default
   val tileBase = 0x200
 
   // addr[11:10] = PERI_BORG (3), addr[9:0] = Borg's own register offset.

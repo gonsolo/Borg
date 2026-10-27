@@ -262,7 +262,7 @@ object BorgTests extends TestSuite {
 
     // All FP32 tests share one simulate() call — one Chisel compile
     utest.test("fp32_tests") {
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = FloatConfig.FP32))) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         runBatch(borg, FloatConfig.FP32, ADD, pairs)
         runBatch(borg, FloatConfig.FP32, MUL, pairs)
         runBatch(borg, FloatConfig.FP32, FMA(3), pairs)
@@ -287,8 +287,8 @@ object BorgTests extends TestSuite {
 
     // All FP16 tests share one simulate() call — one Chisel compile
     utest.test("fp16_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         runBatch(borg, config, ADD, pairs)
         runBatch(borg, config, MUL, pairs)
         runBatch(borg, config, FMA(3), pairs)
@@ -384,8 +384,8 @@ object BorgTests extends TestSuite {
     // Quick, targeted verification of each op with known inputs.
     // =====================================================================
     utest.test("individual_instruction_fp16_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Individual Instruction FP16 Tests ===")
 
         // ADD: 1.0 + 2.0 = 3.0
@@ -421,8 +421,8 @@ object BorgTests extends TestSuite {
     // Tests boundary values: zero, near-overflow, very small, neg-zero.
     // =====================================================================
     utest.test("edge_case_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Edge Case Tests ===")
 
         // --- Zero behavior ---
@@ -469,8 +469,8 @@ object BorgTests extends TestSuite {
     // Verifies the memory-mapped interface for register file and control.
     // =====================================================================
     utest.test("mmio_register_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== MMIO Register Tests ===")
 
         // --- Round-trip: write and read back all 8 registers ---
@@ -526,8 +526,8 @@ object BorgTests extends TestSuite {
     // Tests data-dependency chains and full IMEM capacity.
     // =====================================================================
     utest.test("pipeline_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Pipeline Tests ===")
 
         // --- Test 1: 3-instruction chain with data dependencies ---
@@ -637,8 +637,8 @@ object BorgTests extends TestSuite {
     // Verifies that BORG_ITER_INSIDE behaves correctly over r0, r1, r2 updates
     // =====================================================================
     utest.test("inside_flag_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Inside Flag Snoop Tests ===")
 
         // BORG_ITER-triggered auto-run always fetches the fixed rasterizer
@@ -717,8 +717,8 @@ object BorgTests extends TestSuite {
     // and that data_ready stalls until the shader completes.
     // =====================================================================
     utest.test("auto_run_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Auto-Run Tests ===")
 
         // BORG_ITER-triggered auto-run always fetches the fixed rasterizer
@@ -807,7 +807,7 @@ object BorgTests extends TestSuite {
     // This test only verifies the MMIO read path for r30/r31 works
     // without asserting specific values (BRAM is uninitialized in simulation).
     utest.test("coordlut_tests") {
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = FloatConfig.FP16))) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         borg.reset.poke(true.B)
         borg.clock.step(5)
         borg.reset.poke(false.B)
@@ -865,8 +865,8 @@ object BorgTests extends TestSuite {
     // Two-step write protocol: write BZ (shadows B/Z), then write RG (fires).
     // =====================================================================
     utest.test("tile_buffer_mmio_tests") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Tile Buffer MMIO Tests ===")
 
         // Helper: read raw 32-bit value from MMIO address
@@ -992,9 +992,9 @@ object BorgTests extends TestSuite {
     // BorgConfig.Default has hasFlusher=true and hasDMA=true by default.
     // =====================================================================
     utest.test("hw_flusher_autonomous") {
-      val config = FloatConfig.FP16
+      val config = FloatConfig.FP32
       // Borg(config) uses BorgConfig.Default which has hasFlusher=true
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n=== Step 28: HW Flusher Autonomous Test ===")
 
         // ---- helpers (local to avoid name clashes) ----

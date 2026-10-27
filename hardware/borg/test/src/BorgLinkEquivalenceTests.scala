@@ -31,8 +31,8 @@ object BorgLinkEquivalenceTests extends TestSuite {
 
   type Dut = Module with HasLegacyBorgMmio
 
-  val config = FloatConfig.FP16
-  val cfg    = BorgConfig.Test.copy(fp = FloatConfig.FP16)
+  val config = FloatConfig.FP32
+  val cfg    = BorgConfig.Test
   val tileBase = 0x200
 
   /** Expected pixel colours: R ramps up, G ramps down, B constant, so a dropped

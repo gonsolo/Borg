@@ -8,7 +8,6 @@ package borg
   * Encapsulates all target-specific knobs so that a single parameter
   * flows through the entire hierarchy.
   *
-  * @param fp           Floating-point format (FP16 for iCE40, FP32 for future ASIC)
   * @param coordWidth   Pixel coordinate width: max framebuffer dimension = 2^coordWidth.
   *                     6 → 64px (FPGA), 9 → 512px (ASIC/sim for 500×500 renders)
   * @param fifoDepth    Command FIFO depth.
@@ -52,7 +51,6 @@ package borg
   *                     If SEQ_MAX_TRI ever grows, this must grow with it.
   */
 case class BorgConfig(
-    fp: FloatConfig = FloatConfig.FP16,
     coordWidth: Int = 9,
     fifoDepth: Int = 2,
     maxBinTiles: Int = 1024,
@@ -167,13 +165,13 @@ case class BorgConfig(
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
-  def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
+  def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow
   def shaderICacheEnabled: Boolean = hasShaderICache && hasMemoryOps
   def fattrCacheEnabled: Boolean = drawEnabled
   /** The draw front end (docs/B1_geometry_front_end.md): SOUT/FATTR, and
     * VertexIndex/InstanceIndex in r30/r31. Needs the core's memory port, and
     * a 32-bit datapath because the indices are raw integers. */
-  def drawEnabled: Boolean = hasMemoryOps && fp.totalBits == 32
+  def drawEnabled: Boolean = hasMemoryOps
   /** r30/r31 can carry sequencer-provided integer IDs instead of the pixel
     * centre: compute's invocation IDs, or a vertex shader's indices. */
   def hasInvocationIds: Boolean = computeEnabled || drawEnabled
@@ -187,7 +185,7 @@ case class BorgConfig(
   /** Tile-buffer depth width. Follows the datapath: an FP32 build keeps depth
     * FP32 end to end, which holds every D16/D24 value distinctly and
     * D32_SFLOAT exactly; FP16 cannot (see ColorZ). */
-  def tileDepthBits: Int = if (fp.totalBits == 32) 32 else 16
+  def tileDepthBits: Int = 32
   /** Program counter width. With the instruction cache a program may run past
     * IMEM, up to 16K words: conditional branches reach their own 1024-word
     * page, JAL anywhere (Opcodes.MATCH_JAL). Vulkan sets no shader size
@@ -199,6 +197,8 @@ case class BorgConfig(
   def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
   // Line state in a RAM instead of flops once flops would cost more than a RAM.
   def icacheMetaInRam: Boolean = maxInstructions > 128
+  /** The datapath is FP32: Vulkan's minimum. */
+  def fp: FloatConfig = FloatConfig.FP32
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
@@ -273,7 +273,6 @@ object BorgConfig {
   // real 1x0.5 signoff at 85.68% -- the combination, on the wafer.space 1x1
   // slot and on ULX3S, is unmeasured as of this change).
   val Default = BorgConfig(
-    fp              = FloatConfig.FP32,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 4096,

@@ -54,8 +54,6 @@ trait HasLegacyBorgMmio {
 }
 
 class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module with HasLegacyBorgMmio {
-  def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
-
   val io = IO(new BorgTestWrapperIO(cfg))
 
   val borg = Module(new Borg(cfg))

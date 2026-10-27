@@ -136,7 +136,6 @@ private[borg] object CubeEdges {
 }
 
 class BorgSampler(val cfg: BorgConfig) extends Module {
-  require(cfg.totalBits == 32, "the sampler returns FP32")
   import SamplerCtl._
   val io = IO(new BorgSamplerIO(cfg))
   private val N = cfg.fragLanes

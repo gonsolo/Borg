@@ -107,9 +107,6 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 }
 
 class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
-  /** Auxiliary constructor: allows `new BorgRasterizer(FloatConfig.FP16)` in tests. */
-  def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
-
   val io = IO(new BorgRasterizerIO(cfg))
 
   // --- Sub-modules ---

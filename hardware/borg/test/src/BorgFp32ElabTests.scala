@@ -22,7 +22,7 @@ import utest._
   */
 object BorgFp32ElabTests extends TestSuite {
 
-  private val Fp32 = BorgConfig.Test.copy(fp = FloatConfig.FP32)
+  private val Fp32 = BorgConfig.Test
 
   private def elaborate(cfg: BorgConfig): String =
     circt.stage.ChiselStage.emitSystemVerilog(new Borg(cfg))

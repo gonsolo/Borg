@@ -9,9 +9,9 @@ import utest._
 
 object BorgShaderDispatcherTestHelpers {
 
-  val config = FloatConfig.FP16
+  val config = FloatConfig.FP32
 
-  /** The datapath every test in this file is written against: FP16, single
+  /** The datapath every test in this file is written against: single
     * sample, no optional tile-path hardware. Was spelled `BorgConfig.Default`
     * at each call site, which is how 13 basic dispatcher tests silently
     * became FP32 + 4x MSAA when the default moved on 2026-09-15 -- MSAA
@@ -26,10 +26,11 @@ object BorgShaderDispatcherTestHelpers {
     * since BASE would already carry them. Named once, here.
     */
   val BASE = BorgConfig.Default.copy(
-    fp = FloatConfig.FP16, samples = 1,
+    samples = 1,
     hasBlend = false, hasStencil = false)
 
-  // FP16 constants
+  // FP16 constants: the tests think in FP16, `wide` and `fragOut` turn them into the FP32 the
+  // datapath reads (edges, colour and alpha outputs; depth stays as is, see runPixelFull).
   val FP16_POS_ONE = 0x3C00  // +1.0
   val FP16_NEG_ONE = 0xBC00  // -1.0
   val FP16_NEG_TWO = 0xC000  // -2.0
@@ -172,9 +173,23 @@ object BorgShaderDispatcherTestHelpers {
     d.io.csrWrite(0).en.poke(false.B)
   }
 
-  /** Write edge `e`'s result via pipeline snoop. */
+  /** FP16 bits as the FP32 bits of the same value (finite values and signed zeros). */
+  def wide(h: Int): BigInt = {
+    val sign = (h & 0x8000).toLong << 16
+    val exp = (h >> 10) & 0x1f; val mant = h & 0x3ff
+    val bits = if (exp == 0 && mant == 0) 0L
+      else if (exp == 0) java.lang.Float.floatToRawIntBits(mant.toFloat / (1 << 24)).toLong
+      else ((exp - 15 + 127).toLong << 23) | (mant.toLong << 13)
+    BigInt(sign | bits)
+  }
+
+  /** A fragment output write: colour (r26-r28) and alpha (r24) are FP16 in these tests. */
+  def fragOut(reg: Int, value: Int): BigInt =
+    if (Seq(24, 26, 27, 28).contains(reg)) wide(value) else BigInt(value)
+
+  /** Write edge `e`'s result (FP16 bits) via pipeline snoop. */
   def pokeEdge(d: BorgShaderDispatcher, e: Int, value: Int): Unit = {
-    pokeWrite(d, BorgRasterRom.planeRegs(e), value)
+    pokeWrite(d, BorgRasterRom.planeRegs(e), wide(value))
   }
 
   /** Drive one complete inside-pixel through sRast → sFrag → depth test →
@@ -220,7 +235,8 @@ object BorgShaderDispatcherTestHelpers {
       fragA: Option[Int] = None,
       storedStencil: Int = 0,
       dstAlpha: Int = 0xFF,
-      tileIdx: Int = 7
+      tileIdx: Int = 7,
+      fp32Out: Boolean = false   // srcRgb/fragA are FP32 bits, not FP16
   ): TileWrite = {
     d.io.stencilRead.foreach(_.foreach(_.poke(storedStencil.U)))
     d.io.alphaRead.foreach(_.foreach(_.poke(dstAlpha.U)))
@@ -251,7 +267,7 @@ object BorgShaderDispatcherTestHelpers {
       fragA.map(a => Seq((24, a))).getOrElse(Seq.empty) ++
       Seq((26, srcRgb._1), (27, srcRgb._2), (28, srcRgb._3), (29, fragZ))
     for ((reg, value) <- fragWrites) {
-      pokeWrite(d, reg, value)
+      pokeWrite(d, reg, if (fp32Out) BigInt(value & 0xFFFFFFFFL) else fragOut(reg, value))
     }
     d.io.coreStatus.running.poke(false.B)
     d.clock.step(1)
@@ -401,17 +417,6 @@ object BorgShaderDispatcherTestHelpers {
 
     // derives all four thresholds from the two base deltas per edge.
 
-    // Pinned to FP16 explicitly. These were BorgConfig.Default.copy(...),
-    // which silently became FP32 when the default switched on 2026-09-15 --
-    // while every expectation in this file is a bit-exact FP16 constant
-    // (FP16_ONE = 0x3C00, the f16()/f16ToFloat() helpers, the tile colour
-    // comparisons), and `config` above is FP16 too. That left one file
-    // driving two different datapaths with one set of patterns.
-    //
-    // KNOWN GAP: this means the FP32 dispatcher path -- blend, stencil and
-    // the per-sample MSAA tile writes at FP32 -- has no simulation coverage,
-    // on what is now the default config. Converting this file's constants to
-    // FP32 is a real rewrite rather than a helper swap; tracked separately.
     val MSAA = BASE.copy(samples = 4)
 
     /** FP16 bits for a float (test-side reference, finite normals only). */

@@ -48,18 +48,7 @@ class BorgIO(val cfg: BorgConfig) extends Bundle with BorgMmioIf {
   *     control_uniform_write_page; status_idle, status_flush_busy,
   *     status_fifo_full, status_dma_busy, status_seq_busy.
   */
-object Borg {
-  /** Allow tests to instantiate [[Borg]] with a [[FloatConfig]] directly,
-    * e.g. `new Borg(FloatConfig.FP16)`.  Maps to [[BorgConfig.Default]] with the
-    * requested float format and simulation-appropriate defaults.
-    */
-  def apply(fp: FloatConfig): Borg = new Borg(BorgConfig.Default.copy(fp = fp))
-}
-
 class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
-  /** Auxiliary constructor: allows `new Borg(FloatConfig.FP16)` in tests. */
-  def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
-
   val io = IO(new BorgIO(cfg))
   dontTouch(io)
 
@@ -419,10 +408,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // single word instead silently dropped the upper half: FP32 -pi stored as
     // 0x00000FDB (BorgGpuMemWordTests).
     val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, 0.U))
-    val wideWr   = if (cfg.totalBits > 16)
-      !d.io.busy && !f.io.busy && !ld.io.busy &&
-        Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
-    else false.B
+    val wideWr   = !d.io.busy && !f.io.busy && !ld.io.busy &&
+      Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
     // Registered, so no combinational path from waccept back into wdata.
     val upperHalf = RegInit(false.B)
     when(io.gpuMem.ready) { upperHalf := false.B }

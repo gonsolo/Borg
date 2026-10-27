@@ -9,9 +9,7 @@ import chisel3.util._
 /** BorgFma — in-tree fused multiply-add for the GPU's float domain.
   *
   * Computes `round_RNE( (negate ? -(a*b) : a*b) + c )` with a SINGLE rounding,
-  * round-to-nearest-even, on standard IEEE-754 (binary16 or binary32,
-  * per `cfg.fp`: [[FloatConfig.FP16]] for iCE40, [[FloatConfig.FP32]] for the
-  * ASIC). Renamed from `BorgFp16Fma` 2026-09-25 -- FP32 has been the default
+  * round-to-nearest-even, on IEEE-754 binary32. Renamed from `BorgFp16Fma` 2026-09-25 -- FP32 has been the default
   * since 2026-09-15 and the old name was actively misleading about what the
   * wafer.space build instantiates. The sole FMA across all targets and the
   * per-lane arithmetic core for 4-lane SIMT; [[BorgSampler]] also builds its

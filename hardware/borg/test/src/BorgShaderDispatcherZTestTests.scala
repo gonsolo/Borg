@@ -34,7 +34,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     d.io.occSamples.peek().litValue.toInt)
 
   def writeReg(d: BorgShaderDispatcher, reg: Int, value: Int): Unit = {
-    pokeWrite(d, reg, value)
+    pokeWrite(d, reg, fragOut(reg, value))
   }
 
   /** One pixel with ZTEST issued after r29. Returns the early write, the
@@ -329,7 +329,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
       // format. Two adjacent D16 values near 1.0 are one FP16 value (FP16 has
       // 11 significant bits), so FP16 tile depth answered "equal" and LESS
       // failed. With FP32 depth they stay distinct.
-      val fp32Cfg = BASE.copy(fp = FloatConfig.FP32)
+      val fp32Cfg = BASE
       simulate(new BorgShaderDispatcher(fp32Cfg)) { d =>
         println("\n--- FP32 depth precision ---")
         pokeIdle(d)

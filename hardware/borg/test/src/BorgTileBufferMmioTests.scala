@@ -109,8 +109,8 @@ object BorgTileBufferMmioTests extends TestSuite {
     // Verifies the full CPU sw/lw path through Borg.scala wiring.
     // -----------------------------------------------------------------
     utest.test("mmio_tile_write_read_roundtrip") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n--- Step 25.3a: MMIO tile buffer write/read round-trip ---")
         resetAndIdle(borg)
 
@@ -139,8 +139,8 @@ object BorgTileBufferMmioTests extends TestSuite {
     // back correctly — ensures BRAM addressing works through MMIO.
     // -----------------------------------------------------------------
     utest.test("mmio_tile_multi_index_independence") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n--- Step 25.3a: MMIO tile multi-index independence ---")
         resetAndIdle(borg)
 
@@ -172,8 +172,8 @@ object BorgTileBufferMmioTests extends TestSuite {
     // entries read back as (0, 0, 0, 0x7BFF).
     // -----------------------------------------------------------------
     utest.test("mmio_tile_clear") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n--- Step 25.3a: MMIO tile clear ---")
         resetAndIdle(borg)
 
@@ -208,8 +208,8 @@ object BorgTileBufferMmioTests extends TestSuite {
     // Ensures the hold registers don't corrupt on repeated reads.
     // -----------------------------------------------------------------
     utest.test("mmio_tile_repeated_read") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n--- Step 25.3a: MMIO tile repeated read ---")
         resetAndIdle(borg)
 
@@ -232,8 +232,8 @@ object BorgTileBufferMmioTests extends TestSuite {
     // the BRAM read path handles index switching correctly.
     // -----------------------------------------------------------------
     utest.test("mmio_tile_full_readback") {
-      val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
+      val config = FloatConfig.FP32
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
         println("\n--- Step 25.3a: MMIO tile full 16-entry readback ---")
         resetAndIdle(borg)
 

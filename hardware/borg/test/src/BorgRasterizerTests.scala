@@ -14,18 +14,9 @@ import utest._
   */
 object BorgRasterizerTests extends TestSuite {
 
-  // Deliberately BorgConfig.Test.copy(...), not `new BorgRasterizer(FloatConfig.FP16)`.
-  // BorgRasterizer has a `def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp
-  // = fp))` convenience constructor -- calling it with a bare FloatConfig rides on
-  // BorgConfig.Default's *entire* current shape for everything but `fp`, which is how
-  // this suite silently went from single-sample/no-fixed-function to samples=4 +
-  // hasBlend/hasStencil/hasDepthFlush on 2026-09-15 and broke
-  // chain_inside_pixel_triggers_frag for a reason that had nothing to do with what it
-  // tests (same trap BorgShaderDispatcherTestHelpers.BASE's doc names for the FP32
-  // move). Pinned explicitly instead, single-sample and no optional tile-path hardware
-  // -- this suite is standalone rasterizer FSM/coverage logic, not a target config.
+  // Single-sample, no optional tile-path hardware: this suite is the rasterizer FSM alone.
   val config = BorgConfig.Test.copy(
-    fp = FloatConfig.FP16, samples = 1,
+    samples = 1,
     hasBlend = false, hasStencil = false, hasDepthFlush = false)
 
   /** Set all control inputs to idle (no clock step). */
@@ -176,10 +167,10 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         rast.io.advance.poke(false.B)
 
-        // Write a negative (outside) value to edge 0: -1.0 FP16 = 0xBC00
+        // Write a negative (outside) value to edge 0: -1.0
         rast.io.csrWrite(0).en.poke(true.B)
         rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 0).U)
-        rast.io.csrWrite(0).data.poke(0xBC00.U)
+        rast.io.csrWrite(0).data.poke("hBF800000".U)
         rast.clock.step(1)
         rast.io.csrWrite(0).en.poke(false.B)
         rast.clock.step(1)
@@ -187,10 +178,10 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=-1.0: insideFlag=false ✓")
 
-        // Write a positive (inside) value to edge 0: +1.0 FP16 = 0x3C00
+        // Write a positive (inside) value to edge 0: +1.0
         rast.io.csrWrite(0).en.poke(true.B)
         rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 0).U)
-        rast.io.csrWrite(0).data.poke(0x3C00.U)
+        rast.io.csrWrite(0).data.poke("h3F800000".U)
         rast.clock.step(1)
         rast.io.csrWrite(0).en.poke(false.B)
         rast.clock.step(1)
@@ -201,7 +192,7 @@ object BorgRasterizerTests extends TestSuite {
         // Write negative to edge 1
         rast.io.csrWrite(0).en.poke(true.B)
         rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 1).U)
-        rast.io.csrWrite(0).data.poke(0xC000.U)  // -2.0
+        rast.io.csrWrite(0).data.poke("hC0000000".U)  // -2.0
         rast.clock.step(1)
         rast.io.csrWrite(0).en.poke(false.B)
         rast.clock.step(1)
@@ -293,7 +284,7 @@ object BorgRasterizerTests extends TestSuite {
         // Set edge 0 to outside (negative sign)
         rast.io.csrWrite(0).en.poke(true.B)
         rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 0).U)
-        rast.io.csrWrite(0).data.poke(0xBC00.U)  // -1.0
+        rast.io.csrWrite(0).data.poke("hBF800000".U)  // -1.0
         rast.clock.step(1)
         rast.io.csrWrite(0).en.poke(false.B)
         rast.clock.step(1)
@@ -343,7 +334,7 @@ object BorgRasterizerTests extends TestSuite {
         for (i <- 0 until 3) {
           rast.io.csrWrite(0).en.poke(true.B)
           rast.io.csrWrite(0).addr.poke((Csr.RastE0 + i).U)
-          rast.io.csrWrite(0).data.poke(0x3C00.U)  // +1.0
+          rast.io.csrWrite(0).data.poke("h3F800000".U)  // +1.0
           rast.clock.step(1)
         }
         rast.io.csrWrite(0).en.poke(false.B)
@@ -393,7 +384,7 @@ object BorgRasterizerTests extends TestSuite {
         for (i <- 0 until 3) {
           rast.io.csrWrite(0).en.poke(true.B)
           rast.io.csrWrite(0).addr.poke((Csr.RastE0 + i).U)
-          rast.io.csrWrite(0).data.poke(0x3C00.U)
+          rast.io.csrWrite(0).data.poke("h3F800000".U)
           rast.clock.step(1)
         }
         rast.io.csrWrite(0).en.poke(false.B)

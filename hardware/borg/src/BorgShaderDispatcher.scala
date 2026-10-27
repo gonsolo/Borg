@@ -941,7 +941,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // R/G/B/Z feed the FP16-native tile buffer (frag_r/g/b/z are 16-bit registers, whatever
   // cfg.fp): narrow() rounds an FP32 output to the nearest FP16 value.
-  def fragNarrow(d: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.narrow(d) else d(15, 0)
+  def fragNarrow(d: UInt): UInt = Fp16Fp32.narrow(d)
 
   // Fragment outputs: CSR writes (docs/B8_isa_v2.md).
   for (i <- 0 until N) {

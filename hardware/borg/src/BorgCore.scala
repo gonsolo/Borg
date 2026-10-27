@@ -917,16 +917,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       active := true.B; issue := 0.U; back := 0.U; rdReg := regs.rd
       holdPipe := true.B
     }
-    val wide = (v: UInt) => if (config.totalBits > 16) v.pad(32) else Fp16Fp32.widen(v(15, 0))
     unit.io.log := isLog
     unit.io.in.valid := active && issue < N.U
-    unit.io.in.bits  := wide(VecInit(aOps)(issue((log2Up(N) max 1) - 1, 0)))
+    unit.io.in.bits  := VecInit(aOps)(issue((log2Up(N) max 1) - 1, 0))
     when(active) {
       holdPipe := true.B
       when(issue < N.U) { issue := issue + 1.U }
     }
     when(active && unit.io.out.valid) {
-      val r = if (config.totalBits > 16) unit.io.out.bits else Fp16Fp32.narrow(unit.io.out.bits).pad(config.totalBits)
+      val r = unit.io.out.bits
       memWrites.zipWithIndex.foreach { case (mw, i) =>
         mw.en   := i.U === back && execMask(i)
         mw.addr := rdReg

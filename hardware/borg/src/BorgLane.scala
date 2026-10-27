@@ -121,32 +121,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val activeW = later(io.execActive, cfg.cOperands - 1)
   private val anyW    = later(io.execAny, cfg.cOperands - 1)
 
-  // --- Coordinate expansion (r30/r31 = pixel center i+0.5) ---
-  // Deliberately stays FP16-native (rasterizer coordinate generation, per
-  // the branch's plan doc) regardless of cfg.fp -- widened into coordX/
-  // coordY's full cfg.totalBits width via Fp16Fp32.widen below, rather than
-  // relying on plain zero-extension, which is only a valid FP32 value when
-  // cfg.fp is already FP16 (totalBits==16, i.e. a no-op).
-  def pixelToFP16Half(i: UInt): UInt = {
-    val x    = Cat(i, 1.U(1.W))
-    val n    = Log2(x)
-    val exp  = (n +& 14.U)(4, 0)
-    val frac = (x << (10.U - n))(9, 0)
-    Cat(0.U(1.W), exp, frac)
-  }
-  // An FP32 build builds i + 0.5 as FP32 directly: FP16 holds it exactly
-  // only up to 1023.5, and a Vulkan framebuffer is 4096 wide.
-  def pixelToFP32Half(i: UInt): UInt = {
+  // i + 0.5 as FP32: FP16 holds it exactly only up to 1023.5, and a Vulkan framebuffer is 4096 wide.
+  def pixelCentre(i: UInt): UInt = {
     val x    = Cat(i, 1.U(1.W))                 // 2i + 1
     val n    = Log2(x)
     val exp  = (n +& 126.U)(7, 0)               // (2i + 1) / 2 = 1.f * 2^(n - 1)
     val frac = (x << (23.U - n))(22, 0)
     Cat(0.U(1.W), exp, frac)
   }
-  private def coordToRegWidth(h: UInt): UInt =
-    if (config.totalBits == 16) h else Fp16Fp32.widen(h)
-  private def pixelCentre(i: UInt): UInt =
-    if (config.totalBits == 32) pixelToFP32Half(i) else coordToRegWidth(pixelToFP16Half(i))
   private val coordReadEn = io.decode || io.stages(cfg.cBusyLoad - 1, 1).orR
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
@@ -297,16 +279,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // is applied to the result afterwards. Narrowing the whole value instead
     // overflowed FP16 from 65504 up (1/x = 0) and underflowed below 6e-5
     // (1/x = inf): a triangle's setup determinant is routinely outside both.
-    val wide = config.totalBits > 16
     def narrowed(a: UInt, frsq: Bool) = {
-      val e32 = if (wide) a(30, 23) else 0.U(8.W)
+      val e32 = a(30, 23)
       val eUnb = e32.zext - 127.S                       // input exponent, unbiased
       val special32 = e32 === 0.U || e32 === 255.U      // zero/denormal, inf/NaN
       val oddExp = eUnb(0) && frsq
-      val in = if (wide) {
-        val scaled = Cat(a(31), Mux(oddExp, 128.U(8.W), 127.U(8.W)), a(22, 0))
-        Mux(special32, Fp16Fp32.narrow(a), Fp16Fp32.narrow(scaled))
-      } else a(15, 0)
+      val scaled = Cat(a(31), Mux(oddExp, 128.U(8.W), 127.U(8.W)), a(22, 0))
+      val in = Mux(special32, Fp16Fp32.narrow(a), Fp16Fp32.narrow(scaled))
       (in, eUnb, special32, oddExp)
     }
     val lutIn = narrowed(aLut, frsqLut)._1
@@ -344,7 +323,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     special.io.lutVal  := valReg
     special.io.lutNext := nextReg
     special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Fp16SpecialOp.Rsq)
-    if (wide) {
+    locally {
       val r = Fp16Fp32.widen(special.io.out)
       // 1/(m*2^E) = (1/m)*2^-E;  1/sqrt(m*2^E) = (1/sqrt(m'))*2^-(E'/2).
       val shift = Mux(isFrsq, (eUnb - oddExp.asUInt.zext) >> 1, eUnb)
@@ -354,7 +333,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         (eOut >= 255.S) -> Cat(r(31), "hFF".U(8.W), 0.U(23.W))         // overflow to inf
       ))
       Mux(special32 || r(30, 23) === 255.U, r, scaledOut)
-    } else special.io.out
+    }
   }
   // @doc:end
 
@@ -392,8 +371,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val exany = Mux(anyW, 1.U(w.W), 0.U(w.W))
 
     // F2H/H2F: the boundary conversions of Fp16Fp32 (one narrow is already shared with the special functions).
-    val f2h = if (w > 16) Fp16Fp32.narrow(recA_raw).pad(w) else recA_raw
-    val h2f = if (w > 16) Fp16Fp32.widen(recA_raw(15, 0)) else recA_raw
+    val f2h = Fp16Fp32.narrow(recA_raw).pad(w)
+    val h2f = Fp16Fp32.widen(recA_raw(15, 0))
 
     val result = Mux(is_rvx_reg, RvInt.exec(rvx_op_reg, recA_raw, recB_raw, w),
                  Mux(is_iadd_reg, iadd,
