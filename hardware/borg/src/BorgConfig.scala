@@ -7,13 +7,9 @@ package borg
   * ULX3S leaves out to fit.
   *
   * @param coordWidth      Pixel coordinate bits: framebuffer up to 2^coordWidth.
-  * @param fifoDepth       Command FIFO depth.
   * @param maxBinTiles     4x4-pixel tiles the binner tracks: 1024 = 128x128, 4096 = 256x256.
   * @param maxInstructions Shader I-cache words; programs run from memory through it.
-  * @param fattrCacheLog2  FATTR's varying cache, 2^n words (vkcube: 2.39M -> 2.12M cycles).
-  * @param texDescCacheLog2 Texture descriptors TEX keeps.
   * @param maxUniforms     Uniform words: 64 = two pages, 32 = one.
-  * @param maxTrianglesPerTile At least SEQ_MAX_TRI in software/borg/borg_layout.h.
   * @param samples         1 or 4 (Vulkan requires 4x MSAA).
   * @param hasDepthFlush   Tile depth written to memory: the only way a depth image exists.
   * @param hasBlend        Colour blending, RAW formats and the tile's extension plane.
@@ -24,20 +20,23 @@ package borg
   */
 case class BorgConfig(
     coordWidth: Int = 9,
-    fifoDepth: Int = 2,
-    maxBinTiles: Int = 1024,
-    maxInstructions: Int = 56,
-    fattrCacheLog2: Int = 8,
-    texDescCacheLog2: Int = 2,
+    maxBinTiles: Int = 4096,
+    maxInstructions: Int = 512,
     maxUniforms: Int = 64,
-    maxTrianglesPerTile: Int = 256,
-    samples: Int = 1,
-    hasDepthFlush: Boolean = false,
-    hasBlend: Boolean = false,
-    hasStencil: Boolean = false,
-    hasCompute: Boolean = false
+    samples: Int = 4,
+    hasDepthFlush: Boolean = true,
+    hasBlend: Boolean = true,
+    hasStencil: Boolean = true,
+    hasCompute: Boolean = true
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
+  def fifoDepth: Int = 2
+  /** FATTR's varying cache, 2^n words (vkcube: 2.39M -> 2.12M cycles). */
+  def fattrCacheLog2: Int = 8
+  /** Texture descriptors TEX keeps. */
+  def texDescCacheLog2: Int = 2
+  /** At least SEQ_MAX_TRI in software/borg/borg_layout.h. */
+  def maxTrianglesPerTile: Int = 256
   /** Planes whose MSAA sample deltas travel with a triangle: the three edges
     * and the depth plane Zn (the far plane's are Zn's, negated). */
   def coveragePlanesStored: Int = 4
@@ -73,17 +72,7 @@ case class BorgConfig(
 
 object BorgConfig {
   // What Vulkan 1.0 needs: the simulators, and the base of every other config.
-  val Default = BorgConfig(
-    coordWidth      = 9,
-    fifoDepth       = 2,
-    maxBinTiles     = 4096,
-    maxInstructions = 512,
-    samples         = 4,
-    hasDepthFlush   = true,
-    hasBlend        = true,
-    hasStencil      = true,
-    hasCompute      = true
-  )
+  val Default = BorgConfig()
 
   // The ULX3S: what unmodified cube.c uses; the full set is ~13% over the ECP5-85K.
   // 1024 bin tiles cover its 128x128 framebuffer.
