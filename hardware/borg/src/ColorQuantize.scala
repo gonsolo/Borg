@@ -6,8 +6,7 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** FP16 <-> UNORM8 color quantization for the tile buffer's optional narrow
-  * color storage (`BorgConfig.tileColorBits`).
+/** FP16 <-> UNORM8 color quantization for the 8-bit colour formats.
   *
   * Both directions are pure bit manipulation -- a variable shift plus a
   * round/clamp, not a multiplier -- since a full FP16 multiply-by-255 unit

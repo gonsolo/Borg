@@ -232,9 +232,9 @@ object BorgDrawTests extends TestSuite {
   }
 
   /** A 2x2 quad build, whose vertex shader shades the three corners at once,
-    * and the Wafer sizing: one uniform page, UNORM8 tile colour, split FMA. */
+    * and the Wafer sizing: one uniform page, split FMA. */
   val quadCfg  = suiteCfg.copy(fragLanes = 4)
-  val waferCfg = suiteCfg.copy(fragLanes = 4, maxUniforms = 32, tileColorBits = 8, fmaStages = 4)
+  val waferCfg = suiteCfg.copy(fragLanes = 4, maxUniforms = 32, fmaStages = 4)
 
   def run(name: String, cfg: BorgConfig = suiteCfg)(body: DrawRig => Unit): Unit =
     // BORG_DRAW_RIG=scala: the memory model in Scala and a simulator per scene, as a cross-check.
@@ -966,7 +966,7 @@ object BorgDrawQuadTests extends TestSuite {
   }
 }
 
-/** The Wafer sizing: one uniform page, UNORM8 tile colour, split FMA. */
+/** The Wafer sizing: one uniform page, split FMA. */
 object BorgDrawWaferTests extends TestSuite {
   import BorgDrawTests._
   val tests = Tests {

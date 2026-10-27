@@ -109,7 +109,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // loadOp = LOAD: brings a tile's attachments back from DRAM (the flusher's
   // reverse). Shares the flusher's reset copy: the two are one attachment path.
   val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil, cfg.tileDepthBits, cfg.samples)) }
-  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.tileDepthBits, rawExt)) }
+  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.hasStencil, cfg.hasBlend, cfg.tileDepthBits, rawExt)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
   val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
@@ -616,7 +616,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.extRead.foreach(_ := tile.io.extRead.get)
     tile.io.extWrite.foreach(_ := Mux(ldWrite, ld.io.write.ext, rast.io.extWrite.get))
     tile.io.extActive.foreach(_ := FlushFormat.is64(attFormat))
-    tile.io.srgb := attSrgb
     tile.io.extClear.foreach(_ := attClearExt)
   }
 

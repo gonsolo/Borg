@@ -76,19 +76,6 @@ case class BorgConfig(
     fragLanes: Int = 1,
     maxTrianglesPerTile: Int = 256,
     samples: Int = 1,
-    // BorgTileBuffer's per-sample R/G/B storage width, independent of `fp`.
-    // Default 16 keeps every existing target (including today's signed-off
-    // wafer.space GDS) bit-identical -- this narrows ONLY the internal SRAM
-    // of the tile buffer via ColorQuantize; TileWriteIO/TileReadIO stay FP16
-    // at the port on every config, so nothing outside BorgTileBuffer changes
-    // shape. Z is deliberately excluded: a color quantized to a broadcast
-    // shading value compresses cleanly, but Z varies continuously per-sample
-    // even within one triangle on a sloped surface, so there is no similar
-    // "the final format doesn't need this precision" argument for it. Only
-    // 16 (off) and 8 (ColorQuantize's UNORM8 path) exist; 8 costs one exact
-    // sub-half-LSB tie in 256 (see ColorQuantizeTests' round-trip test) in
-    // exchange for roughly 37% less tile-buffer storage.
-    tileColorBits: Int = 16,
     // Adds BorgTileFlusher's optional second DRAM burst, writing the tile's
     // Z plane (FP16 -> UNORM16 via DepthQuantize) to the FLUSH_ZB_BASE
     // region -- the hardware half of `D16_UNORM` depth-attachment support
@@ -239,8 +226,6 @@ case class BorgConfig(
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
-  require(tileColorBits == 16 || tileColorBits == 8,
-          s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
   require(!pipelined || regReadPorts == 3, "pipelined needs three register-file read ports")
   require(regReadPorts == 1 || regReadPorts == 3, s"regReadPorts must be 1 or 3, got $regReadPorts")
@@ -427,19 +412,6 @@ object BorgConfig {
   //     clean, 4.52 mW. The earlier 0.5x1 orientation failed detailed placement
   //     (DPL-0036) at 81.97 %; 1x0.5 is the orientation that fits. Real Max Slew /
   //     Max Cap warnings remain outstanding -- electrical, not frequency-related.
-  //   tileColorBits=8: BorgTileBuffer stores R/G/B as UNORM8 (via
-  //     ColorQuantize) instead of full FP16, quantizing on write and
-  //     dequantizing on read entirely internally -- TileWriteIO/TileReadIO
-  //     stay FP16 at the port, so nothing outside BorgTileBuffer changes. Z
-  //     stays FP16 (never quantized -- see BorgConfig.tileColorBits's own doc
-  //     for why). Measured: rgbzMems_16x64 -> rgbzMems_16x40, -37.2% per MSAA
-  //     sample plane, -8.75% (2,323,169 -> 2,119,850 um^2) on the whole
-  //     BorgOnlyCore hierarchy after the quantizer/dequantizer's own added
-  //     logic is accounted for. Verified: full hardware.borg.test (195/195)
-  //     at both tileColorBits=16 (unaffected) and =8 (new dedicated tests in
-  //     BorgTileBufferTests/ColorQuantizeTests), incl. the full render-pipeline
-  //     end-to-end tests and MSAA per-sample coverage masking against the
-  //     narrower storage.
   //
   // FP32 at this sizing: Phase 0 measured Wafer at FP32 via yosys at 2.48x FMA
   // area, 58-62% 1x1-slot utilization, and 25 MHz closing at 3.3V with the
@@ -458,7 +430,6 @@ object BorgConfig {
     maxUniforms      = 32,
     hasPerfCounters  = false,
     fragLanes        = 4,
-    tileColorBits    = 8,
     // 2026-09-19: the ONLY target that needs this. Measured post-repair with
     // OpenSTA at max_ss_125C_3v00 on two signoff runs, the worst path was
     // BorgFma stage 2 -- m_prodLowExp -> magR, the three serial carry
