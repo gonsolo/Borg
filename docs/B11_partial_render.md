@@ -1,6 +1,7 @@
 # Partial render
 
-Status: design for review, 2026-10-27, not implemented.
+Status: built 2026-10-27 (`BorgDrawTests.a_full_bin_renders_in_parts`,
+`a_render_list_renders_in_parts`); ULX3S and Wafer area not measured yet.
 
 ## The gap
 
@@ -76,11 +77,13 @@ The firmware's per-draw retry and the overflow bit of `SEQ_TRIGGER` go.
 
 ## Tests
 
-- Chisel (`BorgDrawTests` rig): one draw of 300 triangles over one tile, with depth test and
-  additive blending, against the same triangles as two draws of 150 in two renders (load, keep);
-  bit-identical framebuffer, depth and stencil. Variants: list, strip, fan, a fan with restart,
-  two instances, and a render list whose second draw fills the bin.
-- A test that the parts of `t` binned before the full bin are drawn once.
+- Chisel (`BorgDrawTests` rig): random triangles as a list, a strip, a fan, a fan with restart
+  and two instances, depth ALWAYS and LESS with a stored depth buffer, 1x and (list) 4x per
+  sample: with one entry per bin, so every triangle is a part, the colour and depth memory and
+  the occlusion count equal those of one render. Without `triLimit` the occlusion count shows
+  the triangles drawn twice.
+- The render-list test with one entry per bin, its second state moving the viewport: without
+  the replay of the current draw's blocks the image is wrong.
 - direct_sim goldens unchanged; the borgc and driver corpora; the CTS tier 1 pack.
 
 ## Order

@@ -309,13 +309,11 @@ With the registers at reset the window is the whole, square framebuffer.
 (at most `maxTrianglesPerTile`), and a window's records need
 `SEQ_SETUP_BASE` room for every triangle of the draw. Records are the
 driver's to size, since it knows the draw's triangle count; bins depend on
-where triangles land, so the hardware checks them. A triangle that finds its
-bin full is dropped, not written into the next tile's row, and the render is
-**abandoned whole**: binning finishes, but no tile is rendered, flushed or
-counted. Reading `SEQ_TRIGGER` returns bit 0 done, bit 1 **bin overflow**.
-The attachments are untouched, so the driver can bin optimistically and, on
-overflow, re-issue the window as smaller draws (the first with the original
-loadOp, the rest with LOAD, `ATTACH_MS` under MSAA) or with larger bin rows.
+where triangles land, so the hardware handles them: a triangle that finds
+its bin full makes a **partial render**. The hardware renders what the bins
+hold, clears them and continues the draw, each later part loading what the
+last stored (`docs/B11_partial_render.md`). Reading `SEQ_TRIGGER` returns
+bit 0 done.
 
 ## Render lists
 
@@ -361,9 +359,8 @@ render itself are written before the trigger and belong in no block: the
 window, the attachments and their formats, clear values, `TILE_LOAD`,
 `SEQ_SETUP_BASE` and the bins, and the record stride (`DRAW_CFG` bits 9:6,
 one for the whole list). The list shares the render's limits: 65,535
-triangles and the bin capacity; on a bin overflow nothing is rendered and the
-driver re-issues the list in parts (`TILE_LOAD` keep, bit 3, makes the later
-parts cost only the tiles they touch).
+triangles; a full bin splits it into parts as it does a single draw, the
+current draw's blocks played again before it continues.
 
 ## Colour attachments
 
@@ -528,8 +525,9 @@ holds five varying components; use 10 for up to 64.
 | Depth tested at each sample's position                      | `BorgDrawTests.depth_is_tested_per_sample` |
 | A 16x8 framebuffer as one non-square window and as two windows | `BorgDrawTests.render_windows_and_non_square_framebuffers` |
 | Three colour attachments (cleared, BGRA, loaded) with depth LESS | `BorgDrawTests.several_colour_attachments` |
-| A full bin: nothing rendered or written, overflow reported; with room, the same draw renders | `BorgDrawTests.bin_overflow_renders_nothing_and_reports` |
+| One entry per bin: every topology, restart and instancing, depth ALWAYS and LESS, 1x and 4x, in parts equal to one render (colour, depth, occlusion count) | `BorgDrawTests.a_full_bin_renders_in_parts` |
 | Four draws with two fragment states as one render list, against the same draws one render each; 1 lane, 4 lanes, Wafer sizing | `BorgDrawTests.render_list_of_draws_with_two_states` |
+| The same render list with one entry per bin: the states played again for each part | `BorgDrawTests.a_render_list_renders_in_parts` |
 | `TILE_LOAD` keep: a loading render leaves the tiles it does not reach untouched | `BorgDrawQuadTests.raw_colour_formats_and_tld` |
 | One sample: centre coverage and depth, one count per pixel, exact resolve, masks on sample 0; resident and Wafer multi-pass | `BorgDrawTests.single_sample_rasterization` |
 | Depth bias against a reference, random triangles incl. corners behind the eye | `BorgSetupRomTests.setup_rom_adds_depth_bias` |
