@@ -39,9 +39,9 @@ object BorgLinkEquivalenceTests extends TestSuite {
     * or reordered word is visible rather than aliasing onto its neighbour.
     */
   def px(i: Int): (Int, Int, Int, Int) = {
-    val r = BorgTests.floatToBits(i / 16.0f, config).toInt
-    val g = BorgTests.floatToBits((15 - i) / 16.0f, config).toInt
-    val b = BorgTests.floatToBits(0.5f, config).toInt
+    val r = BorgTests.floatToBits(i / 16.0f, FloatConfig.FP16).toInt
+    val g = BorgTests.floatToBits((15 - i) / 16.0f, FloatConfig.FP16).toInt
+    val b = BorgTests.floatToBits(0.5f, FloatConfig.FP16).toInt
     val z = 0x4000 + i
     (r, g, b, z)
   }
