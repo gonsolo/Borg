@@ -98,7 +98,6 @@
           pkgs.bash-completion
           pkgs.bc # Linux kernel build scripts
           pkgs.bear
-          pkgs.bitwuzla
           pkgs.bzip2
           pkgs.dtc # borg.dts -> borg.dtb
           pkgs.circt
@@ -112,15 +111,12 @@
           pkgs.gnumake
           pkgs.gnused
           pkgs.graphviz
-          pkgs.ghostscript
           pkgs.inkscape
           pkgs.iverilog # cocotb's simulator (test/soc)
-          pkgs.icestorm
           pkgs.jdk21
           pkgs.klayout
           pkgs.librelane
           pkgs.magic-vlsi
-          pkgs.metals
           pkgs.mill
           pkgs.meson # Mesa
           pkgs.ninja # Mesa
@@ -137,7 +133,6 @@
           pkgs.llvmPackages_21.llvm
           pkgs.rustPlatform.rustLibSrc # the Rust kernel build (borg DRM driver)
           pkgs.vulkan-tools # vulkaninfo
-          pkgs.mpremote
           pkgs.netgen-vlsi
           pkgs.nextpnr
           pkgs.openfpgaloader
@@ -147,11 +142,9 @@
           pkgs.scalafmt
           pkgs.trellis
           pkgs.tio
-          pkgs.typst
           pkgs.verilator
           pkgs.which
           pkgs.yosys
-          pkgs.z3
           pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
           pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
           pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc # firmware (software/borg, software/hutt)
