@@ -338,6 +338,9 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     mulA := a; mulB := b; mulRet := next
     state := sMul
   }
+  /** Tile row: (y / 4) * tiles per row. Linear layout: y * row pitch. */
+  private def rowMul(): Unit =
+    mul(Mux(layout === Linear.U, ty, ty >> 2), Mux(layout === Linear.U, stride, tpr), sTapSlice)
 
   // ===================================================================
   // FSM
@@ -512,8 +515,14 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val d = Mux(ttype === T3D.U, shr(dimD), 1.U)
       lw := w; lh := h; ld := d
       tpr := (w +& 3.U) >> 2
-      // texels per 3D slice: tiles per row * tile rows * 16
-      mul(((w +& 3.U) >> 2).zext, ((h +& 3.U) >> 2) << 4, sLayer)
+      // Multiplies by zero are skipped: no slices but in 3D, layer 0.
+      when(ttype =/= T3D.U && layerN === 0.U) {
+        sliceTexels := 0.U; layerOff := 0.U; ax := 0.U; wrapEnd := 0.U
+        state := sAxis
+      }.otherwise {
+        // texels per 3D slice: tiles per row * tile rows * 16
+        mul(((w +& 3.U) >> 2).zext, ((h +& 3.U) >> 2) << 4, sLayer)
+      }
     }
     is(sLayer) {
       sliceTexels := product.asUInt(GpuMemIO.AddrBits - 1, 0)
@@ -641,16 +650,15 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sTapLayer) {
       tWeight := uintToFp32(tWeightInt, (-32).S)
-      mul(tLayer.zext, stride, sTapMul)
+      when(tLayer === 0.U) { layerOffTap := 0.U; rowMul() }.otherwise { mul(tLayer.zext, stride, sTapMul) }
     }
     is(sTapMul) {
       layerOffTap := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      // Tile row: (y / 4) * tiles per row. Linear layout: y * row pitch.
-      mul(Mux(layout === Linear.U, ty, ty >> 2), Mux(layout === Linear.U, stride, tpr), sTapSlice)
+      rowMul()
     }
     is(sTapSlice) {
       rowTiles := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      mul(tz, sliceTexels, sTapAddr)
+      when(tz === 0.S) { product := 0.S; state := sTapAddr }.otherwise { mul(tz, sliceTexels, sTapAddr) }
     }
     is(sTapAddr) {
       val x = tx.asUInt; val y = ty.asUInt
