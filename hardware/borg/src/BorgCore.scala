@@ -153,6 +153,14 @@ class CoreRecordIO extends Bundle {
   val attrFlush     = Bool()
 }
 
+/** What the issue logic needs to know about an instruction in flight (cfg.pipelined). */
+class StageInfo extends Bundle {
+  val writes = Bool()
+  val rd     = UInt(5.W)
+  val branch = Bool()
+  val drain  = Bool()   // a stall FSM runs it: issues into empty stages, nothing issues behind it
+}
+
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgCoreIO(cfg))
 
@@ -230,11 +238,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val barrierPCReg = RegInit(0.U(cfg.pcBits.W))
 
   // --- Instruction Fetch ---
-  // cfg.pipelined fetches the next word a cycle early, so it decodes during write-back.
-  private val pcAdvance = if (cfg.pipelined) 2 else 1
+  // cfg.pipelined: the PC advances at issue, a branch's one stage after its operands.
+  private val redirect = if (cfg.pipelined) cfg.cOperands - 1 else 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
-  val nextPC =
-    Mux(at(pcAdvance), pcAfterThis, programCounter)
+  val nextPC = Wire(UInt(cfg.pcBits.W))
   val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
   private val rasterWord = drawRasterRom.map { rom =>
     val short = io.drawSingle.get && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
@@ -268,18 +275,33 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Decode + FSM ---
   val (regs, opFlags) = decode(fetchedInstruction)
-  // One-entry scoreboard: the instruction in write-back, and whether it writes a register the
-  // next one reads (its operands are read in that same cycle).
-  val lastWrites = RegInit(false.B); val lastRd = RegInit(0.U(5.W))
   val next = RvInt(fetchedInstruction)
-  val readsLast = lastWrites && lastRd =/= 0.U &&
-    Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
-      .map { case (used, rs) => used && rs === lastRd }.reduce(_ || _)
-  val overlap = cfg.pipelined.B && at(1) && !readsLast
-  val decoding = running && (!is_busy || overlap)
+  val issued = Wire(new StageInfo)
+  issued.writes := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite
+  issued.rd     := regs.rd
+  issued.branch := opFlags.branch
+  issued.drain  := opFlags.load || opFlags.store || opFlags.sout || opFlags.fattr || opFlags.tex ||
+    opFlags.texa || opFlags.texs || opFlags.ztest || next.fexp2 || next.flog2
+  val canIssue = WireDefault(!is_busy)
+  val decoding = running && canIssue
   val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
-  when(fma_start) {
-    lastWrites := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite; lastRd := regs.rd
+  val redirecting = WireDefault(at(redirect))   // the PC goes to pcAfterThis
+  nextPC := Mux(redirecting, pcAfterThis, programCounter)
+  if (cfg.pipelined) {
+    // info(k): the instruction in stage k, valid while at(k).
+    val infos = Seq.iterate(RegEnable(issued, fma_start), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
+    def info(k: Int): StageInfo = infos(cfg.cBusyLoad - k)
+    def any(ks: Seq[Int])(p: StageInfo => Bool): Bool = ks.map(k => at(k) && p(info(k))).reduce(_ || _)
+    val reads = Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
+    // No forwarding: a source waits until its writer has passed write-back.
+    val hazard = any(1 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
+      reads.map { case (used, rs) => used && rs === i.rd }.reduce(_ || _))
+    val stops = fetchedInstruction === 0.U || opFlags.barrier || issued.drain
+    canIssue := !hazard && !any(redirect to cfg.cBusyLoad)(_.branch) && !any(1 to cfg.cBusyLoad)(_.drain) &&
+      (!stops || !stages(cfg.cBusyLoad - 1, 1).orR)
+    val step = fma_start && !opFlags.branch && !issued.drain && !opFlags.barrier
+    redirecting := at(redirect) && info(redirect).branch
+    nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
   }
   runPipeline(fma_start)
   // The flags of the instruction at its operands (stage cOperands).
@@ -482,7 +504,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def runPipeline(fma_start: Bool): Unit = {
     // @doc:fetch-execute
     stages := Cat(fma_start && !opFlags.barrier, stages(cfg.cBusyLoad - 1, 1))
-    when(at(pcAdvance)) { programCounter := pcAfterThis }
+    programCounter := nextPC
     when(decoding && !texResumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
         running      := false.B
@@ -786,7 +808,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_texs_reg = RegInit(false.B)
     // TEXS: the sampler descriptor address and the control word for the TEX after it.
     val sAddrReg = RegInit(0.U(GpuMemIO.AddrBits.W)); val sCtlReg = RegInit(0.U(32.W))
-    when(decoding && fetchedInstruction =/= 0.U) {
+    when(fma_start) {
       is_tex_reg  := opFlags.tex
       is_texa_reg := opFlags.texa
       is_texs_reg := opFlags.texs
@@ -872,7 +894,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val N = cfg.fragLanes
     val unit = Module(new BorgExpLog)
     val isOp = RegInit(false.B); val isLog = RegInit(false.B)
-    when(decoding && fetchedInstruction =/= 0.U) {
+    when(fma_start) {
       val rv = RvInt(fetchedInstruction)
       isOp := rv.fexp2 || rv.flog2; isLog := rv.flog2
     }
@@ -915,7 +937,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * writes no register, exactly like STORE. */
   private def wireZTest(): Unit = {
     val is_ztest_reg = RegInit(false.B)
-    when(decoding && fetchedInstruction =/= 0.U) {
+    when(fma_start) {
       is_ztest_reg := opFlags.ztest
     }
     val waiting = at(cfg.cOperands) && is_ztest_reg
@@ -972,7 +994,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // LB..LW, SW and the AMOs: byte address rs1 + imm.
     val rvMem = RegInit(false.B); val rvWidth = Reg(UInt(3.W)); val rvImm = Reg(UInt(32.W))
     val isAmo = RegInit(false.B); val amoOp = Reg(UInt(5.W)); val amoNew = Reg(UInt(32.W))
-    when(decoding && fetchedInstruction =/= 0.U) {
+    when(fma_start) {
       val rv = RvInt(fetchedInstruction)
       rvMem := rv.load || rv.store || rv.amo; rvWidth := Mux(rv.amo, 2.U, rv.width); rvImm := rv.memImm
       isAmo := rv.amo; amoOp := rv.amoOp
@@ -1286,15 +1308,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val offset = Mux(rv.jal, rv.jalOff, rv.brOff)
 
     when(at(cfg.cOperands)) {
-      brTakenReg  := opFlags.branch && takeIt
+      brTakenReg  := flagsX.branch && takeIt
       brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
       val rvSplit = rvConds.zip(execMask.asBools).map { case (c, on) => on && c =/= rvLead }.reduce(_ || _)
-      when(rv.br && rvSplit) {
+      when(flagsX.branch && rv.br && rvSplit) {
         branchDivergent := true.B
         if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
       }
       if (BorgDebug.trace) {
-        when(opFlags.branch) {
+        when(flagsX.branch) {
           printf("[BR] pc=%d taken=%d target=%d\n", programCounter, takeIt,
                  offset)
         }
@@ -1302,7 +1324,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     // Consumed by the PC advance this cycle; must not survive into the next
     // instruction or every op after a taken branch would branch too.
-    when(at(1)) { brTakenReg := false.B }
+    when(redirecting) { brTakenReg := false.B }
   }
   // @doc:end
 
