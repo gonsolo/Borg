@@ -51,7 +51,6 @@ case class BorgConfig(
     fifoDepth: Int = 2,
     maxBinTiles: Int = 1024,
     maxInstructions: Int = 56,
-    icacheLines: Int = 512,
     // Draw front end: FATTR's varying cache, 2^fattrCacheLog2 words. Without it a fragment
     // shader re-reads each triangle's per-vertex values from memory for
     // every quad -- cube.frag's 5 FATTRs are 15 serialized single-word DRAM
