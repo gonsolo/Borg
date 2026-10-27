@@ -39,9 +39,9 @@ Layered bring-up bitstreams in `fpga/ulx3s/debug/` isolate individual subsystems
 | SoC clock | 25 MHz | Hutt CPU, MemoryController, Borg peripheral |
 | HDMI pixel clock | 125 MHz | TMDS serialiser |
 
-### RV64 Linux with a tiny Borg (`borg-minimal-linux-borg`)
+### RV64 Linux with the Cube Borg (`borg-minimal-linux-borg`)
 
-`make generate_verilog_ulx3s_minimal_linux_borg`; `BorgConfig.Tiny` (FP32, 4 lanes, 1024 bin
+`make generate_verilog_ulx3s_minimal_linux_borg`; `BorgConfig.Cube` (FP32, 4 lanes, 1024 bin
 tiles, no MSAA, blend, stencil, compute, depth flush or perf counters) beside the RV64
 Hutt, scanout off, GPU memory at SDRAM 16 MB and up (the VRAM region bit). nextpnr:
 69,948 / 83,640 LUTs (83%), 75 MULT18X18D, 7 DP16KD. The PLL gives 18.75 MHz; Fmax 19.96 MHz. One lane renders the cube wrong (derivatives need the 2x2 quad), and

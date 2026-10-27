@@ -340,27 +340,21 @@ object ULX3SMinimalLinuxBorgHdmiMain extends App {
   new java.io.File(targetDir).mkdirs()
   ChiselStage.emitSystemVerilogFile(
     gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = true, fbSize = 128,
-                                        borgCfg = Some(borg.BorgConfig.Tiny)),
+                                        borgCfg = Some(borg.BorgConfig.Cube)),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }
 
-/** RV64 Linux top with Borg attached; BORG_MINIMAL_CFG = tiny (default) | cube. */
+/** RV64 Linux top with Borg attached. */
 object ULX3SMinimalLinuxBorgMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
   val targetDir = "out/ulx3s_minimal_linux_borg/verilog"
   new java.io.File(targetDir).mkdirs()
 
-  val cfg = sys.env.getOrElse("BORG_MINIMAL_CFG", "tiny") match {
-    case "tiny" => borg.BorgConfig.Tiny
-    case "cube" => borg.BorgConfig.Default.copy(samples = 1, hasBlend = false, hasStencil = false,
-                                             hasCompute = false, hasDepthFlush = false)
-    case other  => throw new IllegalArgumentException(s"BORG_MINIMAL_CFG=$other")
-  }
   ChiselStage.emitSystemVerilogFile(
-    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = false, borgCfg = Some(cfg)),
+    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = false, borgCfg = Some(borg.BorgConfig.Cube)),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )

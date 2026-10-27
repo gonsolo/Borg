@@ -242,10 +242,9 @@ object BorgConfig {
   )
 
 
-  // Smallest config that still runs the draw front end (FP32 + shader I-cache):
-  // 1024 bin tiles, no MSAA/blend/stencil/compute/depth flush.
-  // For fitting beside RV64 Linux on the ECP5-85K.
-  val Tiny = Default.copy(maxBinTiles = 1024, samples = 1, hasBlend = false,
+  // The ULX3S: what unmodified cube.c uses; the full set is ~13% over the ECP5-85K.
+  // 1024 bin tiles cover its 128x128 framebuffer.
+  val Cube = Default.copy(maxBinTiles = 1024, samples = 1, hasBlend = false,
                           hasStencil = false, hasCompute = false, hasDepthFlush = false)
 
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only

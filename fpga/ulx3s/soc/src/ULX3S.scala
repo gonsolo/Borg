@@ -41,14 +41,12 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // BORG_ULX_CFG=full keeps everything; the default "cube" drops what unmodified
   // cube.c never uses (MSAA, blend, stencil, compute, depth-image flush) -- the
   // full FP32 config did not place on the ECP5-85K (10-02 attempt).
-  private def cubeCfg = BorgConfig.Default.copy(samples = 1, hasBlend = false, hasStencil = false,
-                                             hasCompute = false, hasDepthFlush = false)
   private def baseCfg: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
     case "full" => BorgConfig.Default.copy(samples = 4)
-    case "cube" => cubeCfg
+    case "cube" => BorgConfig.Cube
     // Feature bring-up: the cube config plus one feature at a time.
-    case "blend" => cubeCfg.copy(hasBlend = true)
-    case "stencil" => cubeCfg.copy(hasBlend = true, hasStencil = true)
+    case "blend" => BorgConfig.Cube.copy(hasBlend = true)
+    case "stencil" => BorgConfig.Cube.copy(hasBlend = true, hasStencil = true)
     case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
   // BORG_SAMPLES / BORG_MAXBINTILES override the chosen config; unset = unchanged.

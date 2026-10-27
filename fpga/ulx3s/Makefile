@@ -619,7 +619,7 @@ borg-minimal-linux.bit: borg-minimal-linux.config
 	ecppack --svf borg-minimal-linux.svf borg-minimal-linux.config borg-minimal-linux.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal-linux.bit ready."
 
-# RV64 Linux SoC + Borg (BORG_MINIMAL_CFG=tiny|cube); separate files so the plain bitstream stays.
+# RV64 Linux SoC + Borg (BorgConfig.Cube); separate files so the plain bitstream stays.
 ULX3S_MINIMAL_LINUX_BORG_VERILOG_DIR = ../../out/ulx3s_minimal_linux_borg/verilog
 MIN_LINUX_BORG_SRC_FILES = $$(find $(ULX3S_MINIMAL_LINUX_BORG_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
 MIN_LINUX_BORG_LPF = $(ULX3S_MINIMAL_LINUX_BORG_VERILOG_DIR)/ulx3s.lpf
