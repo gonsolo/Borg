@@ -57,7 +57,7 @@ class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
   }
   def soc_ui_in = ui_in
 
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt
+  override def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // ── HDMI scanout (declared before wireSoC so wireGpuMem can reference it) ──
   val scanout = withClockAndReset(clk, !soc_rst_reg_n) {

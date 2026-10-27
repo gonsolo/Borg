@@ -355,7 +355,7 @@ object ULX3SMinimalLinuxBorgMain extends App {
 
   val cfg = sys.env.getOrElse("BORG_MINIMAL_CFG", "tiny") match {
     case "tiny" => borg.BorgConfig.Tiny
-    case "cube" => borg.BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
+    case "cube" => borg.BorgConfig.Default.copy(samples = 1, hasBlend = false, hasStencil = false,
                                              hasCompute = false, hasDepthFlush = false)
     case other  => throw new IllegalArgumentException(s"BORG_MINIMAL_CFG=$other")
   }

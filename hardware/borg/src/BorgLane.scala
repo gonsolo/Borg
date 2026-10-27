@@ -22,9 +22,6 @@ import chisel3.util._
   * the data differs per lane, so the lane computes its own data and writes its own
   * register-file copies.  `recARaw`/`recBRaw`/`recCRaw` are exported so the
   * shared memory and TEX FSMs can read this lane's operands.
-  *
-  * At `fragLanes==1` a single instance reproduces the original monolithic BorgCore
-  * behaviour bit-for-bit.
   */
 class LaneIdsIO(val cfg: BorgConfig) extends Bundle {
   val mode = Bool()

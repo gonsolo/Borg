@@ -74,7 +74,6 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                sWaitVS :: sStage :: sRunSetup :: sWaitSetup :: sBin :: sWaitBin :: sStoreMeta :: sNext :: Nil) = Enum(16)
   private val state = RegInit(sIdle)
   private val nextAfterDMA = RegInit(sIdle)
-  private val simt = cfg.fragLanes >= 3   // all three corners in one run
 
   private val d = io.draw
   private val inst  = RegInit(0.U(32.W))
@@ -137,14 +136,14 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Vertex shader: VertexIndex/InstanceIndex, one corner per lane; setup ROM: none.
   private val inVS = state === sRunVS || state === sWaitVS
   io.ids.mode     := inVS
-  io.ids.laneMask := (if (simt) "b0111".U(cfg.fragLanes.W) else 1.U(cfg.fragLanes.W))
+  io.ids.laneMask := "b0111".U(cfg.fragLanes.W)   // all three corners in one run
   for (i <- 0 until cfg.fragLanes) {
-    io.ids.r30(i) := (if (simt) (if (i < 3) vidx(i) else 0.U) else vidx(k))
+    io.ids.r30(i) := (if (i < 3) vidx(i) else 0.U)
     io.ids.r31(i) := d.firstInstance + inst
   }
   io.record.outBase       := Mux(inVS, recordBase + attrOffset.U, recordBase)
   io.record.outInterleave := inVS
-  io.record.outCorner     := (if (simt) 0.U else k)
+  io.record.outCorner     := 0.U
   io.record.attrBase      := recordBase + attrOffset.U
   io.record.attrFlush     := false.B       // the sequencer drives it (Pass 2)
 
@@ -248,8 +247,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     is(sWaitVS) {
       when(coreFinished) {
-        if (simt) state := sStage
-        else when(k === 2.U) { state := sStage }.otherwise { k := k + 1.U; state := sRunVS }
+        state := sStage
         stageIdx := 0.U
       }
     }
@@ -377,8 +375,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     for (lane <- 0 until cfg.fragLanes; comp <- 0 until 4) {
       val pw = io.csrWrite(lane)
       when(pw.en && pw.addr === (Csr.OutPos0 + comp).U) {
-        if (simt) { if (lane < 3) clip(lane)(comp) := pw.data(31, 0) }
-        else clip(k)(comp) := pw.data(31, 0)
+        if (lane < 3) clip(lane)(comp) := pw.data(31, 0)
       }
     }
   }

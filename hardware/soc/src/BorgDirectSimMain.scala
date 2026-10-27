@@ -7,5 +7,5 @@ import borg.BorgConfig
 
 /** Emit FIRRTL for [[BorgDirectSimTop]] (arcilator input). */
 object BorgDirectSimMain extends App {
-  Emit.emitFIRRTL(new BorgDirectSimTop(BorgConfig.Simt), "out/hardware/borg/firrtl_direct")
+  Emit.emitFIRRTL(new BorgDirectSimTop(BorgConfig.Default), "out/hardware/borg/firrtl_direct")
 }

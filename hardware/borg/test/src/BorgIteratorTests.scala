@@ -49,7 +49,7 @@ object BorgIteratorTests extends TestSuite {
   val tests = Tests {
 
     utest.test("quad_emission_4lane") {
-      simulate(new BorgIterator(BorgConfig.Default.copy(fragLanes = 4))) { it =>
+      simulate(new BorgIterator(BorgConfig.Default)) { it =>
         reset(it)
         popTile(it, 0, 0)
 
@@ -73,25 +73,5 @@ object BorgIteratorTests extends TestSuite {
       }
     }
 
-    utest.test("single_pixel_1lane") {
-      simulate(new BorgIterator(BorgConfig.Default.copy(fragLanes = 1))) { it =>
-        reset(it)
-        popTile(it, 0, 0)
-
-        val seen = scala.collection.mutable.ArrayBuffer[(Int, Int)]()
-        var lastTc = false
-        for (_ <- 0 until 16) {
-          val (tc, coords, _) = advance(it, 1)
-          seen += coords.head
-          lastTc = tc
-        }
-        // row-major 4×4 walk, 16 distinct pixels, complete on the 16th
-        val expected = for (y <- 0 until 4; x <- 0 until 4) yield (x, y)
-        println(s"  walk=$seen")
-        utest.assert(seen.toList == expected.toList)
-        utest.assert(lastTc)
-        println("  PASSED")
-      }
-    }
   }
 }

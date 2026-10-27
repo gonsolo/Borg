@@ -11,9 +11,7 @@ import chisel3.util.*
   * and MMIO/DMA write routing.
   *
   * The per-lane datapath (register files, coordinate expansion, FP16 ALU,
-  * write-back) lives in [[BorgLane]], instantiated `cfg.fragLanes`
-  * times.  At `fragLanes==1` (current default) a single lane reproduces the
-  * original monolithic core bit-for-bit.
+  * write-back) lives in [[BorgLane]], instantiated `cfg.fragLanes` times.
   *
   * Pipeline (docs/B9_pipeline.md): an instruction issues at decode, reading rs1/rs2/rs3 from the
   * lane's three register-file copies, then moves through stages cfg.cBusyLoad→1 (5→1):
@@ -418,11 +416,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
   //   lane0=TL, lane1=TR, lane2=BL, lane3=BR — see BorgIterator).  Each lane's FMA
   //   computes crossA + crossC where crossC = -lane0 (fp16-negated), so the result
-  //   is the neighbour difference.  At fragLanes=1 the neighbours fall back to lane0
-  //   → derivative 0 (DDX/DDY are only emitted for the 4-lane fragment core). */
+  //   is the neighbour difference. */
   {
     val recAvec = VecInit(lanes.map(_.io.recARaw))
-    def pick(i: Int): UInt = if (i < cfg.fragLanes) recAvec(i) else recAvec(0)
+    def pick(i: Int): UInt = recAvec(i)
     def neg(x: UInt): UInt = Cat(~x(cfg.totalBits - 1), x(cfg.totalBits - 2, 0))
     // Coarse: the quad's top row / left column for every lane. Fine (rs2 = 1,
     // SPIR-V DPdxFine/DPdyFine, core with DerivativeControl): each lane's own
@@ -1017,10 +1014,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     val sMemIdle :: sMemReq :: sMemWB :: sAttrReq :: sAttrLook :: sAttrMem :: sAttrWB :: sAmoWr :: Nil = Enum(8)
     val memState = RegInit(sMemIdle)
-    // log2Up, and a separate 0-width index at N==1, for the same two reasons
-    // spelled out on wireSampler's respLane.
     val memLane = RegInit(0.U(log2Up(N).W))
-    val memLaneIdx: UInt = if (N == 1) 0.U(0.W) else memLane
+    val memLaneIdx: UInt = memLane
 
     val memRdReg   = RegInit(0.U(5.W))
     val memDataReg = RegInit(0.U(config.totalBits.W))
@@ -1293,9 +1288,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     *
     * == Divergence ==
     *
-    * The condition is taken from lane 0. At fragLanes == 1 that is simply the
-    * condition, and this is exact. At fragLanes == 4 the quad shares one
-    * program counter, so a branch whose condition differs between lanes
+    * The condition is taken from lane 0. The quad shares one program counter, so a branch whose condition differs between lanes
     * cannot be executed correctly by ANY choice here -- taking it runs the
     * body for lanes that should have skipped it, not taking it skips the body
     * for lanes that should have run it. Correct divergent control flow needs a
@@ -1306,9 +1299,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * hardware makes a violation OBSERVABLE rather than silent: `divergent`
     * is a sticky status bit set whenever any lane's condition disagrees with
     * lane 0's. A compiler emitting a non-uniform branch gets a flag it can
-    * be tested against instead of a subtly wrong image. At fragLanes == 1 the
-    * comparison is against an empty set and the bit can never set, so a
-    * scalar build pays nothing for it.
+    * be tested against instead of a subtly wrong image.
     */
   private def wireBranch(condOperands: Seq[UInt], condOperandsB: Seq[UInt]): Unit = {
     // ISA v2: BEQ..BGEU decide on the lowest active lane, JAL always jumps.

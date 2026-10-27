@@ -91,7 +91,7 @@ object BorgCoreTestsC extends TestSuite {
     }
 
     utest.test("helper_lane_stores_are_suppressed_loads_are_not") {
-      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core =>
         println("\n--- BorgCore: helper lanes ---")
         idleInputs(core)
         resetCore(core)

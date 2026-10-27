@@ -19,7 +19,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // the width match the existing invariant). Narrower operands shrink the
   // tile-index multiplies (curTileIndex-style math below and in BorgBinner)
   // that dominate this module's synthesized area on the ASIC's 16-tile
-  // config; math.min keeps Default/Simt (maxBinTiles=1024) byte-identical
+  // config; math.min keeps Default (maxBinTiles=1024) byte-identical
   // at 10 bits.
   private val tileRowWidth = math.min(10, log2Ceil(cfg.maxBinTiles + 1))
 

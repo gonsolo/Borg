@@ -233,8 +233,8 @@ object BorgDrawTests extends TestSuite {
 
   /** A 2x2 quad build, whose vertex shader shades the three corners at once,
     * and the Wafer sizing: one uniform page. */
-  val quadCfg  = suiteCfg.copy(fragLanes = 4)
-  val waferCfg = suiteCfg.copy(fragLanes = 4, maxUniforms = 32)
+  val quadCfg  = suiteCfg
+  val waferCfg = suiteCfg.copy(maxUniforms = 32)
 
   def run(name: String, cfg: BorgConfig = suiteCfg)(body: DrawRig => Unit): Unit =
     // BORG_DRAW_RIG=scala: the memory model in Scala and a simulator per scene, as a cross-check.

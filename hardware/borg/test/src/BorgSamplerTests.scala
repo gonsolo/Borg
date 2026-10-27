@@ -15,7 +15,7 @@ import utest._
   * texelFetch and offsets, tiled and linear layouts. */
 object BorgSamplerTests extends TestSuite {
   import SamplerCtl._
-  val cfg = BorgConfig.Test.copy(fragLanes = 4)
+  val cfg = BorgConfig.Test
   val TexBase = 0x1000; val SampBase = 0x1800; val Data = 0x4000
 
   def fbits(f: Float): Long = java.lang.Float.floatToRawIntBits(f).toLong & 0xFFFFFFFFL

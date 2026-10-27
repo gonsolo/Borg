@@ -51,7 +51,7 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Arcilator ignores $readmemh, so its C++ harness pokes the per-lane LUTs into
   // all 4 lanes (see ArcBorgSimulator::load_luts).  One config everywhere keeps
   // sim == hardware.
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt
+  override def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // No scanout: immediately reflect fb_select writes so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read.

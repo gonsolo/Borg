@@ -433,14 +433,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // serialized path is built; see needPerSample above.
   val sampleCtr =
     if (needPerSample) Some(RegInit(0.U(log2Up(cfg.samples).W))) else None
-  // Dynamic Vec indices need a genuinely 0-width UInt at N=1 (Chisel's own
-  // log2Ceil docs: "log2Ceil(1) // returns 0") to avoid a W004 "dynamic
-  // index too wide" warning — but laneCtr itself must stay log2Up-width
-  // (>=1 bit, see comment above) so its own `:= 0.U`/`+ 1.U` assignments
-  // don't trip a *different* (truncation) warning against a literal 0-bit
-  // register. laneIdx is laneCtr's value at the width Vec indexing actually
-  // needs; use it (not laneCtr) at every `someVec(laneCtr)` call site below.
-  private val laneIdx: UInt = if (N == 1) 0.U(0.W) else laneCtr
+  private val laneIdx: UInt = laneCtr
 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid  := false.B
@@ -552,8 +545,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   //   (readDataHeld is held stable until next read.en pulse — no latch needed)
 
   // Serialized over laneCtr: each lane reads its tile slot's Z, then conditionally
-  // writes.  The single-port tile buffer forces one lane per 4-cycle pass; at
-  // fragLanes=1 this is exactly the original single sZRead→…→sTileWrite sequence.
+  // writes.  The single-port tile buffer forces one lane per 4-cycle pass.
   // RAW destination prefetch: the same read timing as sZRead..sZWait2, one
   // lane at a time. The word is the tile's UNORM8 channels as bytes, the
   // pass's own sample (sample 0 of a resident multisampled pixel). Quads of

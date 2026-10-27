@@ -277,7 +277,7 @@ object BorgCoreTestHelpers {
 
     // =========================================================================
 
-    val SIMT = BorgConfig.Simt
+    val SIMT = BorgConfig.Default
 
     /** Give each lane of the quad its own pixel coordinate. */
 

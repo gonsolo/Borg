@@ -14,7 +14,7 @@ import utest._
 object BorgCoreDrawTests extends TestSuite {
   import BorgCoreTestHelpers._
 
-  val quad = config.copy(fragLanes = 4)
+  val quad = config
 
   def ids(core: BorgCore, mode: Boolean, r30: Int => Int, r31: Int => Int): Unit =
     core.io.ids.foreach { c =>

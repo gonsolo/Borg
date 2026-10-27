@@ -38,14 +38,13 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // samples=4: 4x MSAA (Step 50.2), on top of 2×2 quad SIMT fragment shading.
   // Verified on real ULX3S hardware: vkcube renders correctly at 39 % LUT,
   // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
-  // Revert to plain BorgConfig.Simt to fall back to the HPG-proven config.
   // BORG_ULX_CFG=full keeps everything; the default "cube" drops what unmodified
   // cube.c never uses (MSAA, blend, stencil, compute, depth-image flush) -- the
   // full FP32 config did not place on the ECP5-85K (10-02 attempt).
-  private def cubeCfg = BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
+  private def cubeCfg = BorgConfig.Default.copy(samples = 1, hasBlend = false, hasStencil = false,
                                              hasCompute = false, hasDepthFlush = false)
   private def baseCfg: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
-    case "full" => BorgConfig.Simt.copy(samples = 4)
+    case "full" => BorgConfig.Default.copy(samples = 4)
     case "cube" => cubeCfg
     // Feature bring-up: the cube config plus one feature at a time.
     case "blend" => cubeCfg.copy(hasBlend = true)

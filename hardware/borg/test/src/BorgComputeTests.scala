@@ -28,8 +28,7 @@ object BorgComputeTests extends TestSuite {
   private def addr(a: Int): Seq[BigInt] = Seq(Opcodes.SLLI(29, a, 2), Opcodes.ADD(29, 29, Base))
   private def st(a: Int, v: Int): Seq[BigInt] = addr(a) :+ Opcodes.SW(rs1 = 29, rs2 = v)
   private def ld(a: Int, d: Int): Seq[BigInt] = addr(a) :+ Opcodes.LW(rd = d, rs1 = 29)
-  val scalar   = BorgConfig.Test                           // fragLanes = 1
-  val quad     = BorgConfig.Simt.copy(maxBinTiles = 64)    // fragLanes = 4
+  val quad     = BorgConfig.Test
 
   private def off(r: UInt): Int = r.litValue.toInt
   def packed(x: Int, y: Int, z: Int): BigInt = BigInt(x | (y << 10) | (z << 20))
@@ -104,10 +103,6 @@ object BorgComputeTests extends TestSuite {
   }
 
   val tests = Tests {
-    utest.test("dispatch_scalar_stores_every_invocation_once") {
-      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d => flatIdsScenario(d) }
-    }
-
     utest.test("dispatch_quad_masks_a_partial_last_quad") {
       simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d => flatIdsScenario(d) }
     }
@@ -132,7 +127,7 @@ object BorgComputeTests extends TestSuite {
     }
 
     utest.test("dispatch_of_zero_groups_completes_without_running") {
-      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
         val dram = dispatch(d, flatIdsProgram, Map(10 -> 0, 11 -> 3, 12 -> 5), (0, 2, 1), (5, 1, 1))
         utest.assert(wordsWritten(dram) == 0)
       }
@@ -175,12 +170,6 @@ object BorgComputeTests extends TestSuite {
       // count=8, fragLanes=4: two quads. i=0..3 (quad 0) reads shared[104..107],
       // written by quad 1 -- the case that can only pass with a real barrier.
       simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d => barrierScenario(d, 8) }
-    }
-
-    utest.test("barrier_synchronizes_across_quads_scalar") {
-      // count=8, fragLanes=1: eight one-lane quads -- an 8-way barrier, not
-      // just a 2-way one.
-      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d => barrierScenario(d, 8) }
     }
 
     utest.test("divergent_barrier_sets_fault_but_still_completes") {
@@ -277,12 +266,9 @@ object BorgComputeTests extends TestSuite {
       // (r30 is safe to reuse across a barrier -- re-derived fresh from
       // ComputeLaneIO on every trigger, never register-file state -- but any
       // ordinary GPR is not, see the companion test below), reloads, and
-      // writes it to the output. scalar (fragLanes=1): every invocation is
-      // its own quad, so between one invocation's barrier-stop and its own
-      // resume, the other 7 invocations' full segment-0 runs intervene and
-      // physically overwrite the one shared register file -- this only
-      // passes if the spill/reload genuinely defeats that, not because
-      // nothing ever clobbers the registers in this config.
+      // writes it to the output. Between the first quad's barrier-stop and its
+      // resume, the second quad's segment 0 overwrites the same lanes' registers
+      // -- this only passes if the spill/reload genuinely defeats that.
       val prog = words(
         Instructions.IMUL(rs1 = 30, rs2 = 10, rd = 1),  // r1 = i*100
         Instructions.IADD(rs1 = 1, rs2 = 11, rd = 1),   // r1 = i*100+7 (the live value)
@@ -294,7 +280,7 @@ object BorgComputeTests extends TestSuite {
         st(30, 4)           // output[i] = r4
       )
       val gprs = Map(10 -> 100, 11 -> 7, 12 -> 200)
-      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
         val dram = dispatch(d, prog, gprs, (1, 1, 1), (8, 1, 1))
         for (i <- 0 until 8) {
           val got = word(dram, i)
@@ -306,12 +292,10 @@ object BorgComputeTests extends TestSuite {
 
     utest.test("live_register_without_spill_reads_back_stale_after_barrier") {
       // Same shape, but reuses r1 directly after the barrier instead of
-      // spilling/reloading through DRAM. Segment 0 runs all 8 invocations in
-      // order (0..7), each overwriting the one shared r1 with its own
-      // i*100+7; by the time segment 1 starts, r1 holds whatever invocation 7
-      // (the last to run segment 0) left there -- 707 -- and nothing in
-      // segment 1 writes r1 again, so every invocation's output reads that
-      // same frozen, wrong value.
+      // spilling/reloading through DRAM. Segment 0 runs both quads in order, the
+      // second overwriting each lane's r1 with its own i*100+7; nothing in
+      // segment 1 writes r1 again, so every invocation reads the second quad's
+      // value for its lane (407, 507, 607, 707) -- stale for the first quad.
       val prog = words(
         Instructions.IMUL(rs1 = 30, rs2 = 10, rd = 1),
         Instructions.IADD(rs1 = 1, rs2 = 11, rd = 1),
@@ -319,12 +303,13 @@ object BorgComputeTests extends TestSuite {
         st(30, 1)  // output[i] = r1, NOT recomputed/reloaded
       )
       val gprs = Map(10 -> 100, 11 -> 7)
-      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
         val dram = dispatch(d, prog, gprs, (1, 1, 1), (8, 1, 1))
         for (i <- 0 until 8) {
           val got = word(dram, i)
-          if (got != 707) println(s"  output[$i] = $got (expected the stale 707)")
-          utest.assert(got == 707)
+          val stale = (4 + i % 4) * 100 + 7
+          if (got != stale) println(s"  output[$i] = $got (expected the stale $stale)")
+          utest.assert(got == stale)
         }
       }
     }
@@ -421,7 +406,7 @@ object BorgComputeTests extends TestSuite {
     }
 
     utest.test("a_build_without_compute_reports_it_absent") {
-      simulate(new BorgTestWrapper(scalar.copy(hasCompute = false)), additionalResetCycles = 4) { d =>
+      simulate(new BorgTestWrapper(quad.copy(hasCompute = false)), additionalResetCycles = 4) { d =>
         val dram = new HalfwordDram
         d.io.data_write_n.poke(3.U)
         d.io.data_read_n.poke(3.U)

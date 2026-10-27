@@ -693,13 +693,13 @@ object BorgTests extends TestSuite {
         triggerRastAndCheckInside(true, "All-zero edges")
 
         // e0 = dx0*(r31+neg_vy0) + neg_dy0*(r30+neg_vx0). With dx0=1.0,
-        // neg_dy0=0, neg_vy0=-1.0: e0 = r31 - 1.0, negative since the
-        // coordLut-injected r31 (px+0.5) is well below 1.0 for tile origin (0,0).
+        // neg_dy0=0, neg_vy0=-2.0: e0 = r31 - 2.0, negative for every lane of the
+        // quad at tile origin (0,0) (r31 = 0.5 or 1.5).
         println("  Test 2: dx0=1.0, neg_vy0=-1.0 -> e0 < 0 (outside)")
         resetAndWait(borg)
         for (i <- 0 until 12) writeUniform(i, 0.0f)
         writeUniform(0, 1.0f)    // dx0
-        writeUniform(7, -1.0f)   // neg_vy0
+        writeUniform(7, -2.0f)   // neg_vy0
         triggerRastAndCheckInside(false, "e0 < 0")
 
         println("  Test 3: All-zero edge constants again (inside)")
@@ -766,8 +766,8 @@ object BorgTests extends TestSuite {
         val iy = (iterVal >> 10) & 0x3FF
         println(f"    Raw iterVal: 0x$iterVal%08X")
         println(f"    Iterator position: ($ix, $iy)")
-        // After tile (0,0) 4×4 and one advance, should be at (1,0)
-        Predef.assert(ix == 1 && iy == 0, s"Expected (1,0), got ($ix,$iy)")
+        // After tile (0,0) 4×4 and one advance, the next quad: (2,0)
+        Predef.assert(ix == 2 && iy == 0, s"Expected (2,0), got ($ix,$iy)")
         println("  Iterator advance: PASSED")
 
         // --- Test 3: Inside flag updated by auto-run ---

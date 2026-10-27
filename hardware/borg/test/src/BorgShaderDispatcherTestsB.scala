@@ -52,7 +52,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         utest.assert(!enDiscarded)
         println("  tileWrite.en=false despite inside_flag=true ✓")
 
-        d.clock.step(1)
+        finishQuad(d)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
 
         // --- Part 2: inside pixel, no r25 write — must NOT discard (regression) ---

@@ -157,7 +157,8 @@ object BorgShaderDispatcherTestHelpers {
   }
 
   /** A v1 register result as the CSR write that carries it now: in the fragment phase the
-    * outputs (r19, r24-r29, B8 step 8), in the raster phase the ROM's results (rast_*). */
+    * outputs (r19, r24-r29, B8 step 8), in the raster phase the ROM's results (rast_*).
+    * Every lane of the quad writes the same value. */
   def pokeWrite(d: BorgShaderDispatcher, reg: Int, value: BigInt): Unit = {
     val frag = Map(19 -> Csr.SampleMask, 24 -> Csr.OutC3, 25 -> Csr.Discard, 26 -> Csr.OutC0,
                    27 -> Csr.OutC1, 28 -> Csr.OutC2, 29 -> Csr.OutDepth)
@@ -168,9 +169,9 @@ object BorgShaderDispatcherTestHelpers {
       case PHASE_RAST => rast.get(reg)
       case _          => None
     }
-    csr.foreach { c => d.io.csrWrite(0).en.poke(true.B); d.io.csrWrite(0).addr.poke(c.U); d.io.csrWrite(0).data.poke(value.U) }
+    for (w <- d.io.csrWrite; c <- csr) { w.en.poke(true.B); w.addr.poke(c.U); w.data.poke(value.U) }
     d.clock.step(1)
-    d.io.csrWrite(0).en.poke(false.B)
+    d.io.csrWrite.foreach(_.en.poke(false.B))
   }
 
   /** FP16 bits as the FP32 bits of the same value (finite values and signed zeros). */
@@ -287,8 +288,16 @@ object BorgShaderDispatcherTestHelpers {
       d.io.alphaWrite.map(_.peek().litValue.toInt).getOrElse(0xFF),
       d.io.alphaWriteMask.map(_.peek().litToBoolean).getOrElse(false))
 
-    d.clock.step(1)  // sTileWrite → sIdle, ready for the next pixel
+    finishQuad(d)
     w
+  }
+
+  /** The quad's remaining lanes run their depth test and tile write; back in sIdle after. */
+  def finishQuad(d: BorgShaderDispatcher): Unit = {
+    var n = 0
+    while ({ d.clock.step(1); n += 1; d.io.phase.peek().litValue.toInt != PHASE_IDLE }) {
+      utest.assert(n < 64)
+    }
   }
 
   /** Write all three edge values and check resulting insideFlag. */

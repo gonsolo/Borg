@@ -27,10 +27,6 @@ package borg
   * @param maxUniforms  Uniform memory depth.  64 = two 32-entry pages (double-buffered
   *                     for CPU/GPU overlap); 32 = single page (saves ~25 kµm² on ASIC
   *                     where the sequencer always writes page 0).
-  * @param fragLanes  Fragment-shader SIMT width.  1 = scalar (one pixel per shader pass,
-  *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
-  *                     throughput, lays the architecture for dFdx/dFdy).  ULX3S/sim use 4;
-  *                     ASIC stays at 1 (area).
   * @param samples  Multisample (MSAA) rate: colour+depth samples stored per pixel in
   *                 the tile buffer.  1 = single-sample (historical behaviour, the
   *                 bit-exact regression anchor); 4 = 4× MSAA, required by Vulkan's
@@ -47,7 +43,7 @@ package borg
   *                     compile-time constant shared unconditionally by every target
   *                     (borg_driver.c's only write site: `seq_bin_row_bytes =
   *                     TBR_BIN_ROW_BYTES = SEQ_MAX_TRI*2`), so 256 here is safe for
-  *                     both Default/Simt and Wafer without any firmware coordination.
+  *                     both Default and Wafer without any firmware coordination.
   *                     If SEQ_MAX_TRI ever grows, this must grow with it.
   */
 case class BorgConfig(
@@ -66,7 +62,6 @@ case class BorgConfig(
     // TEX keeps 2^texDescCacheLog2 texture descriptors (a vertex shader reads one per input).
     texDescCacheLog2: Int = 2,
     maxUniforms: Int = 64,
-    fragLanes: Int = 1,
     maxTrianglesPerTile: Int = 256,
     samples: Int = 1,
     // Adds BorgTileFlusher's optional second DRAM burst, writing the tile's
@@ -136,9 +131,7 @@ case class BorgConfig(
     // target that only ever runs the graphics pipeline.
     hasMemoryOps: Boolean = true,
     // hasControlFlow: BRZ/BRNZ plus the execution mask and its stack. Costs
-    // the PC redirect, the mask, and 8 x fragLanes bits of stack. At
-    // fragLanes=1 the mask is degenerate but the branches are not -- loops
-    // and early exits need them regardless of SIMT width.
+    // the PC redirect, the mask, and 8 x fragLanes bits of stack.
     hasControlFlow: Boolean = true,
     // hasCompute: the compute dispatch sequencer (BorgComputeSequencer) and
     // compute-mode invocation IDs in r30/r31. Only takes effect with LOAD/STORE
@@ -161,7 +154,6 @@ case class BorgConfig(
     // fill FSM; no extra instruction storage. Needs hasMemoryOps (the port).
     hasShaderICache: Boolean = false
 ) {
-  require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
@@ -200,6 +192,8 @@ case class BorgConfig(
   /** The datapath is FP32: Vulkan's minimum. */
   def fp: FloatConfig = FloatConfig.FP32
   def totalBits: Int = fp.totalBits
+  /** A 2x2 pixel quad per shader pass: DDX/DDY (and Vulkan's derivatives) need it. */
+  def fragLanes: Int = 4
   def exp: Int = fp.exp
   def sig: Int = fp.sig
 
@@ -285,18 +279,11 @@ object BorgConfig {
     hasShaderICache = true
   )
 
-  // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
-  // the sim tops and ULX3S; the scalar Default keeps the chisel unit tests on
-  // the bit-exact single-lane reference.  maxBinTiles=4096 covers up to
-  // 256×256 @ 4×4 (64×64 = 4096 tiles); the current demo resolution
-  // (128×128) uses only 1024 of that capacity, unaffected by the growth
-  // (see Default's own comment for the full rationale).
-  val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
   // Smallest config that still runs the draw front end (FP32 + shader I-cache):
-  // one lane, 64 bin tiles (32x32 px), no MSAA/blend/stencil/compute/depth flush.
-  // For fitting beside RV64 Linux on the ECP5-85K; derivatives read 0 at one lane.
-  val Tiny = Default.copy(fragLanes = 4, maxBinTiles = 1024, samples = 1, hasBlend = false,
+  // 1024 bin tiles, no MSAA/blend/stencil/compute/depth flush.
+  // For fitting beside RV64 Linux on the ECP5-85K.
+  val Tiny = Default.copy(maxBinTiles = 1024, samples = 1, hasBlend = false,
                           hasStencil = false, hasCompute = false, hasDepthFlush = false)
 
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
@@ -312,7 +299,7 @@ object BorgConfig {
   //     is 59 words, +1 word BORG_IMEM_FRAG_OFFSET (kept nonzero so fragPcReg==0 can
   //     still mean "no fragment shader"), +1 HALT sentinel = 61 of 64 used.
   //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
-  //   fragLanes=4 (+ Default's samples=4): 4-lane SIMT and 4x MSAA. Verified by a
+  //   4-lane SIMT and 4x MSAA. Verified by a
   //     full wafer.space 1x0.5 signoff at FP16 -- 85.68 % utilisation, DRC/LVS/antenna
   //     clean, 4.52 mW. The earlier 0.5x1 orientation failed detailed placement
   //     (DPL-0036) at 81.97 %; 1x0.5 is the orientation that fits. Real Max Slew /
@@ -326,8 +313,7 @@ object BorgConfig {
     coordWidth       = 7,
     maxBinTiles      = 16,
     maxInstructions  = 64,
-    maxUniforms      = 32,
-    fragLanes        = 4
+    maxUniforms      = 32
     // Compute is on, as in Default: Vulkan requires a queue family with
     // compute. It was off only while the 1x1 slot was tight.
   )

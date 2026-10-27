@@ -57,7 +57,7 @@ class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMh
   override def hasSupervisorMode: Boolean = false
 
   // 2×2 quad SIMT fragment shading (sim).
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt
+  override def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // Immediately reflect fb_select writes back as scanoutCurBuf so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read (no real scanout in the sim).

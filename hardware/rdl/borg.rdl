@@ -170,7 +170,7 @@ reg status_reg_t {
                 executed correctly by any choice the hardware could make;
                 the contract is that branch conditions are quad-uniform, and
                 this bit exists so a violation is observable instead of
-                silently producing a wrong image. Always 0 at fragLanes=1.
+                silently producing a wrong image.
                 Cleared by a core reset.";
     } branch_divergent[1] = 0;
 

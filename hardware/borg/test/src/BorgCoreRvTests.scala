@@ -87,7 +87,7 @@ object BorgCoreRvTests extends TestSuite {
     }
 
     utest.test("csrrw_drives_the_csr_port_of_active_lanes") {
-      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core =>
         idleInputs(core)
         pokeQuad(core)
         resetCore(core)
@@ -219,7 +219,7 @@ object BorgCoreRvTests extends TestSuite {
     }
 
     utest.test("system_value_csrs") {
-      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core =>
         idleInputs(core)
         pokeQuad(core)
         resetCore(core)

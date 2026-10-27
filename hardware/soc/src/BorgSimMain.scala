@@ -22,11 +22,9 @@ object BorgSimMain extends App {
   val allFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new BorgSimTop(clockMhz), targetDir, allFiles)
-  // NOTE: must match BorgSimTop's BORG_CFG (Simt / 4-lane).  firtool splits per
-  // module, so a Default-config (1-lane) Peripherals here silently OVERWRITES the
-  // 4-lane BorgCore.sv/BorgShaderDispatcher.sv emitted from BorgSimTop above —
-  // making the whole verilator sim secretly 1-lane.  Keep these configs in sync.
-  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Simt), targetDir, allFiles)
+  // Must match BorgSimTop's BORG_CFG: firtool splits per module, so another config here would
+  // overwrite its BorgCore.sv.
+  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Default), targetDir, allFiles)
 
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/sim_files.txt"))
   allFiles.toList.sorted.foreach(fw.println)

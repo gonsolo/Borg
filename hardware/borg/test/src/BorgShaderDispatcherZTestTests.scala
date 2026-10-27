@@ -37,6 +37,11 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     pokeWrite(d, reg, fragOut(reg, value))
   }
 
+  def waitZTestDone(d: BorgShaderDispatcher): Unit = {
+    var n = 0
+    while (!d.io.zTestDone.peek().litToBoolean) { d.clock.step(1); n += 1; utest.assert(n < 64) }
+  }
+
   /** One pixel with ZTEST issued after r29. Returns the early write, the
     * helper flag after ZTEST, the helper flag at the end of the shader, and
     * the late write. */
@@ -70,7 +75,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     stepThroughDepthTest(d)
     utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
     val early = capture(d)
-    utest.assert(d.io.zTestDone.peek().litToBoolean)
+    waitZTestDone(d)   // the quad's other lanes test too
     d.clock.step(1)
     d.io.zTestReq.poke(false.B)
     utest.assert(d.io.phase.peek().litValue.toInt == PHASE_FRAG)
@@ -88,7 +93,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
     stepThroughDepthTest(d)
     val late = capture(d)
-    d.clock.step(1)
+    finishQuad(d)
     utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
     (early, helperAfterTest, helperAtEnd, late)
   }
@@ -182,7 +187,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
         d.io.zTestReq.poke(true.B)
         utest.assert(d.io.zTestDone.peek().litToBoolean)
-        d.clock.step(1)
+        finishQuad(d)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
         utest.assert(!d.io.tileRead.en.peek().litToBoolean)
         d.io.zTestReq.poke(false.B)
@@ -257,10 +262,12 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
           utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
           val en = d.io.tileWrite.en.peek().litToBoolean
           earlyOcc += d.io.occSamples.peek().litValue.toInt
-          utest.assert(d.io.zTestDone.peek().litToBoolean == (s == 3))
+          utest.assert(!d.io.zTestDone.peek().litToBoolean)   // lanes 1-3 follow
           d.clock.step(1)
           en
         }
+        waitZTestDone(d)
+        d.clock.step(1)
         d.io.zTestReq.poke(false.B)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_FRAG)
         utest.assert(!d.io.laneHelper(0).peek().litToBoolean)   // two samples passed
@@ -285,7 +292,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         utest.assert(lateEn == Seq(false, false, true, true))
         println(s"  occlusion samples counted: early $earlyOcc (expect 2), late $lateOcc (expect 0)")
         utest.assert(earlyOcc == 2 && lateOcc == 0)
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
+        finishQuad(d)
         println("  PASSED")
       }
     }

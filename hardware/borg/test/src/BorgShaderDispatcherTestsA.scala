@@ -136,7 +136,7 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         utest.assert(tileZ == 0x4444)
 
         // After sTileWrite: back to sIdle, stall released
-        d.clock.step(1)
+        finishQuad(d)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
         utest.assert(!d.io.autoRunStall.peek().litToBoolean)
         println("  PASSED")
@@ -169,7 +169,7 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         utest.assert(d.io.autoRunStall.peek().litToBoolean)  // still set in sTileWrite
         println("  stall held through depth test ✓")
 
-        d.clock.step(1)  // sTileWrite → sIdle
+        finishQuad(d)  // the quad\'s other lanes, then sIdle
         utest.assert(!d.io.autoRunStall.peek().litToBoolean)
         println("  stall released in sIdle ✓")
         println("  PASSED")
@@ -280,7 +280,7 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         println(f"  depth test done: phase=TILE_WRITE ✓")
 
         // → sIdle
-        d.clock.step(1)
+        finishQuad(d)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
         println(f"  tile write done: phase=IDLE ✓")
         println("  PASSED")
@@ -337,7 +337,7 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         utest.assert(enInside)
 
         // FSM returns to sIdle, stall released
-        d.clock.step(1)
+        finishQuad(d)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
         utest.assert(!d.io.autoRunStall.peek().litToBoolean)
         println("  tileWrite.en=true ✓  phase→IDLE ✓  stall released ✓")

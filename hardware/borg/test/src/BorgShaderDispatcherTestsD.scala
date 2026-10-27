@@ -264,9 +264,9 @@ object BorgShaderDispatcherTestsD extends TestSuite {
           d.clock.step(1)
         }
 
-        // Four samples done -> the lane (and, at fragLanes=1, the quad) is
-        // finished and the stall is released.
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
+        // Four samples done -> lane 0 is finished; the other lanes follow, then
+        // the stall is released.
+        finishQuad(d)
         utest.assert(!d.io.autoRunStall.peek().litToBoolean)
         println("  4 one-hot writes, each against its own sample, then idle ✓")
         println("  PASSED")

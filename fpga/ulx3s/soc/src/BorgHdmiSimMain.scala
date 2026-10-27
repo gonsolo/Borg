@@ -23,10 +23,8 @@ object BorgHdmiSimMain extends App {
   val allFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new BorgHdmiSimTop(clockMhz, fbW, fbH), targetDir, allFiles)
-  // Keep the standalone Peripherals emit in the SAME 4-lane Simt config as the
-  // top (firtool splits per module; a Default-config emit would clobber the
-  // 4-lane BorgCore.sv).  See BorgSimMain for the full rationale.
-  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Simt), targetDir, allFiles)
+  // The standalone Peripherals emit uses the top's config: firtool splits per module.
+  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Default), targetDir, allFiles)
 
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/sim_files.txt"))
   allFiles.toList.sorted.foreach(fw.println)

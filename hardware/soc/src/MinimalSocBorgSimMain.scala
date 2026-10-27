@@ -13,7 +13,7 @@ import borg.BorgConfig
 object MinimalSocBorgSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "20").toInt
   val cfg = sys.env.getOrElse("BORG_MINIMAL_CFG", "tiny") match {
-    case "cube" => BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
+    case "cube" => BorgConfig.Default.copy(samples = 1, hasBlend = false, hasStencil = false,
                                         hasCompute = false, hasDepthFlush = false)
     case _      => BorgConfig.Tiny
   }

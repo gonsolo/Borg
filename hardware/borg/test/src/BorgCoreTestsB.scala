@@ -192,9 +192,9 @@ object BorgCoreTestsB extends TestSuite {
 
     utest.test("ddx_ddy_quad") {
       // 4-lane SIMT cross-lane quad derivatives. Zero existing coverage for the
-      // Simt config — this harness drives the 2×2 quad and checks ddx/ddy of both
+      // This harness drives the 2×2 quad and checks ddx/ddy of both
       // the per-lane coordinate registers and a computed GPR.
-      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core =>
         println("\n--- BorgCore: ddx_ddy_quad (4-lane SIMT) ---")
         idleInputs(core)
         // 2×2 quad: lane0=(4,4) TL, lane1=(5,4) TR, lane2=(4,5) BL, lane3=(5,5) BR.
@@ -234,7 +234,7 @@ object BorgCoreTestsB extends TestSuite {
       // Coarse derivatives are the top row / left column everywhere; fine
       // ones each lane's own row (x) or column (y) -- read back through a
       // second, coarse derivative, which sees lanes 1 and 2 from lane 0.
-      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core =>
         println("\n--- BorgCore: ddx_ddy_fine (4-lane SIMT) ---")
         idleInputs(core)
         val qx = Seq(4, 5, 4, 5); val qy = Seq(4, 4, 5, 5)

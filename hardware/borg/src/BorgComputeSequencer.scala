@@ -134,8 +134,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val lz  = RegInit(0.U(8.W))
 
   private val lane    = RegInit(0.U(log2Up(N).W))
-  // Same 0-width index at N == 1 as BorgCore's memLaneIdx, for the same reason.
-  private val laneSel: UInt = if (N == 1) 0.U(0.W) else lane
+  private val laneSel: UInt = lane
   private val uniIdx  = RegInit(0.U(2.W))
   private val laneIdx = RegInit(VecInit(Seq.fill(N)(0.U(8.W))))
   private val laneId  = RegInit(VecInit(Seq.fill(N)(0.U(30.W))))

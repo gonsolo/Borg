@@ -25,9 +25,7 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.sampleCfg.alphaToCov.poke(false.B); rast.io.sampleCfg.shaderMask.poke(false.B); rast.io.sampleCfg.single.poke(false.B); rast.io.rawColor.poke(false.B)
     rast.io.cmdPop.valid.poke(false.B)
     rast.io.advance.poke(false.B)
-    rast.io.csrWrite(0).en.poke(false.B)
-    rast.io.csrWrite(0).addr.poke(0.U)
-    rast.io.csrWrite(0).data.poke(0.U)
+    rast.io.csrWrite.foreach { w => w.en.poke(false.B); w.addr.poke(0.U); w.data.poke(0.U) }
     rast.io.coreStatus.running.poke(false.B)
     rast.io.coreStatus.autoRunPending.poke(false.B)
     // Register-driven frag_pc and uniform_page
@@ -116,13 +114,8 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         setTileCommand(rast, 0, 0)  // 4×4 tile at origin
 
-        // Expected: (0,0), advance → (1,0), (2,0), (3,0), (0,1), ...
-        val expected = Seq(
-          (1, 0), (2, 0), (3, 0),
-          (0, 1), (1, 1), (2, 1), (3, 1),
-          (0, 2), (1, 2), (2, 2), (3, 2),
-          (0, 3), (1, 3), (2, 3), (3, 3),
-        )
+        // Expected: quad origins (0,0), advance → (2,0), (0,2), (2,2).
+        val expected = Seq((2, 0), (0, 2), (2, 2))
 
         val ix = rast.io.iter.x.peek().litValue.toInt
         val iy = rast.io.iter.y.peek().litValue.toInt
@@ -139,7 +132,7 @@ object BorgRasterizerTests extends TestSuite {
 
         advance(rast)
         val valid = rast.io.iterValid.peek().litToBoolean
-        println(f"  After all 16 pixels: valid=$valid")
+        println(f"  After all 4 quads: valid=$valid")
         utest.assert(!valid)
         println("  PASSED")
       }
@@ -168,44 +161,44 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)
 
         // Write a negative (outside) value to edge 0: -1.0
-        rast.io.csrWrite(0).en.poke(true.B)
-        rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 0).U)
-        rast.io.csrWrite(0).data.poke("hBF800000".U)
+        rast.io.csrWrite.foreach(_.en.poke(true.B))
+        rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + 0).U))
+        rast.io.csrWrite.foreach(_.data.poke("hBF800000".U))
         rast.clock.step(1)
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
         rast.clock.step(1)
 
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=-1.0: insideFlag=false ✓")
 
         // Write a positive (inside) value to edge 0: +1.0
-        rast.io.csrWrite(0).en.poke(true.B)
-        rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 0).U)
-        rast.io.csrWrite(0).data.poke("h3F800000".U)
+        rast.io.csrWrite.foreach(_.en.poke(true.B))
+        rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + 0).U))
+        rast.io.csrWrite.foreach(_.data.poke("h3F800000".U))
         rast.clock.step(1)
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
         rast.clock.step(1)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=+1.0: insideFlag=true ✓")
 
         // Write negative to edge 1
-        rast.io.csrWrite(0).en.poke(true.B)
-        rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 1).U)
-        rast.io.csrWrite(0).data.poke("hC0000000".U)  // -2.0
+        rast.io.csrWrite.foreach(_.en.poke(true.B))
+        rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + 1).U))
+        rast.io.csrWrite.foreach(_.data.poke("hC0000000".U))  // -2.0
         rast.clock.step(1)
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
         rast.clock.step(1)
 
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e1=-2.0: insideFlag=false ✓")
 
         // Zero should count as inside (sign=0, magnitude=0 → not outside)
-        rast.io.csrWrite(0).en.poke(true.B)
-        rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 1).U)
-        rast.io.csrWrite(0).data.poke(0.U)
+        rast.io.csrWrite.foreach(_.en.poke(true.B))
+        rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + 1).U))
+        rast.io.csrWrite.foreach(_.data.poke(0.U))
         rast.clock.step(1)
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
         rast.clock.step(1)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
@@ -282,11 +275,11 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)  // must de-assert before the CSR write: advance resets edge flags every cycle it is high
 
         // Set edge 0 to outside (negative sign)
-        rast.io.csrWrite(0).en.poke(true.B)
-        rast.io.csrWrite(0).addr.poke((Csr.RastE0 + 0).U)
-        rast.io.csrWrite(0).data.poke("hBF800000".U)  // -1.0
+        rast.io.csrWrite.foreach(_.en.poke(true.B))
+        rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + 0).U))
+        rast.io.csrWrite.foreach(_.data.poke("hBF800000".U))  // -1.0
         rast.clock.step(1)
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
         rast.clock.step(1)
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
 
@@ -332,12 +325,12 @@ object BorgRasterizerTests extends TestSuite {
 
         // Write edges inside
         for (i <- 0 until 3) {
-          rast.io.csrWrite(0).en.poke(true.B)
-          rast.io.csrWrite(0).addr.poke((Csr.RastE0 + i).U)
-          rast.io.csrWrite(0).data.poke("h3F800000".U)  // +1.0
+          rast.io.csrWrite.foreach(_.en.poke(true.B))
+          rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + i).U))
+          rast.io.csrWrite.foreach(_.data.poke("h3F800000".U))  // +1.0
           rast.clock.step(1)
         }
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         
@@ -354,8 +347,8 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(stall)
         simulateShaderRun(rast)
         
-        // Wait for depth test (sZRead → sZWait1 → sZWait2 → sTileWrite) + 1 for sTileWrite→sIdle
-        rast.clock.step(4)
+        // Depth test and tile write (sZRead → sZWait1 → sZWait2 → sTileWrite) for each of 4 lanes
+        rast.clock.step(16)
 
         val finalStall = rast.io.autoRunStall.peek().litToBoolean
         println(f"  After frag done: stall=$finalStall")
@@ -382,12 +375,12 @@ object BorgRasterizerTests extends TestSuite {
 
         // Set all edges inside
         for (i <- 0 until 3) {
-          rast.io.csrWrite(0).en.poke(true.B)
-          rast.io.csrWrite(0).addr.poke((Csr.RastE0 + i).U)
-          rast.io.csrWrite(0).data.poke("h3F800000".U)
+          rast.io.csrWrite.foreach(_.en.poke(true.B))
+          rast.io.csrWrite.foreach(_.addr.poke((Csr.RastE0 + i).U))
+          rast.io.csrWrite.foreach(_.data.poke("h3F800000".U))
           rast.clock.step(1)
         }
-        rast.io.csrWrite(0).en.poke(false.B)
+        rast.io.csrWrite.foreach(_.en.poke(false.B))
         rast.clock.step(1)
 
         // Simulate rast shader
