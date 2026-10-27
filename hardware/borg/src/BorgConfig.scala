@@ -166,61 +166,10 @@ case class BorgConfig(
     // `codeBase + 4*pc` through the core's LOAD/STORE port, and keeps the
     // word for the next quad. Costs a tag and a valid bit per line and the
     // fill FSM; no extra instruction storage. Needs hasMemoryOps (the port).
-    hasShaderICache: Boolean = false,
-    // BorgFma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
-    // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
-    //
-    // THE CELL LIBRARY DOMINATES THIS DECISION -- check which one your target
-    // builds against before concluding anything. Measured with OpenSTA at a
-    // 40 ns (25 MHz) period, synthesis-only (no wire delay), Log2 msbPos:
-    //
-    //                   5V fd_sc_mcu7t5v0     3.3V as_sc_mcu7t3v3
-    //   FP16 3-stage    31.256 (+8.453)       18.035 (+21.783)
-    //   FP32 3-stage    55.687 (-15.968 VIOL) 26.690 (+13.131 MET)
-    //   FP32 4-stage    38.884 (+0.679)       18.740 (+21.074)
-    //   FP32 5-stage    42.047 (-2.334 VIOL)  22.446 (+17.375)
-    //
-    // The 3.3V cells are ~1.7-2.1x faster (and ~7% larger). On 3.3V, FP32
-    // closes 25 MHz UNSPLIT with 33% margin -- fmaStages>3 buys nothing.
-    // Only on the 5V library (what the 4 MHz config ships) does FP32 need
-    // splitting, and even then 4 stages is marginal. librelane/
-    // probe_borgonly_3v3.yaml is the 3.3V/25 MHz precedent.
-    //
-    // FP32 blows stage 2 up because F grows 40 -> 66 bits and the stage chains
-    // a 66-bit barrel shift, a two's-complement negate, a 68-bit add and a
-    // second negate. Splitting after alignment (stages=4) separates the shift
-    // work from the three carry chains and moves the path into stage 3.
-    //
-    // stages=5 splits stage 3 after dropAmt, and measures WORSE than 4 on both
-    // libraries: the path moves to stage 2b, starting at x_prodSign with a
-    // 3.734 ns first-gate delay -- one sign bit driving a 67-bit conditional
-    // negate (Mux(sign, -(x.zext), x.zext)), whose fanout ABC buffers poorly
-    // without placement. Fixing that means restructuring the add as
-    // "same signs -> add, differing -> subtract" instead of two conditional
-    // negates: a numerics-sensitive rewrite of a module verified bit-identical
-    // to HardFloat over 30k vectors. Not worth doing unless a 5V 25 MHz build
-    // is actually required.
-    //
-    // Caution: 2-4 ns differences here are within synthesis-to-synthesis
-    // variance (ABC's buffering/sizing shifts without placement data). The
-    // library gap and the 3-vs-4 gap are real; 4-vs-5 is indicative only.
-    // Settle any 25 MHz claim with a real LibreLane run, not pre-layout STA.
-    //
-    // Context: the wafer.space flow ships at 4 MHz today
-    // (librelane/config.yaml CLOCK_PERIOD 250), where even the unsplit FP32
-    // stage 2 has ~192 ns of slack. These splits exist for the 25 MHz target.
-    // Synthesis-only numbers run optimistic: FP16 measures 30.9 MHz here but
-    // signs off at 25, implying ~1.24x layout degradation -- so budget margin
-    // rather than trusting a barely-passing synthesis slack.
-    //
-    // NOTE: raising this alone is NOT functionally correct -- each extra stage
-    // adds a pipeline cycle, so BorgCore's busy_counter must widen from 3 bits
-    // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
-    fmaStages: Int = 3
+    hasShaderICache: Boolean = false
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
-  require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
@@ -259,34 +208,14 @@ case class BorgConfig(
   def exp: Int = fp.exp
   def sig: Int = fp.sig
 
-  // --- busy_counter phase constants, derived from fmaStages ---------------
-  //
-  // BorgCore runs one instruction as a countdown (see its "Pipeline timing"
-  // doc). Every extra FMA pipeline stage inserts a cycle, so the phases move.
-  // These are the single source of truth for both BorgCore and BorgLane --
-  // the counter values used to live as literals in both files, which is why
-  // BorgConfig's fmaStages comment warned that raising it "alone is NOT
-  // functionally correct".
-  //
-  // fmaStages=4 splits BorgFma stage 2 (reg2a, between regMid and magR),
-  // so everything from operand-read down to pipeEn1 shifts one cycle later
-  // while pipeEn2 and write-back stay put. fmaStages=5 additionally splits
-  // stage 3 (the y_* registers after magR), which pushes pipeEn2 out too.
-  //
-  //            stages=3   stages=4   stages=5
-  //   holdC         5          6          7     (issue: rs1, rs2, rs3 read)
-  //   pipeEn1       4          5          6     (= operands valid)
-  //   pipeEn2       3          3          4
-  //   write-back    1          1          1
-  private def fmaExtraMid: Int = if (fmaStages >= 4) 1 else 0
-  private def fmaExtraLate: Int = if (fmaStages >= 5) 1 else 0
-
+  // --- Pipeline stages (BorgCore's "Pipeline" doc), counted down to write-back at 1 ---
   /** pipeEn2: magR capture. */
-  def cPipeEn2: Int = 3 + fmaExtraLate
+  def cPipeEn2: Int = 3
   /** pipeEn1 / all three operands held and valid -- also when BorgCore starts
     * TEX/TEXA, LOAD/STORE and evaluates branches. */
-  def cOperands: Int = cPipeEn2 + 1 + fmaExtraMid
-  def cHoldC: Int = cOperands + 1
+  def cOperands: Int = 4
+  /** Issue: rs1, rs2 and rs3 read, held here. */
+  def cHoldC: Int = 5
   /** Stages an instruction passes through after issue. */
   def cBusyLoad: Int = cHoldC
   def busyCounterWidth: Int = chisel3.util.log2Ceil(cBusyLoad + 1)
@@ -414,14 +343,7 @@ object BorgConfig {
     texDescCacheLog2 = 0,
     maxUniforms      = 32,
     hasPerfCounters  = false,
-    fragLanes        = 4,
-    // 2026-09-19: the ONLY target that needs this. Measured post-repair with
-    // OpenSTA at max_ss_125C_3v00 on two signoff runs, the worst path was
-    // BorgFma stage 2 -- m_prodLowExp -> magR, the three serial carry
-    // chains -- at -5.6 ns and -12.8 ns against the 125 ns budget. That is
-    // exactly the stage fmaStages=4 splits. Costs one cycle per FMA; the
-    // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
-    fmaStages        = 4
+    fragLanes        = 4
     // Compute is on, as in Default: Vulkan requires a queue family with
     // compute. It was off only while the 1x1 slot was tight.
   )

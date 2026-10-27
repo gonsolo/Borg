@@ -266,7 +266,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   fma.io.a := fmaA; fma.io.b := fmaB; fma.io.c := fmaC
   fma.io.negate := false.B; fma.io.pipeEn1 := true.B; fma.io.pipeEn2 := true.B
   private val fmaWait = RegInit(0.U(3.W))
-  private val fmaLatency = cfg.fmaStages + 1
+  private val fmaLatency = 4
 
   // --- The one multiplier ------------------------------------------------
   // Registered on both sides: a state issues the operands with `mul`, sMul

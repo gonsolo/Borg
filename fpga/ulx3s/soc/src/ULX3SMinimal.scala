@@ -359,9 +359,8 @@ object ULX3SMinimalLinuxBorgMain extends App {
                                              hasCompute = false, hasDepthFlush = false)
     case other  => throw new IllegalArgumentException(s"BORG_MINIMAL_CFG=$other")
   }
-  val fma = sys.env.get("BORG_FMA_STAGES").fold(cfg)(n => cfg.copy(fmaStages = n.toInt))
   ChiselStage.emitSystemVerilogFile(
-    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = false, borgCfg = Some(fma)),
+    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = false, borgCfg = Some(cfg)),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )

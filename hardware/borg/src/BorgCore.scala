@@ -16,8 +16,8 @@ import chisel3.util.*
   * original monolithic core bit-for-bit.
   *
   * Pipeline (docs/B9_pipeline.md): an instruction issues at decode, reading rs1/rs2/rs3 from the
-  * lane's three register-file copies, then moves through stages cfg.cBusyLoad→1 (5→1 at
-  * fmaStages=3): operands held at cHoldC, valid at cOperands, the FMA until 2, write-back at 1.
+  * lane's three register-file copies, then moves through stages cfg.cBusyLoad→1 (5→1):
+  * operands held at cHoldC, valid at cOperands, the FMA until 2, write-back at 1.
   * The next instruction issues every cycle unless it reads a register an instruction in flight
   * writes (the lane bypasses the one in write-back), follows a branch, or waits for a stall FSM.
   */
