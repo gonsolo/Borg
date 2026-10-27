@@ -18,7 +18,6 @@
 extern void bh_reg_write(uint32_t reg_off, uint32_t v);
 extern uint32_t bh_reg_read(uint32_t reg_off);
 extern void bh_dram_write(uint32_t spi_addr, uint32_t v);
-extern uint32_t bh_dram_read(uint32_t spi_addr);
 #define BREG_W(field, v) bh_reg_write((uint32_t)offsetof(borg_gpu_t, field), (uint32_t)(v))
 #define BREG_R(field)    bh_reg_read((uint32_t)offsetof(borg_gpu_t, field))
 #define BDRAM_W(a, v)    bh_dram_write((uint32_t)(a), (uint32_t)(v))
@@ -661,17 +660,6 @@ void borg_core_list_flush(void) {
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8, 0);
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8 + 4, 0);
   list_trigger(BORG_LIST_SPI, g_list.load);
-  if (BREG_R(seq_trigger) & 2u) {
-    // A bin overflowed and nothing was rendered: the draws one render each, the first as the
-    // list was to start, the rest continuing from what it left (load, keep).
-    uint32_t one = list_alloc(16);
-    for (uint32_t i = 0; i < g_list.n; i++) {
-      const uint32_t e = BORG_LIST_SPI + i * 8;
-      BDRAM_W(one, bh_dram_read(e)); BDRAM_W(one + 4, bh_dram_read(e + 4));
-      BDRAM_W(one + 8, 0); BDRAM_W(one + 12, 0);
-      list_trigger(one, i == 0 ? g_list.load : (g_list.load | 9u));
-    }
-  }
   list_reset();
 }
 #endif
