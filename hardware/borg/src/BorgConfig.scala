@@ -28,9 +28,6 @@ package borg
   * @param maxUniforms  Uniform memory depth.  64 = two 32-entry pages (double-buffered
   *                     for CPU/GPU overlap); 32 = single page (saves ~25 kµm² on ASIC
   *                     where the sequencer always writes page 0).
-  * @param hasPerfCounters Wire up the 5×32-bit GPU performance counters (total/frag/
-  *                     flush/stall/dma).  Useful for fps profiling on ULX3S; omitted
-  *                     on ASIC to save ~18 kµm².
   * @param fragLanes  Fragment-shader SIMT width.  1 = scalar (one pixel per shader pass,
   *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
   *                     throughput, lays the architecture for dFdx/dFdy).  ULX3S/sim use 4;
@@ -61,8 +58,7 @@ case class BorgConfig(
     maxBinTiles: Int = 1024,
     maxInstructions: Int = 56,
     icacheLines: Int = 512,
-    // Draw front end: FATTR's varying cache, 2^fattrCacheLog2 words (0 =
-    // none, every FATTR reads the record from DRAM). Without it a fragment
+    // Draw front end: FATTR's varying cache, 2^fattrCacheLog2 words. Without it a fragment
     // shader re-reads each triangle's per-vertex values from memory for
     // every quad -- cube.frag's 5 FATTRs are 15 serialized single-word DRAM
     // round trips per quad. 256 words hold all 12 of vkcube's triangles'
@@ -72,7 +68,6 @@ case class BorgConfig(
     // TEX keeps 2^texDescCacheLog2 texture descriptors (a vertex shader reads one per input).
     texDescCacheLog2: Int = 2,
     maxUniforms: Int = 64,
-    hasPerfCounters: Boolean = true,
     fragLanes: Int = 1,
     maxTrianglesPerTile: Int = 256,
     samples: Int = 1,
@@ -174,7 +169,7 @@ case class BorgConfig(
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
   def shaderICacheEnabled: Boolean = hasShaderICache && hasMemoryOps
-  def fattrCacheEnabled: Boolean = drawEnabled && fattrCacheLog2 > 0
+  def fattrCacheEnabled: Boolean = drawEnabled
   /** The draw front end (docs/B1_geometry_front_end.md): SOUT/FATTR, and
     * VertexIndex/InstanceIndex in r30/r31. Needs the core's memory port, and
     * a 32-bit datapath because the indices are raw integers. */
@@ -303,8 +298,7 @@ object BorgConfig {
   // one lane, 64 bin tiles (32x32 px), no MSAA/blend/stencil/compute/depth flush.
   // For fitting beside RV64 Linux on the ECP5-85K; derivatives read 0 at one lane.
   val Tiny = Default.copy(fragLanes = 4, maxBinTiles = 1024, samples = 1, hasBlend = false,
-                          hasStencil = false, hasCompute = false, hasDepthFlush = false,
-                          hasPerfCounters = false)
+                          hasStencil = false, hasCompute = false, hasDepthFlush = false)
 
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
   // bridge; QspiSocTop, the cocotb CPU SoC harness, builds from this too).
@@ -318,9 +312,7 @@ object BorgConfig {
   //     fetched by BorgCore independently. This budget is now frag-only: cube.frag
   //     is 59 words, +1 word BORG_IMEM_FRAG_OFFSET (kept nonzero so fragPcReg==0 can
   //     still mean "no fragment shader"), +1 HALT sentinel = 61 of 64 used.
-  //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; saves ~55 kµm².
   //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
-  //   hasPerfCounters=false: 5×32-bit counters not needed for silicon demo; saves ~18 kµm².
   //   fragLanes=4 (+ Default's samples=4): 4-lane SIMT and 4x MSAA. Verified by a
   //     full wafer.space 1x0.5 signoff at FP16 -- 85.68 % utilisation, DRC/LVS/antenna
   //     clean, 4.52 mW. The earlier 0.5x1 orientation failed detailed placement
@@ -335,14 +327,7 @@ object BorgConfig {
     coordWidth       = 7,
     maxBinTiles      = 16,
     maxInstructions  = 64,
-    icacheLines      = 0,
-    // The FATTR varying cache is a 256 x 70-bit RAM: on GF180 that is area
-    // the 1x1 slot does not have, for a speed-up the 8 MHz part can live
-    // without. FATTR reads the record from memory instead.
-    fattrCacheLog2   = 0,
-    texDescCacheLog2 = 0,
     maxUniforms      = 32,
-    hasPerfCounters  = false,
     fragLanes        = 4
     // Compute is on, as in Default: Vulkan requires a queue family with
     // compute. It was off only while the 1x1 slot was tight.

@@ -251,34 +251,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // cycle breakdown.  Counters overlap intentionally (e.g. flush cycles that
   // stall on SDRAM count in both perf_flush and perf_stall).
   private def wirePerf(): Unit = {
-    if (cfg.hasPerfCounters) {
-      val running = s.io.busy
-      val runPrev = RegNext(running, false.B)
-      val start   = running && !runPrev
-      def counter(gate: Bool): UInt = {
-        val c = RegInit(0.U(32.W))
-        when(start)                     { c := 0.U }
-          .elsewhen(running && gate)    { c := c + 1.U }
-        c
-      }
-      rdlRegs.io.hw.perf_total_value := counter(true.B)
-      rdlRegs.io.hw.perf_frag_value  := counter(core.io.status.running)
-      rdlRegs.io.hw.perf_flush_value := counter(f.io.busy)
-      rdlRegs.io.hw.perf_stall_value := counter(io.gpuMem.req && !io.gpuMem.ready)
-      rdlRegs.io.hw.perf_dma_value   := counter(d.io.busy)
-      val st = core.io.issueStats
-      val issue = Seq(st.issued, st.waitReg, st.waitBranch, st.waitDrain, st.waitEmpty, st.waitUnit, st.drains)
-        .map(counter)
-      val sel = RegInit(0.U(3.W))
-      when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(2, 0) }
-      perfIssueRead := VecInit(issue :+ 0.U(32.W))(sel)
-    } else {
-      rdlRegs.io.hw.perf_total_value := 0.U
-      rdlRegs.io.hw.perf_frag_value  := 0.U
-      rdlRegs.io.hw.perf_flush_value := 0.U
-      rdlRegs.io.hw.perf_stall_value := 0.U
-      rdlRegs.io.hw.perf_dma_value   := 0.U
+    val running = s.io.busy
+    val runPrev = RegNext(running, false.B)
+    val start   = running && !runPrev
+    def counter(gate: Bool): UInt = {
+      val c = RegInit(0.U(32.W))
+      when(start)                     { c := 0.U }
+        .elsewhen(running && gate)    { c := c + 1.U }
+      c
     }
+    rdlRegs.io.hw.perf_total_value := counter(true.B)
+    rdlRegs.io.hw.perf_frag_value  := counter(core.io.status.running)
+    rdlRegs.io.hw.perf_flush_value := counter(f.io.busy)
+    rdlRegs.io.hw.perf_stall_value := counter(io.gpuMem.req && !io.gpuMem.ready)
+    rdlRegs.io.hw.perf_dma_value   := counter(d.io.busy)
+    val st = core.io.issueStats
+    val issue = Seq(st.issued, st.waitReg, st.waitBranch, st.waitDrain, st.waitEmpty, st.waitUnit, st.drains)
+      .map(counter)
+    val sel = RegInit(0.U(3.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(2, 0) }
+    perfIssueRead := VecInit(issue :+ 0.U(32.W))(sel)
   }
 
   private def wireBus(): Unit = {
