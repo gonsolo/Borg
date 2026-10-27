@@ -26,4 +26,4 @@ yosys-minimal.log
 .verilog_stamp_ulx3s_minimal
 sdram_torture/*.o
 sdram_torture/*.elf
-.hdmi_decouple_0_25____
+.hdmi_decouple_*

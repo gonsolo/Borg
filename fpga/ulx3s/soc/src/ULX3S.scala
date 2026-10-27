@@ -35,25 +35,13 @@ class Ecp5BiDirBuf extends ExtModule {
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
 class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect) extends RawModule with SoCLogic {
-  // samples=4: 4x MSAA (Step 50.2), on top of 2×2 quad SIMT fragment shading.
-  // Verified on real ULX3S hardware: vkcube renders correctly at 39 % LUT,
-  // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
-  // BORG_ULX_CFG=full keeps everything; the default "cube" drops what unmodified
-  // cube.c never uses (MSAA, blend, stencil, compute, depth-image flush) -- the
-  // full FP32 config did not place on the ECP5-85K (10-02 attempt).
-  private def baseCfg: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
-    case "full" => BorgConfig.Default.copy(samples = 4)
-    case "cube" => BorgConfig.Cube
-    // Feature bring-up: the cube config plus one feature at a time.
-    case "blend" => BorgConfig.Cube.copy(hasBlend = true)
+  // BORG_ULX_CFG: cube (default), stencil (the blend and stencil scenes) or
+  // full, which does not fit the ECP5-85K.
+  override def BORG_CFG: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
+    case "full"    => BorgConfig.Default
+    case "cube"    => BorgConfig.Cube
     case "stencil" => BorgConfig.Cube.copy(hasBlend = true, hasStencil = true)
-    case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
-  }
-  // BORG_SAMPLES / BORG_MAXBINTILES override the chosen config; unset = unchanged.
-  private def envInt(k: String) = sys.env.get(k).filter(_.nonEmpty).map(_.toInt)
-  override def BORG_CFG: BorgConfig = {
-    baseCfg.copy(samples = envInt("BORG_SAMPLES").getOrElse(baseCfg.samples),
-                 maxBinTiles = envInt("BORG_MAXBINTILES").getOrElse(baseCfg.maxBinTiles))
+    case other     => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
   // this used to override to no longer fits the ECP5-85K alongside FP32

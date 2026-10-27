@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Show the blend scene on the ULX3S: resets the board, forces a fresh upload and
 # runs vkcube-blend (vkcube with red-tinted constant-colour blending, see
-# blendcube.patch) through borgvk. Needs the "blend" bitstream
-# (BORG_ULX_CFG=blend) and a firmware with the 0xB3 handler on the board.
+# blendcube.patch) through borgvk. Needs the "stencil" bitstream
+# (BORG_ULX_CFG=stencil, blend included) and a firmware with the 0xB3 handler on the board.
 #
 # Usage: scenes/blendcube/run-blendcube.sh [seconds]   (default 45)
 set -euo pipefail
