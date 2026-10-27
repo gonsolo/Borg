@@ -962,9 +962,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * Step 29.2 additions:
     * - Uniform write port muxed in wireCore() (sequencer > DMA).
     */
-  /** One pipeline stage on the sequencer's static MMIO configuration when
-    * `pipelineSeqConfig` is set. These paths run from the bus decode to
-    * BorgSequencer across the die -- seqSetupBaseReg measured 1,939 um, and
+  /** One pipeline stage on the sequencer's static MMIO configuration. These paths run from
+    * the bus decode to BorgSequencer across the die -- seqSetupBaseReg measured 1,939 um, and
     * the design's antenna violators have a 715 um median span against 47 um
     * for all nets. They are point-to-point, so replication and dontTouch
     * cannot help; a register splits each net in two and, having a single
@@ -975,7 +974,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * latency after the MMIO write.
     */
   private def seqCfgPipe[T <: chisel3.Data](x: T): T =
-    if (cfg.pipelineSeqConfig) RegNext(x) else x
+    RegNext(x)
 
   private def wireSequencer(): Unit = {
       val seqVertAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))

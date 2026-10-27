@@ -89,8 +89,7 @@ class BorgRegPlayer extends Module {
       }
     }
     is(sSettle) {
-      // The sequencer's configuration may sit behind a register stage
-      // (BorgConfig.pipelineSeqConfig): let the last write arrive.
+      // The sequencer's configuration sits behind a register stage: let the last write arrive.
       settle := settle + 1.U
       when(settle === 2.U) { io.done := true.B; state := sIdle }
     }
