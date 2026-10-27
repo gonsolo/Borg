@@ -1,50 +1,6 @@
 {
   inputs = {
-    # gonsolo/nixpkgs#borg-toolchain-bump: our own integration branch,
-    # merging several toolchain fixes we need that aren't upstream-merged
-    # into NixOS/nixpkgs yet (each also exists as its own open nixpkgs PR --
-    # see the branch's commit log for the individual PR numbers):
-    #   - librelane 3.0.4 -> 3.0.8
-    #   - yosys 0.67 -> 0.68 (fixes the autoname O(iterations x module
-    #     size) blowup upstream, YosysHQ/yosys#6050 -- previously needed a
-    #     local yosysFixed patch, no longer required)
-    #   - or-tools: fix Python 3.14 support (nixpkgs' default python3 is
-    #     3.14 here; or-tools -- openroad's dependency, transitively
-    #     librelane's -- was broken/meta.broken against it)
-    #   - openroad 26Q2 -> 26Q3 (fixes a real upstream bug,
-    #     The-OpenROAD-Project/OpenROAD#10743, that crashes antenna-repair
-    #     routing -- GRT-0183 heap underflow -- on designs needing many
-    #     diode/jumper insertions)
-    #   - sv-lang_10: fix build against fmt 12
-    #   - klayout 0.30.10 -> 0.30.11 (0.30.10 has a real regression in how
-    #     the DRC `.separation()` operator handles fully-overlapping
-    #     regions, confirmed with wafer-space/gf180mcu-project-template's
-    #     Leo Moser: it spuriously flags GR.2 -- COMP-to-GUARD_RING_MK
-    #     spacing -- at the sealring's own reflex corners, even though
-    #     COMP and GUARD_RING_MK are drawn exactly coincident there by
-    #     design. 0.30.11 contains the upstream fix, KLayout/klayout#2425,
-    #     merged 2026-08-20 -- verified clean with the PDK's unmodified
-    #     code)
-    # Pinned to a specific commit (not just the branch name) for
-    # reproducibility. Switch back to a plain NixOS/nixpkgs commit once
-    # these merge upstream.
-    nixpkgs.url = "github:gonsolo/nixpkgs/fa81aeaea883a8d5d719666b7704f7f8ddd159cc";
-
-    # SECOND nixpkgs, used for ONE package: librelane.
-    #
-    # The pin above carries librelane 3.0.8, and our fork's patch is now
-    # rebased onto upstream 3.0.14. overridePythonAttrs only swaps `src`, so
-    # pointing 3.0.14 source at the 3.0.8 derivation would build it against
-    # 3.0.8's dependency set. This input is a nixpkgs that actually packages
-    # 3.0.14 (verified: `nix eval .#librelane.version` -> 3.0.14).
-    #
-    # Deliberately NOT a bump of `nixpkgs.url` above: that pin also supplies
-    # yosys, OpenROAD, verilator and riscv-gcc, so moving it would change the
-    # whole toolchain at once and make the next signoff incomparable to every
-    # measurement taken against the current one. Scope the change to the one
-    # package that needs it.
-    nixpkgs-librelane.url = "github:NixOS/nixpkgs/a15ff3450eb6ac348370c206e35db13c4c201a3f";
-
+    nixpkgs.url = "github:NixOS/nixpkgs/96c7c82ade771bd1efc43a84c18c0747755140a7";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
     alejandra.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -52,30 +8,12 @@
   outputs = {
     self,
     nixpkgs,
-    nixpkgs-librelane,
     alejandra,
   }: let
     system = "x86_64-linux";
     pkgs = import nixpkgs {inherit system;};
-    pkgsLibrelane = import nixpkgs-librelane {inherit system;};
 
-    # cocotb has no released Python 3.14 support upstream either
-    # (cocotb/cocotb's setup.py hard-caps at 3.13; 3.14 support exists only
-    # on cocotb's unreleased master). Bundle it with everything
-    # test/soc's cocotb-based tests actually import: numpy (a real runtime
-    # dependency of cocotb's own internals, not obvious from Borg's test
-    # files -- CI caught this) and riscv-model (imported directly by
-    # test/soc/test.py, test_util.py, tqv.py).
-    #
-    # This env's own PYTHONPATH must be used verbatim, not merged into the
-    # shell's ambient one: nix's devShell construction aggregates
-    # PYTHONPATH from every python.withPackages input regardless of
-    # interpreter version, so having this (3.13) alongside pythonEnv
-    # (3.14) in the same shell leaves plain `$PYTHONPATH` a mix of both --
-    # cocotb's own numpy import then resolves to whichever copy (3.13 or
-    # 3.14-compiled) happens to land first, which silently breaks it (CI
-    # caught this too). See COCOTB_PYTHONPATH below and its use in the top
-    # Makefile's TEST_SOC.
+    # cocotb does not support Python 3.14 yet: its tests run on 3.13 with their own PYTHONPATH.
     cocotbForTests = pkgs.python313.withPackages (p: [p.cocotb p.numpy p.riscv-model]);
 
     pythonEnv = pkgs.python3.withPackages (p: [
@@ -83,7 +21,7 @@
       p.chevron
       p.gdstk
       p.gitpython
-      p.graphviz # for gen_hw_diagram.py
+      p.graphviz # gen_hw_diagram.py
       p.jinja2
       p.klayout
       p.matplotlib
@@ -101,57 +39,46 @@
       p.nanobind
       p.evdev
       p.pyserial
-      p.mako # Mesa build (code generation)
+      p.mako # Mesa build
       p.pyyaml # Mesa build
-      # docs/talk: scripts/add_video_annotation.py injects a real PDF
-      # Screen+Rendition video annotation (make video) -- pikepdf/qpdf do
-      # the actual PDF object construction. Small/no heavy-fetch risk (unlike
-      # texlive below), so it lives in the default shell, not just `poster`.
-      p.pikepdf
+      p.pikepdf # docs/talk: scripts/add_video_annotation.py
     ]);
 
-    # Curated TeX Live for docs/poster (poster.tex + abstract.tex, HPG 2026)
-    # and docs/talk (talk.tex, ORConf 2026) only.  The full scheme
-    # (scheme-full) pulled thousands of obscure packages (e.g. qualitype,
-    # lpform) whose cache.nixos.org artifacts are corrupt/hash-mismatched,
-    # breaking every CI job that enters the dev shell.  We list just what
-    # these two need — texlive.combine resolves each package's deps — and
-    # keep it OUT of the default shell so CI never fetches it.
+    # TeX Live for docs/poster and docs/talk only, kept out of the default shell (CI).
+    borgTexlive = pkgs.texlive.combine {
+      inherit
+        (pkgs.texlive)
+        scheme-small
+        latexmk
+        biber
+        biblatex
+        acmart
+        tikzposter
+        beamer
+        qrcode
+        microtype
+        enumitem
+        booktabs
+        pgf
+        xcolor
+        lm
+        ;
+    };
 
-    # OpenSBI source — pkgs.opensbi.src is already an unpacked directory
-    # (nixpkgs fetches it via fetchFromGitHub).  Pinned at v1.8.1 by nixpkgs.
     opensbiSrc = pkgs.opensbi.src;
 
-    # Linux kernel source, unpacked into a derivation so the Makefile can do
-    # `make -C $LINUX_SRC`. Newer than nixpkgs' linux: the Rust DRM driver needs
-    # a kernel that supports the current rustc.
+    # Newer than nixpkgs' linux: the Rust DRM driver needs a kernel that supports the current rustc.
     linuxSrc = let
       tarball = pkgs.fetchurl {
         url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.9.tar.xz";
         hash = "sha256-tMXfvlGjZKbH8DhpIA+IyOH3dANTkAXxS3/GvJG42Lo=";
       };
-    in pkgs.runCommand "linux-7.2.9-src" {} ''
-      mkdir $out
-      tar -xJf ${tarball} -C $out --strip-components=1
-    '';
+    in
+      pkgs.runCommand "linux-7.2.9-src" {} ''
+        mkdir $out
+        tar -xJf ${tarball} -C $out --strip-components=1
+      '';
 
-    borgTexlive = pkgs.texlive.combine {
-      inherit (pkgs.texlive)
-        scheme-small   # latex + pdflatex + latexmk + common (collection-latexrecommended)
-        latexmk
-        biber          # biber tool + biblatex backend
-        biblatex
-        acmart         # abstract.tex documentclass (+deps)
-        tikzposter     # poster.tex documentclass (+deps)
-        beamer         # docs/talk (ORConf 2026 slides) documentclass (+deps)
-        qrcode
-        microtype
-        enumitem
-        booktabs
-        pgf            # tikz
-        xcolor
-        lm;            # Latin Modern (lmodern)
-    };
   in {
     # QEMU with the Borg bridge device (software/linux/tests/qemu), riscv64 system emulation only.
     packages.${system}.qemu-borg =
@@ -164,296 +91,169 @@
       });
 
     devShells.${system} = {
-    default = pkgs.mkShell {
-      # The kernel does its own hardening; the wrapper's -fzero-call-used-regs is rejected for riscv64.
-      hardeningDisable = ["all"];
-      # Use nativeBuildInputs for tools that provide executables
-      nativeBuildInputs = [
-        pkgs.bash-completion
-        pkgs.bc           # Linux kernel build scripts
-        pkgs.bear
-        pkgs.bitwuzla
-        pkgs.bzip2
-        pkgs.dtc          # device tree compiler (borg.dts → borg.dtb)
-        pkgs.circt
-        pkgs.circt.llvm
-        pkgs.cmake
-        pkgs.coreutils
-        pkgs.gcc
-        pkgs.git
-        pkgs.glslang
-        pkgs.gnugrep
-        pkgs.gnumake
-        pkgs.gnused
-        pkgs.graphviz # dot binary for gen_hw_diagram.py
-        pkgs.ghostscript
-        pkgs.inkscape
-        pkgs.iverilog
-        pkgs.icestorm
-        pkgs.jdk21
-        pkgs.klayout
-        # yosys override: LibreLane bundles its own internal yosys, which
-        # previously hit the autoname O(iterations x module size) blowup
-        # (YosysHQ/yosys#5394, 4509, 2816) that made full Hutt+Borg SoC
-        # synthesis take 49GB+/never complete -- confirmed hitting it
-        # directly: asic/wafer.space's librelane run had yosys-abc at 7.3GB
-        # RSS and climbing during ABC tech-mapping. Fixed upstream in yosys
-        # 0.68 (YosysHQ/yosys#6050); force LibreLane onto nixpkgs' yosys
-        # (now 0.68) instead of its own bundled copy.
-        #
-        # src override: our fork's feat/concurrent-signoff-steps --
-        # upstream 3.0.14 plus one commit adding SequentialFlow.AsyncSteps,
-        # which overlaps Magic.DRC with SpiceExtraction -> Netgen.LVS in the
-        # Classic flow (~24 min off a ~4 h wafer.space signoff). Same version
-        # as nixpkgs-librelane's package, so its dependency closure and the
-        # yosys override above apply unchanged. Pinned by commit + hash: the flow
-        # that runs is the flow that was reviewed, on every machine, with no
-        # PYTHONPATH games (asic/wafer.space/Makefile's librelane-which prints
-        # what was actually imported and refuses to run an unpatched tree).
-        # 2026-09-18: 3.0.8 -> 3.0.14. Base derivation comes from
-        # nixpkgs-librelane (see the input's comment) because the main pin
-        # still carries 3.0.8 and only `src` is overridden here -- the
-        # dependency closure has to match the source.
-        #
-        # BUT taking the package from that input also takes ITS tool closure,
-        # which is NOT what we want: nixpkgs-librelane carries openroad 26Q2,
-        # a DOWNGRADE from the 26Q3 that 3.0.8 used and that every measurement
-        # on this design was taken with (the 2026-09-17 run's -15.7 ns setup,
-        # its DPL behaviour, its GRT congestion escalation). OpenROAD is the
-        # placer, CTS, resizer and router -- swapping it silently would make
-        # the next signoff incomparable and a regression ambiguous.
-        #
-        # So both tools that matter are pinned to the MAIN input: yosys (0.68,
-        # for the ABC memory fix above) and openroad (26Q3). klayout and magic
-        # still come from nixpkgs-librelane; they are signoff/DRC-side and do
-        # not touch placement or routing decisions.
-        ((pkgsLibrelane.librelane.override {
-          yosys = pkgs.yosys;
-          openroad = pkgs.openroad;
-        }).overridePythonAttrs (old: {
-          src = pkgsLibrelane.fetchFromGitHub {
-            owner = "gonsolo";
-            repo = "librelane";
-            # branch feat/concurrent-signoff-steps = 3.0.14-2-gdc0feb4:
-            # AsyncSteps (f70d4bc) plus PL_RESIZER_HOLD_ONLY_CELLS
-            # (dc0feb4) -- scopes the dont-use cell exclusion so a delay
-            # cell can be barred from setup fixing/general buffering (its
-            # measured misuse) while staying available to hold repair (its
-            # designed purpose). See PL_RESIZER_HOLD_ONLY_CELLS in
-            # asic/wafer.space/librelane/config.yaml for the measurement
-            # that motivated this.
-            rev = "dc0feb41a7bd72f2e0c16a13eafb2612c68f3e61";
-            hash = "sha256-/1zBoJJ+4JajTRxv6rj+28Zn7Rj9KMZjXzDgHy/JcIk=";
-          };
-        }))
-        pkgs.magic-vlsi
-        pkgs.metals
-        # build.mill pins 1.3.1; the pinned nixpkgs has 1.1.7.
-        (pkgs.mill.overrideAttrs (_: {
-          version = "1.3.1";
-          src = pkgs.fetchurl {
-            url = "https://repo1.maven.org/maven2/com/lihaoyi/mill-dist-native-linux-amd64/1.3.1/mill-dist-native-linux-amd64-1.3.1.exe";
-            hash = "sha256-+5Sqk4mAPwMwyAq+ZDC6hCc0bLQdvAZmQY1S984focQ=";
-          };
-        }))
-        pkgs.meson # Mesa/borgvk build
-        pkgs.ninja # Mesa/borgvk build
-        pkgs.bison # Mesa build
-        pkgs.flex # Mesa build
-        # Rust toolchain for the borgvk NIR->Borg shader compiler (Phase C),
-        # modeled on Mesa's NAK. Mesa requires bindgen >= 0.71.1 (have 0.72.1)
-        # for its NIR Rust bindings (src/compiler/rust), plus rustc/cargo/rustfmt.
-        pkgs.rustc
-        pkgs.cargo
-        pkgs.rustfmt
-        pkgs.rust-bindgen
-        pkgs.rust-cbindgen
-        # Kernel LLVM=1 build with Rust: clang/lld/llvm must match rustc's LLVM (21) and bindgen's libclang.
-        pkgs.llvmPackages_21.clang-unwrapped
-        pkgs.llvmPackages_21.lld
-        pkgs.llvmPackages_21.llvm
-        pkgs.rustPlatform.rustLibSrc # core/alloc sources: the Rust kernel build (borg DRM driver) needs them
-        pkgs.vulkan-tools # vulkaninfo (borgvk enumeration gate)
-        pkgs.mpremote
-        pkgs.netgen-vlsi
-        pkgs.nextpnr
-        pkgs.openfpgaloader
-        pkgs.openroad
-        pkgs.pandoc
-        pkgs.pkg-config
-        pkgs.scalafmt
-        pkgs.trellis
-        pkgs.tio
-        pkgs.typst
-        pkgs.verilator
-        pkgs.which
-        pkgs.yosys
-        pkgs.z3
-        pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
-        pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
-        # riscv64 bare-metal toolchain — firmware build (software/borg, software/hutt).
-        # Provides riscv64-none-elf-gcc/as/ld/objcopy.
-        pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc
-        pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils
-        # riscv64 Linux cross toolchain — Gate 2: cross-build borgvk for the
-        # future RV64 Hutt Linux target.  Confirms the driver is RV64 + soft-float
-        # (lp64) clean.  Buildroot will own the final rootfs ABI; this just gates
-        # the code.  ($CROSS64 below names the binutils/gcc prefix.)
-        pkgs.pkgsCross.riscv64.buildPackages.gcc
-        pkgs.pkgsCross.riscv64.buildPackages.binutils
-        pythonEnv
-        cocotbForTests
-        pkgs.ffmpeg    # docs/talk: cube.gif -> cube.mp4 (make video)
-      ];
+      default = pkgs.mkShell {
+        # The kernel does its own hardening; the wrapper's -fzero-call-used-regs is rejected for riscv64.
+        hardeningDisable = ["all"];
+        nativeBuildInputs = [
+          pkgs.bash-completion
+          pkgs.bc # Linux kernel build scripts
+          pkgs.bear
+          pkgs.bitwuzla
+          pkgs.bzip2
+          pkgs.dtc # borg.dts -> borg.dtb
+          pkgs.circt
+          pkgs.circt.llvm
+          pkgs.cmake
+          pkgs.coreutils
+          pkgs.gcc
+          pkgs.git
+          pkgs.glslang
+          pkgs.gnugrep
+          pkgs.gnumake
+          pkgs.gnused
+          pkgs.graphviz
+          pkgs.ghostscript
+          pkgs.inkscape
+          pkgs.iverilog # cocotb's simulator (test/soc)
+          pkgs.icestorm
+          pkgs.jdk21
+          pkgs.klayout
+          pkgs.librelane
+          pkgs.magic-vlsi
+          pkgs.metals
+          pkgs.mill
+          pkgs.meson # Mesa
+          pkgs.ninja # Mesa
+          pkgs.bison # Mesa
+          pkgs.flex # Mesa
+          pkgs.rustc
+          pkgs.cargo
+          pkgs.rustfmt
+          pkgs.rust-bindgen
+          pkgs.rust-cbindgen
+          # Kernel LLVM=1 build with Rust: clang/lld/llvm must match rustc's LLVM and bindgen's libclang.
+          pkgs.llvmPackages_21.clang-unwrapped
+          pkgs.llvmPackages_21.lld
+          pkgs.llvmPackages_21.llvm
+          pkgs.rustPlatform.rustLibSrc # the Rust kernel build (borg DRM driver)
+          pkgs.vulkan-tools # vulkaninfo
+          pkgs.mpremote
+          pkgs.netgen-vlsi
+          pkgs.nextpnr
+          pkgs.openfpgaloader
+          pkgs.openroad
+          pkgs.pandoc
+          pkgs.pkg-config
+          pkgs.scalafmt
+          pkgs.trellis
+          pkgs.tio
+          pkgs.typst
+          pkgs.verilator
+          pkgs.which
+          pkgs.yosys
+          pkgs.z3
+          pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
+          pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
+          pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc # firmware (software/borg, software/hutt)
+          pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils
+          pkgs.pkgsCross.riscv64.buildPackages.gcc # Linux userspace and borgvk for RV64 ($CROSS64)
+          pkgs.pkgsCross.riscv64.buildPackages.binutils
+          pythonEnv
+          cocotbForTests
+          pkgs.ffmpeg # docs/talk: make video
+        ];
 
-      # Library dependencies for the Mesa "borgvk" Vulkan driver. Kept in
-      # buildInputs so pkg-config picks up their headers/.pc files. X11/xcb
-      # and Wayland are for hosting unmodified Vulkan-Tools/cube.c; the real
-      # output is the ULX3S HDMI (build -Dplatforms=x11,wayland).
-      buildInputs = [
-        pkgs.vulkan-headers
-        pkgs.vulkan-loader
-        pkgs.libdrm
-        pkgs.spirv-headers
-        pkgs.spirv-tools
-        pkgs.expat
-        pkgs.zlib
-        pkgs.zstd
-        pkgs.libffi
-        pkgs.libxml2
-        pkgs.libxcb
-        pkgs.libx11
-        pkgs.libxext
-        pkgs.libxrandr
-        pkgs.libxfixes
-        pkgs.libxshmfence
-        pkgs.libxcb-keysyms
-        pkgs.wayland.dev
-        pkgs.wayland-protocols
-        pkgs.wayland-scanner
-      ];
+        # Mesa's borgvk; X11/xcb and Wayland host the unmodified Vulkan-Tools cube.c.
+        buildInputs = [
+          pkgs.vulkan-headers
+          pkgs.vulkan-loader
+          pkgs.libdrm
+          pkgs.spirv-headers
+          pkgs.spirv-tools
+          pkgs.expat
+          pkgs.zlib
+          pkgs.zstd
+          pkgs.libffi
+          pkgs.libxml2
+          pkgs.libxcb
+          pkgs.libx11
+          pkgs.libxext
+          pkgs.libxrandr
+          pkgs.libxfixes
+          pkgs.libxshmfence
+          pkgs.libxcb-keysyms
+          pkgs.wayland.dev
+          pkgs.wayland-protocols
+          pkgs.wayland-scanner
+        ];
 
-      shellHook = ''
-        export GONSOLO_PROJECT="borg_tinyqv"
+        shellHook = ''
+          export GONSOLO_PROJECT="borg_tinyqv"
+          export COCOTB_PYTHONPATH="${cocotbForTests}/${pkgs.python313.sitePackages}"
+          export OPENSBI_SRC="${opensbiSrc}"
+          export LINUX_SRC="${linuxSrc}"
+          export RUST_LIB_SRC="${pkgs.rustPlatform.rustLibSrc}"
+          export KERNEL_BINDGEN="${pkgs.rust-bindgen-unwrapped}/bin/bindgen"
+          export CROSS64=riscv64-unknown-linux-gnu
 
-        # cocotbForTests' own site-packages (cocotb, numpy, riscv-model),
-        # to be used verbatim -- not merged into the shell's ambient
-        # PYTHONPATH -- when invoking cocotb-based tests. See
-        # cocotbForTests' own comment above for why.
-        export COCOTB_PYTHONPATH="${cocotbForTests}/${pkgs.python313.sitePackages}"
+          # Pure mode: Mill and Java need a HOME for their caches.
+          if [ -z "$HOME" ] || [ "$HOME" = "/" ]; then
+            export HOME=$(pwd)/.nix-home
+            mkdir -p $HOME
+            echo "Notice: Pure mode detected. Using local $HOME for caches."
+          fi
+          export JAVA_HOME=${pkgs.jdk21}
+          export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
 
-        # OpenSBI + Linux kernel sources (pinned via nixpkgs; no manual hashes).
-        export OPENSBI_SRC="${opensbiSrc}"
-        export LINUX_SRC="${linuxSrc}"
-        export RUST_LIB_SRC="${pkgs.rustPlatform.rustLibSrc}"
-        export KERNEL_BINDGEN="${pkgs.rust-bindgen-unwrapped}/bin/bindgen"
+          echo "Entering $GONSOLO_PROJECT development shell..."
 
-        # Gate 2: riscv64 Linux cross toolchain prefix (borgvk RV64 cross-build).
-        # Also used for OpenSBI — riscv64-unknown-linux-gnu-gcc can build freestanding
-        # firmware with -march=rv64imac_zicsr -mabi=lp64 (set in config.mk).
-        export CROSS64=riscv64-unknown-linux-gnu
+          # Named interpreters: a bare python3 on PATH can be any input's own.
+          #  python3-borg-rdl:  pythonEnv, for `make rdl`.
+          #  python3-librelane: pythonEnv plus librelane's own PYTHONPATH, for padring.py.
+          mkdir -p $HOME/bin
+          ln -sf ${pkgs.yosys}/bin/yosys $HOME/bin/yowasp-yosys
+          ln -sf ${pythonEnv}/bin/python3 $HOME/bin/python3-borg-rdl
+          cat > $HOME/bin/python3-librelane << 'WRAPPER_EOF'
+          #!${pkgs.bash}/bin/bash
+          export PYTHONPATH="$(source <(head -n -1 ${pkgs.librelane}/bin/librelane); echo "$PYTHONPATH")"
+          exec ${pythonEnv}/bin/python3 "$@"
+          WRAPPER_EOF
+          chmod +x $HOME/bin/python3-librelane
+          export PATH="$HOME/bin:$PATH"
 
-        # PURE MODE COMPATIBILITY:
-        # 1. Mill/Java require a HOME to write lockfiles and caches.
-        # If we are in --ignore-environment, HOME is empty.
-        if [ -z "$HOME" ] || [ "$HOME" = "/" ]; then
-          export HOME=$(pwd)/.nix-home
-          mkdir -p $HOME
-          echo "Notice: Pure mode detected. Using local $HOME for caches."
-        fi
+          # Nix keeps wayland.xml in wayland-scanner; point wayland-client's pkgdatadir there.
+          _wl_pc=$(mktemp -d)
+          sed 's|pkgdatadir=.*|pkgdatadir=${pkgs.wayland-scanner}/share/wayland|' \
+            ${pkgs.wayland.dev}/lib/pkgconfig/wayland-client.pc > "$_wl_pc/wayland-client.pc"
+          export PKG_CONFIG_PATH="$_wl_pc''${PKG_CONFIG_PATH:+:''${PKG_CONFIG_PATH}}"
 
-        # 2. Point to the JDK21 home so Java apps don't have to search the PATH
-        export JAVA_HOME=${pkgs.jdk21}
+          # Meson cross file for borgvk on riscv64 Linux.
+          export BORG_RV64_PCPATH="${pkgs.pkgsCross.riscv64.libdrm.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.expat.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.zlib.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.zstd.dev}/lib/pkgconfig"
+          cat > "$(pwd)/mesa/riscv64-cross.txt" <<CROSSEOF
+          [binaries]
+          c = '${pkgs.pkgsCross.riscv64.buildPackages.gcc}/bin/riscv64-unknown-linux-gnu-gcc'
+          cpp = '${pkgs.pkgsCross.riscv64.buildPackages.gcc}/bin/riscv64-unknown-linux-gnu-g++'
+          ar = '${pkgs.pkgsCross.riscv64.buildPackages.binutils}/bin/riscv64-unknown-linux-gnu-ar'
+          strip = '${pkgs.pkgsCross.riscv64.buildPackages.binutils}/bin/riscv64-unknown-linux-gnu-strip'
+          pkg-config = '${pkgs.pkg-config}/bin/pkg-config'
 
-        # 3. bindgen (Mesa NIR Rust bindings) needs libclang to parse C headers.
-        export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
+          [built-in options]
+          pkg_config_path = '$BORG_RV64_PCPATH'
 
-        echo "Entering $GONSOLO_PROJECT development shell..."
+          [host_machine]
+          system = 'linux'
+          cpu_family = 'riscv64'
+          cpu = 'riscv64'
+          endian = 'little'
+          CROSSEOF
+        '';
+      };
 
-        # Create a bin directory in our local nix-home
-        mkdir -p $HOME/bin
-
-        # Link native yosys to the name the python script is looking for
-        ln -sf ${pkgs.yosys}/bin/yosys $HOME/bin/yowasp-yosys
-
-        # Bare `python3` on PATH can resolve to any nativeBuildInput's own
-        # bundled interpreter (e.g. klayout's, or librelane's own wrapper --
-        # which is itself just nixpkgs' python3 plus PYTHONPATH entries, not
-        # a separate interpreter) rather than pythonEnv's.
-        #
-        # NOTE: a global `export PYTHONPATH=...` here previously broke
-        # cocotb (python3.13) by leaking pythonEnv's/librelane's python3.14
-        # numpy onto its import path -- PYTHONPATH is inherited by every
-        # child process, not just "bare python3" PATH resolution, so it
-        # doesn't stay scoped to the scripts that actually need it. Use
-        # per-script named wrappers instead, each setting PYTHONPATH only
-        # for its own exec:
-        #  - python3-borg-rdl: pythonEnv's python3 (systemrdl-compiler
-        #    etc.), for the top Makefile's `rdl` target.
-        #  - python3-librelane: pythonEnv's python3 plus whatever
-        #    PYTHONPATH librelane's own wrapper computes for itself
-        #    (~150 entries -- its own package plus every transitive
-        #    Python dependency, e.g. httpx -- too many to enumerate by
-        #    hand, so source the wrapper's env-setup lines, everything but
-        #    its final `exec`, and capture the result), for
-        #    asic/wafer.space/scripts/padring.py.
-        ln -sf ${pythonEnv}/bin/python3 $HOME/bin/python3-borg-rdl
-        cat > $HOME/bin/python3-librelane << 'WRAPPER_EOF'
-#!${pkgs.bash}/bin/bash
-export PYTHONPATH="$(source <(head -n -1 ${pkgs.librelane}/bin/librelane); echo "$PYTHONPATH")"
-exec ${pythonEnv}/bin/python3 "$@"
-WRAPPER_EOF
-        chmod +x $HOME/bin/python3-librelane
-
-        # Ensure our shim is at the front of the PATH
-        export PATH="$HOME/bin:$PATH"
-
-        # Wayland: Nix splits wayland.xml into wayland-scanner (not wayland-client).
-        # cmake's BUILD_WSI_WAYLAND_SUPPORT queries wayland-client pkgdatadir for
-        # wayland.xml but finds an empty dir.  Override with a local .pc that
-        # redirects pkgdatadir to the scanner's share/wayland — no upstream patch needed.
-        _wl_pc=$(mktemp -d)
-        sed 's|pkgdatadir=.*|pkgdatadir=${pkgs.wayland-scanner}/share/wayland|' \
-          ${pkgs.wayland.dev}/lib/pkgconfig/wayland-client.pc > "$_wl_pc/wayland-client.pc"
-        export PKG_CONFIG_PATH="$_wl_pc''${PKG_CONFIG_PATH:+:''${PKG_CONFIG_PATH}}"
-
-        # Gate 2: emit a meson cross file for the riscv64 Linux target so we can
-        # cross-build the borgvk driver (proves it links for RV64; the unknown for
-        # the future on-Hutt Linux stack).  Toolchain ABI is rv64gc/lp64d (the
-        # pkgsCross default); Buildroot owns the final soft-float lp64 rootfs.
-        # pkg_config_path points at riscv64-cross target libs (libdrm/expat/zlib/
-        # zstd), kept out of the native PKG_CONFIG_PATH so host builds are unaffected.
-        export BORG_RV64_PCPATH="${pkgs.pkgsCross.riscv64.libdrm.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.expat.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.zlib.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.zstd.dev}/lib/pkgconfig"
-        cat > "$(pwd)/mesa/riscv64-cross.txt" <<CROSSEOF
-[binaries]
-c = '${pkgs.pkgsCross.riscv64.buildPackages.gcc}/bin/riscv64-unknown-linux-gnu-gcc'
-cpp = '${pkgs.pkgsCross.riscv64.buildPackages.gcc}/bin/riscv64-unknown-linux-gnu-g++'
-ar = '${pkgs.pkgsCross.riscv64.buildPackages.binutils}/bin/riscv64-unknown-linux-gnu-ar'
-strip = '${pkgs.pkgsCross.riscv64.buildPackages.binutils}/bin/riscv64-unknown-linux-gnu-strip'
-pkg-config = '${pkgs.pkg-config}/bin/pkg-config'
-
-[built-in options]
-pkg_config_path = '$BORG_RV64_PCPATH'
-
-[host_machine]
-system = 'linux'
-cpu_family = 'riscv64'
-cpu = 'riscv64'
-endian = 'little'
-CROSSEOF
-      '';
-    };
-
-    # Poster shell: everything in the default shell PLUS the curated TeX Live
-    # (pdflatex/beamer/etc.), for building docs/poster and docs/talk. Use
-    # `nix develop .#poster --command make -C docs/poster` (or `-C docs/talk`).
-    # Kept separate so CI (which uses the default shell) never fetches
-    # texlive -- ffmpeg/pikepdf, also used by docs/talk, don't carry that
-    # same risk and live in the default shell instead (see pythonEnv above).
-    poster = pkgs.mkShell {
-      inputsFrom = [ self.devShells.${system}.default ];
-      nativeBuildInputs = [ borgTexlive ];
-    };
+      # The default shell plus TeX Live: nix develop .#poster --command make -C docs/poster
+      poster = pkgs.mkShell {
+        inputsFrom = [self.devShells.${system}.default];
+        nativeBuildInputs = [borgTexlive];
+      };
     };
 
     formatter.${system} = alejandra.defaultPackage.${system};

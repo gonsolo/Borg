@@ -77,23 +77,8 @@ SRAM_DEFINE = SRAM_$(SRAM)
 
 LIBRELANE_OPTS = --pdk ${PDK} --pdk-root ${PDK_ROOT} --manual-pdk --scl ${SCL} --pad ${PAD}
 
-# Which LibreLane actually runs.
-#
-# flake.nix pins our fork (gonsolo/librelane, feat/concurrent-signoff-steps-
-# 3.0.8: upstream 3.0.8 + SequentialFlow.AsyncSteps, Magic.DRC overlapped
-# with extraction -> LVS). Every librelane target starts by printing which
-# tree was imported and REFUSES to run if the patch is not in it -- a stale
-# devshell or a stray PYTHONPATH shows up in the first line of the log, not
-# four hours later in the step timings.
 LIBRELANE = librelane
 
-librelane-which: ## Print which LibreLane the flow imports; fail if unpatched
-	@python3-librelane -c 'import librelane, inspect, sys; from librelane.flows import sequential; \
-	  print("LibreLane", librelane.__version__, "from", librelane.__file__); \
-	  ok = "AsyncSteps" in inspect.getsource(sequential); \
-	  print("concurrent signoff (SequentialFlow.AsyncSteps):", "yes" if ok else "NO -- unpatched, refusing to run"); \
-	  sys.exit(0 if ok else 1)'
-.PHONY: librelane-which
 # generated_sources.yaml last: it carries VERILOG_FILES, and LibreLane's
 # multi-config merge is later-wins, so this must come after config.yaml
 # (which no longer sets VERILOG_FILES itself -- see its own comment there).
@@ -145,31 +130,31 @@ generated-sources:
 	python3 scripts/gen_librelane_sources.py $(SLOT)
 .PHONY: generated-sources
 
-librelane: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
+librelane: clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
 .PHONY: librelane
 
-librelane-condensed: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
+librelane-condensed: clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) --condensed ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
 .PHONY: librelane-condensed
 
-librelane-nodrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without DRC checks
+librelane-nodrc: clone-pdk defines generated-sources ## Run LibreLane flow without DRC checks
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.Antenna --skip KLayout.DRC --skip Magic.DRC
 .PHONY: librelane-nodrc
 
-librelane-klayoutdrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without magic DRC checks
+librelane-klayoutdrc: clone-pdk defines generated-sources ## Run LibreLane flow without magic DRC checks
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip Magic.DRC
 .PHONY: librelane-klayoutdrc
 
-librelane-magicdrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without KLayout DRC checks
+librelane-magicdrc: clone-pdk defines generated-sources ## Run LibreLane flow without KLayout DRC checks
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.DRC
 .PHONY: librelane-magicdrc
 
-librelane-openroad: librelane-which clone-pdk defines ## Open the last run in OpenROAD
+librelane-openroad: clone-pdk defines ## Open the last run in OpenROAD
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInOpenROAD
 .PHONY: librelane-openroad
 
-librelane-klayout: librelane-which clone-pdk defines ## Open the last run in KLayout
+librelane-klayout: clone-pdk defines ## Open the last run in KLayout
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInKLayout
 .PHONY: librelane-klayout
 
@@ -199,7 +184,7 @@ sim-link-gl: clone-pdk defines ## Borg link pad-level tests, gate level (after c
 # or by `make librelane-synth` alone (~1.5 h vs. the full flow's many hours).
 SYNTH_NETLIST = $(lastword $(sort $(wildcard librelane/runs/*/*-yosys-synthesis/chip_top.nl.v)))
 
-librelane-synth: librelane-which clone-pdk defines generated-sources ## LibreLane up to and including Yosys synthesis only
+librelane-synth: clone-pdk defines generated-sources ## LibreLane up to and including Yosys synthesis only
 	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --to Yosys.Synthesis
 .PHONY: librelane-synth
 
