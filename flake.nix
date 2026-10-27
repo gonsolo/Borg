@@ -84,6 +84,20 @@
         ;
     };
 
+    # The RISC-V cross compilers on PATH only: their setup hooks would point CC, CXX, LD and
+    # friends at riscv64-unknown-linux-gnu-* for every native build in the shell.
+    riscvToolchains = pkgs.symlinkJoin {
+      name = "riscv-toolchains";
+      paths = with pkgs.pkgsCross; [
+        riscv32-embedded.buildPackages.gcc
+        riscv32-embedded.buildPackages.binutils
+        riscv64-embedded.buildPackages.gcc # firmware (software/borg, software/hutt)
+        riscv64-embedded.buildPackages.binutils
+        riscv64.buildPackages.gcc # Linux userspace and borgvk for RV64 ($CROSS64)
+        riscv64.buildPackages.binutils
+      ];
+    };
+
     opensbiSrc = pkgs.opensbi.src;
 
     # Newer than nixpkgs' linux: the Rust DRM driver needs a kernel that supports the current rustc.
@@ -164,12 +178,7 @@
           pkgs.verilator
           pkgs.which
           pkgs.yosys
-          pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
-          pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
-          pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc # firmware (software/borg, software/hutt)
-          pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils
-          pkgs.pkgsCross.riscv64.buildPackages.gcc # Linux userspace and borgvk for RV64 ($CROSS64)
-          pkgs.pkgsCross.riscv64.buildPackages.binutils
+          riscvToolchains
           pythonEnv
           pkgs.ffmpeg # docs/talk: make video
         ];
