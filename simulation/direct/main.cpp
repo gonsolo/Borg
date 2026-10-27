@@ -166,10 +166,10 @@ int main(int argc, char **argv) {
   int draws = drv.run_stream(bytes);
   if (getenv("DIRECT_DBG")) {
     fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
-    uint32_t p[6];
+    uint32_t p[9];
     borg_core_perf(p);
-    fprintf(stderr, "[direct] last run: %u cycles, shader %u, issued %u, waits: register %u, branch %u, drain %u\n",
-            p[0], p[1], p[2], p[3], p[4], p[5]);
+    fprintf(stderr, "[direct] last run: %u cycles, shader %u, issued %u, waits: register %u, branch %u, drain %u"
+            " (empty %u, unit %u, %u drains)\n", p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]);
   }
   if (!draws) return 2;
   auto rgb = borg_core_flush_format() == 3 ? drv.framebuffer_raw32() : drv.framebuffer_rgb();

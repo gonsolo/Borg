@@ -102,7 +102,7 @@ void borg_core_init(int width, int height);
 void borg_core_set_flush_format(int fmt);
 int borg_core_flush_format(void);   // 0 = R5G6B5, 1 = R8G8B8A8, 2 = B8G8R8A8
 // The last sequencer run's perf_total, perf_frag and the four perf_issue counters.
-void borg_core_perf(uint32_t out[6]);
+void borg_core_perf(uint32_t out[9]);
 
 // A draw is ready once geometry and an MVP have both arrived.
 int borg_core_ready(void);

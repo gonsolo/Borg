@@ -1821,11 +1821,13 @@ addrmap borg_gpu {
 
     root_reg_t root;
 
-    // ---- Shader-core issue (docs/B9_pipeline.md), counted like perf_total. Write 0..3 to
+    // ---- Shader-core issue (docs/B9_pipeline.md), counted like perf_total. Write 0..6 to
     //      pick a counter, then read it: instructions issued, and the cycles a fetched
     //      instruction waits for a register an instruction in flight writes, behind a branch,
-    //      or behind or for a drain (a stall-FSM instruction, HALT, BARRIER). The waits count
-    //      with cfg.pipelined only. The last word of the 10-bit map. ----
+    //      or behind or for a drain (a stall-FSM instruction, HALT, BARRIER); of the drain
+    //      waits, those for the stages to empty and those while a unit holds them; drain
+    //      instructions issued. The waits count with cfg.pipelined only. The last word of the
+    //      10-bit map. ----
     draw_word_reg_t perf_issue;
     perf_issue->nogen = true;
 };

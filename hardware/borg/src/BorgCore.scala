@@ -160,6 +160,9 @@ class IssueStatsIO extends Bundle {
   val waitReg    = Bool()
   val waitBranch = Bool()
   val waitDrain  = Bool()
+  val waitEmpty  = Bool()
+  val waitUnit   = Bool()
+  val drains     = Bool()
 }
 
 /** What the issue logic needs to know about an instruction in flight (cfg.pipelined). */
@@ -315,6 +318,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.issueStats.waitReg    := waiting && hazard
     io.issueStats.waitBranch := waiting && !hazard && behindBranch
     io.issueStats.waitDrain  := waiting && !hazard && !behindBranch
+    io.issueStats.waitEmpty  := waiting && !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain)
+    io.issueStats.waitUnit   := waiting && !hazard && !behindBranch && holdPipe
+    io.issueStats.drains     := fma_start && issued.drain
     val step = fma_start && !opFlags.branch && !issued.drain && !opFlags.barrier
     redirecting := at(redirect) && info(redirect).branch
     nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
