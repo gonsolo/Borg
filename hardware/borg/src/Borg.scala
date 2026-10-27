@@ -103,12 +103,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
   val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
   val binner    = withReset(resetCopy("bin"))    { Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth)) }
-  val compute   = Option.when(cfg.computeEnabled) {
+  val compute   = Option.when(cfg.hasCompute) {
     withReset(resetCopy("comp")) { Module(new BorgComputeSequencer(cfg)) }
   }
   private val computeBusy = compute.map(_.io.busy).getOrElse(false.B)
   // Set when a dispatch completes, cleared by the next start (COMPUTE_CTRL bit 0).
-  val computeDoneSticky = Option.when(cfg.computeEnabled)(RegInit(false.B))
+  val computeDoneSticky = Option.when(cfg.hasCompute)(RegInit(false.B))
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,

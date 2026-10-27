@@ -95,7 +95,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // it resume. Valid from the same cycle running drops until the next
   // invocation starts; BorgComputeSequencer reads it off coreStatus's own
   // running-drop detection, so there is no separate handshake.
-  val barrier = if (cfg.computeEnabled) Some(Output(new ComputeBarrierIO)) else None
+  val barrier = if (cfg.hasCompute) Some(Output(new ComputeBarrierIO)) else None
 
   // ZTEST (early per-fragment tests): the core stalls on zTestReq until the
   // dispatcher has run the quad's depth/stencil test and pulses zTestDone.
@@ -231,7 +231,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val execSp    = RegInit(0.U(log2Ceil(EXEC_STACK_DEPTH + 1).W))
   val execFault = RegInit(false.B)   // sticky: stack over/underflow
 
-  // --- Compute: BARRIER stop point (BorgConfig.computeEnabled) -----------
+  // --- Compute: BARRIER stop point (BorgConfig.hasCompute) -----------
   //
   // Not sticky across invocations: written on every stop (either branch of
   // runPipeline's BARRIER/HALT check below), so a stale true from a PRIOR
@@ -464,7 +464,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.exelse := rv.exelse
     flags.expop  := rv.expop
     flags.execOp := flags.expush || flags.exelse || flags.expop
-    flags.barrier := (if (cfg.computeEnabled) rv.barrier else false.B)
+    flags.barrier := (if (cfg.hasCompute) rv.barrier else false.B)
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
     flags.exany  := rv.exany

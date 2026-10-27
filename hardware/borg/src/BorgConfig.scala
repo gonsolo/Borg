@@ -130,9 +130,6 @@ case class BorgConfig(
     hasCompute: Boolean = false
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
-  // Compute exists only where its prerequisites do; the driver detects it
-  // through COMPUTE_CTRL's `present` bit rather than assuming it.
-  def computeEnabled: Boolean = hasCompute
   /** Planes whose MSAA sample deltas travel with a triangle: the three edges
     * and the depth plane Zn (the far plane's are Zn's, negated). */
   def coveragePlanesStored: Int = 4
