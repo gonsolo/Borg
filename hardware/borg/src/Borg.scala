@@ -197,6 +197,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireRasterizer()
   wireTileBuffer()
   wireFlusher()
+  private val perfIssueRead = WireDefault(0.U(32.W))   // wirePerf's, for wireMmioRead
   wireSequencer()
   wireBinner()
   wireMmioRead()
@@ -265,6 +266,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       rdlRegs.io.hw.perf_flush_value := counter(f.io.busy)
       rdlRegs.io.hw.perf_stall_value := counter(io.gpuMem.req && !io.gpuMem.ready)
       rdlRegs.io.hw.perf_dma_value   := counter(d.io.busy)
+      val st = core.io.issueStats
+      val issue = VecInit(Seq(st.issued, st.waitReg, st.waitBranch, st.waitDrain).map(counter))
+      val sel = RegInit(0.U(2.W))
+      when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(1, 0) }
+      perfIssueRead := issue(sel)
     } else {
       rdlRegs.io.hw.perf_total_value := 0.U
       rdlRegs.io.hw.perf_frag_value  := 0.U
@@ -853,7 +859,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> Cat(binner.io.overflow, seqDoneSticky),
       (read_addr_del === BorgGpuRegs.occ_count_offset)   -> occCount,
       (read_addr_del === BorgGpuRegs.occ_ctrl_offset)    -> occEnable.asUInt,
-      (read_addr_del === BorgGpuRegs.occ_tri_range_offset) -> Cat(occLast, occFirst)
+      (read_addr_del === BorgGpuRegs.occ_tri_range_offset) -> Cat(occLast, occFirst),
+      (read_addr_del === BorgGpuRegs.perf_issue_offset)  -> perfIssueRead
     ) ++ computeDoneSticky.map { done =>
       // A build without compute leaves this address to rdl_read_data, which
       // returns 0 for a nogen register: `present` reads back clear.

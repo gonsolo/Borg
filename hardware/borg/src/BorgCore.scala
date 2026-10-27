@@ -133,6 +133,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val descWritten  = if (cfg.samplerEnabled) Some(Input(Bool())) else None
   // Per lane, the samples the current fragment covers (SMASK).
   val laneCoverage = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))) else None
+  val issueStats   = Output(new IssueStatsIO)
 }
 
 /** The triangle record the running shader writes (SOUT) or reads (FATTR),
@@ -151,6 +152,14 @@ class CoreRecordIO extends Bundle {
   /** One-cycle pulse when a draw's Pass 2 starts: every record has just been
     * (re)written by Pass 1, so FATTR's varying cache forgets what it holds. */
   val attrFlush     = Bool()
+}
+
+/** One cycle's issue outcome, for the perf counters. */
+class IssueStatsIO extends Bundle {
+  val issued     = Bool()
+  val waitReg    = Bool()
+  val waitBranch = Bool()
+  val waitDrain  = Bool()
 }
 
 /** What the issue logic needs to know about an instruction in flight (cfg.pipelined). */
@@ -287,6 +296,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
   val redirecting = WireDefault(at(redirect))   // the PC goes to pcAfterThis
   nextPC := Mux(redirecting, pcAfterThis, programCounter)
+  io.issueStats := 0.U.asTypeOf(io.issueStats)
+  io.issueStats.issued := fma_start && !opFlags.barrier
   if (cfg.pipelined) {
     // info(k): the instruction in stage k, valid while at(k).
     val infos = Seq.iterate(RegEnable(issued, fma_start), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
@@ -297,8 +308,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val hazard = any(1 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
       reads.map { case (used, rs) => used && rs === i.rd }.reduce(_ || _))
     val stops = fetchedInstruction === 0.U || opFlags.barrier || issued.drain
-    canIssue := !hazard && !any(redirect to cfg.cBusyLoad)(_.branch) && !any(1 to cfg.cBusyLoad)(_.drain) &&
+    val behindBranch = any(redirect to cfg.cBusyLoad)(_.branch)
+    canIssue := !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain) &&
       (!stops || !stages(cfg.cBusyLoad - 1, 1).orR)
+    val waiting = running && !texResumeDelay && fetchReady && !canIssue
+    io.issueStats.waitReg    := waiting && hazard
+    io.issueStats.waitBranch := waiting && !hazard && behindBranch
+    io.issueStats.waitDrain  := waiting && !hazard && !behindBranch
     val step = fma_start && !opFlags.branch && !issued.drain && !opFlags.barrier
     redirecting := at(redirect) && info(redirect).branch
     nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))

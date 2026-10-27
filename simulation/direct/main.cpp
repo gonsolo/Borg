@@ -164,7 +164,13 @@ int main(int argc, char **argv) {
   bool rgba8 = argc > 5 && std::string(argv[5]) == "rgba8";
   drv.init(W, H, rgba8);
   int draws = drv.run_stream(bytes);
-  if (getenv("DIRECT_DBG")) fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
+  if (getenv("DIRECT_DBG")) {
+    fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
+    uint32_t p[6];
+    borg_core_perf(p);
+    fprintf(stderr, "[direct] last run: %u cycles, shader %u, issued %u, waits: register %u, branch %u, drain %u\n",
+            p[0], p[1], p[2], p[3], p[4], p[5]);
+  }
   if (!draws) return 2;
   auto rgb = borg_core_flush_format() == 3 ? drv.framebuffer_raw32() : drv.framebuffer_rgb();
   FILE *o = argc > 4 ? fopen(argv[4], "wb") : stdout;
