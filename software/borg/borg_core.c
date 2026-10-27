@@ -100,6 +100,10 @@ static uint32_t frame_stride_words(void) {
 
 void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt >= 1 && fmt <= 3) ? fmt : 0; }
 int borg_core_flush_format(void) { return g_flush_format; }
+void borg_core_perf(uint32_t out[6]) {
+  out[0] = BREG_R(perf_total); out[1] = BREG_R(perf_frag);
+  for (int i = 0; i < 4; i++) { BREG_W(perf_issue, i); out[2 + i] = BREG_R(perf_issue); }
+}
 
 // Sampler descriptor 0 until the host sends the app's: nearest filtering,
 // CLAMP_TO_EDGE (VkSamplerAddressMode 2) on U, V, W, no LOD bias, LOD clamped to [0, 0].
