@@ -3,145 +3,47 @@
 
 package borg
 
-/** Build-time configuration for the Borg GPU.
+/** Build-time configuration for the Borg GPU: sizes, plus the features the
+  * ULX3S leaves out to fit.
   *
-  * Encapsulates all target-specific knobs so that a single parameter
-  * flows through the entire hierarchy.
-  *
-  * @param coordWidth   Pixel coordinate width: max framebuffer dimension = 2^coordWidth.
-  *                     6 → 64px (FPGA), 9 → 512px (ASIC/sim for 500×500 renders)
-  * @param fifoDepth    Command FIFO depth.
-  * @param maxBinTiles     Maximum number of tiles tracked by BorgBinner's on-chip
-  *                        count SRAM.  Each entry costs 10 bits of flip-flops:
-  *                        1024 entries ≈ 920 kµm² (50 % of the IHP 8×4 tile!).
-  *                        ULX3S/sim uses 1024 (covers 800×480 @ 4×4 tiles = 24000 →
-  *                        capped; real TBR over 1024 tiles only).
-  *                        ASIC uses 16 to fit the IHP 8×4 die (16-tile render grid).
-  * @param maxInstructions Shader instruction memory depth.  Each entry is 32 bits.
-  *                        56 entries ≈ 145 kµm²; 32 entries ≈ 83 kµm² (saves 62 kµm²).
-  *                        The rasterizer edge-test shader is a separate, permanent
-  *                        ROM (BorgRasterRom) and does not consume this budget --
-  *                        this is purely the fragment-shader (and, time-multiplexed,
-  *                        vertex-shader) writable IMEM. ASIC uses 64, sized to fit
-  *                        cube.frag's 59 words.
-  * @param maxUniforms  Uniform memory depth.  64 = two 32-entry pages (double-buffered
-  *                     for CPU/GPU overlap); 32 = single page (saves ~25 kµm² on ASIC
-  *                     where the sequencer always writes page 0).
-  * @param samples  Multisample (MSAA) rate: colour+depth samples stored per pixel in
-  *                 the tile buffer.  1 = single-sample (historical behaviour, the
-  *                 bit-exact regression anchor); 4 = 4× MSAA, required by Vulkan's
-  *                 `framebufferColorSampleCounts` minimum limit.  One fragment shade
-  *                 per pixel is broadcast to every covered sample (standard MSAA, NOT
-  *                 `sampleRateShading`, which Vulkan permits reporting unsupported).
-  *                 Costs `(samples-1) * 64` bits per tile entry; the resolve (average)
-  *                 happens in BorgTileFlusher so the DRAM burst format is unchanged.
-  * @param maxTrianglesPerTile Upper bound on BorgSequencer/BorgBinner's `binRowBytes`
-  *                     MMIO input (= this * 2 bytes/entry), used to narrow the
-  *                     tile-index*binRowBytes multiplier's width instead of leaving
-  *                     it at the register's full 20 bits. MUST match (or exceed)
-  *                     software/borg/borg_layout.h's SEQ_MAX_TRI -- that's a single
-  *                     compile-time constant shared unconditionally by every target
-  *                     (borg_driver.c's only write site: `seq_bin_row_bytes =
-  *                     TBR_BIN_ROW_BYTES = SEQ_MAX_TRI*2`), so 256 here is safe for
-  *                     both Default and Wafer without any firmware coordination.
-  *                     If SEQ_MAX_TRI ever grows, this must grow with it.
+  * @param coordWidth      Pixel coordinate bits: framebuffer up to 2^coordWidth.
+  * @param fifoDepth       Command FIFO depth.
+  * @param maxBinTiles     4x4-pixel tiles the binner tracks: 1024 = 128x128, 4096 = 256x256.
+  * @param maxInstructions Shader I-cache words; programs run from memory through it.
+  * @param fattrCacheLog2  FATTR's varying cache, 2^n words (vkcube: 2.39M -> 2.12M cycles).
+  * @param texDescCacheLog2 Texture descriptors TEX keeps.
+  * @param maxUniforms     Uniform words: 64 = two pages, 32 = one.
+  * @param maxTrianglesPerTile At least SEQ_MAX_TRI in software/borg/borg_layout.h.
+  * @param samples         1 or 4 (Vulkan requires 4x MSAA).
+  * @param hasDepthFlush   Tile depth written to memory: the only way a depth image exists.
+  * @param hasBlend        Colour blending, RAW formats and the tile's extension plane.
+  * @param hasStencil      Stencil plane and test.
+  * @param hasCompute      Compute dispatch and its invocation IDs in r30/r31.
+  * The fixed-function features are gated at run time by their enable bits too,
+  * so a build with them behaves like one without until the driver turns them on.
   */
 case class BorgConfig(
     coordWidth: Int = 9,
     fifoDepth: Int = 2,
     maxBinTiles: Int = 1024,
     maxInstructions: Int = 56,
-    // Draw front end: FATTR's varying cache, 2^fattrCacheLog2 words. Without it a fragment
-    // shader re-reads each triangle's per-vertex values from memory for
-    // every quad -- cube.frag's 5 FATTRs are 15 serialized single-word DRAM
-    // round trips per quad. 256 words hold all 12 of vkcube's triangles'
-    // varyings; measured on a draw-mode vkcube frame, 2,389,185 -> 2,123,635
-    // cycles (stalls 453K -> 168K).
     fattrCacheLog2: Int = 8,
-    // TEX keeps 2^texDescCacheLog2 texture descriptors (a vertex shader reads one per input).
     texDescCacheLog2: Int = 2,
     maxUniforms: Int = 64,
     maxTrianglesPerTile: Int = 256,
     samples: Int = 1,
-    // Adds BorgTileFlusher's optional second DRAM burst, writing the tile's
-    // Z plane (FP16 -> UNORM16 via DepthQuantize) to the FLUSH_ZB_BASE
-    // region -- the hardware half of `D16_UNORM` depth-attachment support
-    // (Step 50 item 14). The parameter default is false only so the knob's
-    // own tests can build a design without it; BorgConfig.Default turns it
-    // on. Historically Z was never written to DRAM at all (the TBR keeps it
-    // on-chip), which is why a mandatory Vulkan depth format had no path to
-    // exist as a real image. Costs a
-    // 16x16-bit staging vector plus a second burst pass per tile when
-    // enabled; the runtime FLUSH_ZB_BASE!=0 gate means even an enabled
-    // build behaves exactly like a disabled one until firmware actually
-    // binds a depth buffer. At samples>1 the flush resolves depth by taking
-    // sample 0 (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT -- the only depth resolve
-    // mode v3dv supports, and what V3D's tile-store hardware does); see
-    // BorgTileFlusher's doc comment. A true multisampled depth ATTACHMENT
-    // (all samples stored, 4x the memory) remains unsupported.
     hasDepthFlush: Boolean = false,
-    // Adds the fixed-function colour blend stage ([[BorgBlend]]) to the
-    // dispatcher's tile-write path -- Vulkan-conformance item 9. Blending is
-    // core functionality, not an optional feature (only `independentBlend`
-    // and `dualSrcBlend` are the optional extras), and Borg had none: every
-    // tile write was an unconditional overwrite.
-    //
-    // Costs the blend equation itself (eight 8x8 multipliers plus the factor
-    // muxes) and one 16-bit per-lane register for the fragment's alpha
-    // output. The parameter default is false only so the knob's own tests
-    // can build without it; BorgConfig.Default turns it on.
-    //
-    // Even in an enabled build the runtime `blend_cfg.enable` bit passes the
-    // fragment's original FP16 colour straight through, so nothing pays the
-    // FP16 -> UNORM8 -> FP16 round trip until an application actually turns
-    // blending on.
-    //
-    // At samples>1 the destination colour is per-sample while TileWriteIO
-    // carries one shared `data`, so BorgShaderDispatcher serializes the tile
-    // write over samples (needPerSample / sampleCtr) instead of widening the
-    // port; plain MSAA without blend/stencil keeps the single-cycle write.
     hasBlend: Boolean = false,
-    // Adds the stencil plane and the fixed-function stencil test/update
-    // ([[BorgStencil]]) -- Vulkan-conformance item 10. Stencil is mandatory;
-    // no VkPhysicalDeviceFeatures bit gates it, and Borg had no stencil
-    // concept at all.
-    //
-    // Costs one 16x8-bit SyncReadMem per sample in the tile buffer plus the
-    // test/op logic. The parameter default is false only for the knob's own
-    // tests; BorgConfig.Default turns it on. The runtime `stencil_cfg.enable`
-    // bit keeps even an enabled build behaving exactly like a disabled one
-    // until firmware turns it on.
-    //
-    // At samples>1 each sample's stencil update depends on its own stored
-    // value, which is why the dispatcher's serialized per-sample tile write
-    // (see hasBlend) exists.
     hasStencil: Boolean = false,
-    // --- Extended ISA -------------------------------------------------
-    //
-    // Two knobs rather than one so the wafer.space area/feature tradeoff can
-    // be measured at finer grain than all-or-nothing. Both default TRUE:
-    // unlike the fixed-function knobs above, these gate instructions a
-    // compiler may already have emitted into a shader binary, and silently
-    // dropping an opcode would execute as something else rather than fail.
-    // Turning one off is an explicit decision to ship a smaller ISA.
-    //
-    // hasCompute: the compute dispatch sequencer (BorgComputeSequencer) and
-    // compute-mode invocation IDs in r30/r31.
     hasCompute: Boolean = false
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   /** Planes whose MSAA sample deltas travel with a triangle: the three edges
     * and the depth plane Zn (the far plane's are Zn's, negated). */
   def coveragePlanesStored: Int = 4
-  /** Tile-buffer depth width. Follows the datapath: an FP32 build keeps depth
-    * FP32 end to end, which holds every D16/D24 value distinctly and
-    * D32_SFLOAT exactly; FP16 cannot (see ColorZ). */
+  /** FP32 depth holds every D16/D24 value and D32_SFLOAT exactly. */
   def tileDepthBits: Int = 32
-  /** Program counter width. With the instruction cache a program may run past
-    * IMEM, up to 16K words: conditional branches reach their own 1024-word
-    * page, JAL anywhere (Opcodes.MATCH_JAL). Vulkan sets no shader size
-    * limit, and a shader with software division, bounds checks and compares
-    * outgrew 1024 words. Without the cache the PC only ever indexes IMEM. */
+  /** 16K-word programs: branches reach their 1024-word page, JAL anywhere. */
   def pcBits: Int = 14
   /** Direct-mapped cache lines: the largest power of two within IMEM. Lines
     * at and above it (IMEM 64..71 on a 72-word build) are never replaced. */
@@ -170,61 +72,7 @@ case class BorgConfig(
 }
 
 object BorgConfig {
-  // Default: sim + ULX3S — 4096-tile bin table, 56-instruction shader memory.
-  // The in-tree BorgFma (CERN-OHL-S, round-to-nearest-even) is the sole FMA
-  // across ALL targets, FP16 or FP32 — historically bit-verified vs IEEE/HardFloat (30k+ co-sim),
-  // renders correctly in verilator/arcilator/ULX3S, smaller + shorter critical path.
-  //
-  // maxBinTiles = 4096 (grown from 1024, 2026-09-08, Step 50 item 5 --
-  // framebuffer/image resolution ceiling): covers up to 256x256 @ 4x4
-  // (64x64 = 4096 tiles), 4x the previous 128x128 capacity. This is a real,
-  // conservative step, not the full Vulkan-mandated >=4096x4096 --
-  // reaching that needs either a much larger capacity (the per-buffer
-  // tileWasDirty/tileIsDirty dirty-bit arrays in BorgTileSequencer cost 2
-  // flip-flops per tile, so scaling all the way to 4096x4096 pixels
-  // (1024x1024 = 1,048,576 tiles) would cost ~2M FFs -- not a number to
-  // pick without real synthesis data) or firmware-side multi-pass tiling
-  // (re-running the existing binner/render pass per tile-batch) on top of
-  // whatever capacity is here. See docs/A0_roadmap.md item 8's own note.
-  // This growth is backward compatible: maxBinTiles is a capacity ceiling,
-  // not a required resolution -- firmware requesting the previous 128x128
-  // (1024 of the now-4096 available tile slots) behaves identically to
-  // before, verified by the unchanged 195/195 mill hardware.borg.test pass
-  // and the vkcube golden-image render (both still rendering the same
-  // 128x128 content). log2Ceil(4096)=12 stays under SeqBinnerIO/
-  // BorgBinnerIO's existing countAddrWidth cap of 13 bits, so no other RTL
-  // needed changing for this specific step -- a bigger future jump past
-  // 8192 tiles would need that cap raised too (see those IOs' own comments).
-  // What Vulkan needs, on every target. Default is the single place the
-  // feature set is decided; every other config below is a `Default.copy`
-  // that changes SIZING only (tile capacity, IMEM, caches, lanes), never
-  // the float format, sample count or fixed-function feature set. A target
-  // that wants a different feature set must say so at its own `.copy` --
-  // there is deliberately no second base config to drift from this one
-  // (BorgConfig.Asic used to be that, hardcoded FP16, and the wafer.space
-  // tapeout silently kept building FP16 after Default moved to FP32).
-  //
-  //   fp = FP32:      Vulkan's baseline Shader capability mandates 32-bit
-  //                   float arithmetic unconditionally (no feature bit gates
-  //                   it, unlike shaderFloat16).
-  //   samples = 4:    framebufferColorSampleCounts must include
-  //                   VK_SAMPLE_COUNT_4_BIT.
-  //   hasDepthFlush:  D16_UNORM is a mandatory depth format, and without the
-  //                   flush Z never leaves the tile buffer, so no depth image
-  //                   can exist. Resolves to sample zero at MSAA (see the
-  //                   parameter's doc).
-  //   hasBlend:       colour blending is core Vulkan (only independentBlend
-  //                   and dualSrcBlend are optional).
-  //   hasStencil:     the stencil test is core; no feature bit gates it.
-  //   Every one of the three is runtime-gated by its own enable bit, so a
-  //   build with them on behaves exactly like one without until firmware
-  //   turns a feature on -- the cost is area, never behaviour.
-  //
-  // 2026-09-15: switched deliberately ahead of re-validating area/timing at
-  // this combination (FP32 FMA alone measured 2.48x area / 1.79x critical
-  // path via yosys in isolation; samples=4 alone is proven at ASIC via a
-  // real 1x0.5 signoff at 85.68% -- the combination, on the wafer.space 1x1
-  // slot and on ULX3S, is unmeasured as of this change).
+  // What Vulkan 1.0 needs: the simulators, and the base of every other config.
   val Default = BorgConfig(
     coordWidth      = 9,
     fifoDepth       = 2,
@@ -237,63 +85,20 @@ object BorgConfig {
     hasCompute      = true
   )
 
-
   // The ULX3S: what unmodified cube.c uses; the full set is ~13% over the ECP5-85K.
   // 1024 bin tiles cover its 128x128 framebuffer.
   val Cube = Default.copy(maxBinTiles = 1024, samples = 1, hasBlend = false,
                           hasStencil = false, hasCompute = false, hasDepthFlush = false)
 
-  // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
-  // bridge; QspiSocTop, the cocotb CPU SoC harness, builds from this too).
-  // Default's feature set, sized down to fit the slot. Every line here is a
-  // SIZING decision with a measured reason; nothing about fp/samples/features
-  // is repeated here, so the tapeout cannot fall behind Default again.
-  //   maxBinTiles=16: countMem_1024x10 alone was ~920 kµm² (50 % of the TT
-  //     die) at 1024 tiles → 16 tiles (~14 kµm²).
-  //   maxInstructions=64: the rasterizer edge-test shader (13 words) no longer lives
-  //     in this writable IMEM at all -- it's baked into a permanent ROM (BorgRasterRom),
-  //     fetched by BorgCore independently. This budget is now frag-only: cube.frag
-  //     is 59 words, +1 word BORG_IMEM_FRAG_OFFSET (kept nonzero so fragPcReg==0 can
-  //     still mean "no fragment shader"), +1 HALT sentinel = 61 of 64 used.
-  //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
-  //   4-lane SIMT and 4x MSAA. Verified by a
-  //     full wafer.space 1x0.5 signoff at FP16 -- 85.68 % utilisation, DRC/LVS/antenna
-  //     clean, 4.52 mW. The earlier 0.5x1 orientation failed detailed placement
-  //     (DPL-0036) at 81.97 %; 1x0.5 is the orientation that fits. Real Max Slew /
-  //     Max Cap warnings remain outstanding -- electrical, not frequency-related.
-  //
-  // FP32 at this sizing: Phase 0 measured Wafer at FP32 via yosys at 2.48x FMA
-  // area, 58-62% 1x1-slot utilization, and 25 MHz closing at 3.3V with the
-  // original 3-stage pipeline. A real signoff at FP32 + depth flush is the
-  // open item as of 2026-09-15.
+  // The ASIC (wafer.space GF180MCU 1x1, BorgOnlyTop; QspiSocTop too): Default sized down.
+  // cube.frag is 59 words.
   val Wafer = Default.copy(
     coordWidth       = 7,
     maxBinTiles      = 16,
     maxInstructions  = 64,
     maxUniforms      = 32
-    // Compute is on, as in Default: Vulkan requires a queue family with
-    // compute. It was off only while the 1x1 slot was tight.
   )
 
-  // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper
-  // with, unless a test genuinely needs more tile capacity.
-  //
-  // maxBinTiles is the single dominant cost of building a full-Borg simulation.
-  // BorgTileSequencer tracks 2 dirty bits per tile per buffer, and firtool
-  // emits every element of those Vecs as its own `reg`: at 4096 tiles that is
-  // 16,384 one-bit registers, making BorgTileSequencer.sv 125,746 of the
-  // design's 133,899 emitted lines -- 94% of the whole design, when every
-  // other module is 300-1300 lines. Verilator's V3Order then topologically
-  // sorts a dependency graph over all of it, single-threaded.
-  //
-  // Measured A/B, same seven scenarios, only this parameter changed:
-  //   maxBinTiles = 4096 -> 1092s
-  //   maxBinTiles =   64 ->   13s     (84x, bit-for-bit identical results)
-  //
-  // This costs no coverage: maxBinTiles is a capacity ceiling, not a
-  // resolution (see Default's comment), so a design binning fewer tiles than
-  // the ceiling behaves identically -- which the A/B confirms empirically.
-  // Raise it per-test only where a test really bins more than 64 tiles; a
-  // 128x128 framebuffer at 4x4 tiles, for instance, needs 1024.
+  // Unit tests: the tile dirty bits dominate elaboration (4096 tiles: 1092 s, 64: 13 s).
   val Test = Default.copy(maxBinTiles = 64)
 }
