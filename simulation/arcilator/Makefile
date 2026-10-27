@@ -27,7 +27,7 @@ borg.mlir: $(ROOT)/out/hardware/borg/firrtl_sim/BorgArcSimTop.fir
 
 # Step 2: HW MLIR → LLVM IR + state info  (single invocation produces both)
 arc.ll state.json &: borg.mlir
-	$(ARCILATOR) $< --inline --observe-memories --state-file state.json -o arc.ll
+	$(ARCILATOR) $< --no-runtime --inline --observe-memories --state-file state.json -o arc.ll
 
 # Step 3: LLVM IR → object
 arc.o: arc.ll

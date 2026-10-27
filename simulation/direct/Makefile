@@ -19,7 +19,7 @@ borg.mlir: $(ROOT)/out/hardware/borg/firrtl_direct/BorgDirectSimTop.fir
 	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
 
 arc.ll state.json &: borg.mlir
-	$(ARCILATOR) $< --inline --observe-memories --state-file state.json -o arc.ll
+	$(ARCILATOR) $< --no-runtime --inline --observe-memories --state-file state.json -o arc.ll
 
 arc.o: arc.ll
 	$(LLC) -O3 -relocation-model=pic --filetype=obj $< -o $@
