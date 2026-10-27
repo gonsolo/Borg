@@ -126,44 +126,18 @@ case class BorgConfig(
     // dropping an opcode would execute as something else rather than fail.
     // Turning one off is an explicit decision to ship a smaller ISA.
     //
-    // hasMemoryOps: LOAD/STORE and the core's DRAM port. The prerequisite
-    // for compute queues, SSBOs and storage images -- but dead area for a
-    // target that only ever runs the graphics pipeline.
-    hasMemoryOps: Boolean = true,
-    // hasControlFlow: BRZ/BRNZ plus the execution mask and its stack. Costs
-    // the PC redirect, the mask, and 8 x fragLanes bits of stack.
-    hasControlFlow: Boolean = true,
     // hasCompute: the compute dispatch sequencer (BorgComputeSequencer) and
-    // compute-mode invocation IDs in r30/r31. Only takes effect with LOAD/STORE
-    // (the only way a compute shader produces output), the execution mask
-    // (partial quads) and a 32-bit datapath (the IDs are raw integers) -- see
-    // computeEnabled.
-    hasCompute: Boolean = false,
-    // hasShaderICache: IMEM becomes a direct-mapped instruction cache over a
-    // program image in DRAM, so a shader is no longer limited to
-    // maxInstructions words. Vulkan has no shader-size limit, and every
-    // Vulkan-class GPU fetches shader code from memory; a fixed on-chip IMEM
-    // is where GLES2-era cores (Vivante GC2000, whose driver rejects any
-    // shader that does not fit) stopped.
-    //
-    // Preloading is unchanged -- the sequencer's shader DMA and MMIO writes
-    // fill IMEM exactly as before -- so a shader that fits never misses and
-    // runs as it always did. A PC past the preloaded words misses, fetches
-    // `codeBase + 4*pc` through the core's LOAD/STORE port, and keeps the
-    // word for the next quad. Costs a tag and a valid bit per line and the
-    // fill FSM; no extra instruction storage. Needs hasMemoryOps (the port).
-    hasShaderICache: Boolean = false
+    // compute-mode invocation IDs in r30/r31.
+    hasCompute: Boolean = false
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
-  def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow
-  def shaderICacheEnabled: Boolean = hasShaderICache && hasMemoryOps
+  def computeEnabled: Boolean = hasCompute
   def fattrCacheEnabled: Boolean = drawEnabled
   /** The draw front end (docs/B1_geometry_front_end.md): SOUT/FATTR, and
-    * VertexIndex/InstanceIndex in r30/r31. Needs the core's memory port, and
-    * a 32-bit datapath because the indices are raw integers. */
-  def drawEnabled: Boolean = hasMemoryOps
+    * VertexIndex/InstanceIndex in r30/r31. Always present; its optional ports go next. */
+  def drawEnabled: Boolean = true
   /** r30/r31 can carry sequencer-provided integer IDs instead of the pixel
     * centre: compute's invocation IDs, or a vertex shader's indices. */
   def hasInvocationIds: Boolean = computeEnabled || drawEnabled
@@ -183,7 +157,7 @@ case class BorgConfig(
     * page, JAL anywhere (Opcodes.MATCH_JAL). Vulkan sets no shader size
     * limit, and a shader with software division, bounds checks and compares
     * outgrew 1024 words. Without the cache the PC only ever indexes IMEM. */
-  def pcBits: Int = if (shaderICacheEnabled) 14 else chisel3.util.log2Ceil(maxInstructions)
+  def pcBits: Int = 14
   /** Direct-mapped cache lines: the largest power of two within IMEM. Lines
     * at and above it (IMEM 64..71 on a 72-word build) are never replaced. */
   def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
@@ -275,8 +249,7 @@ object BorgConfig {
     hasDepthFlush   = true,
     hasBlend        = true,
     hasStencil      = true,
-    hasCompute      = true,
-    hasShaderICache = true
+    hasCompute      = true
   )
 
 

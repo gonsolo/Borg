@@ -70,7 +70,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // memory masters with a priority mux, so adding one more is a smaller
   // change than routing a second memory protocol through BorgRasterizer and
   // BorgShaderDispatcher.
-  val gpuMem  = if (cfg.hasMemoryOps) Some(new GpuMemIO) else None
+  val gpuMem  = new GpuMemIO
   val memBusy = Output(Bool())       // high while a LOAD/STORE owns the bus
   // Sticky: a branch condition differed between quad lanes. Deliberately NOT
   // a CoreStatusIO field -- that bundle is pipeline feedback consumed by the
@@ -103,15 +103,14 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val zTestDone = Input(Bool())
   // Per lane: this invocation must have no side effects -- a helper lane
   // (no covered sample, outside the scissor), a discarded fragment, or one
-  // that failed ZTEST. Suppresses STORE; only exists with memory ops, the
-  // only side effect a shader has.
-  val laneHelper = if (cfg.hasMemoryOps) Some(Input(Vec(cfg.fragLanes, Bool()))) else None
+  // that failed ZTEST. Suppresses STORE, the only side effect a shader has.
+  val laneHelper = Input(Vec(cfg.fragLanes, Bool()))
 
-  // Instruction cache (BorgConfig.hasShaderICache): the running program's
+  // Instruction cache: the running program's
   // image in DRAM -- word `pc` lives at codeBase + 4*pc -- and a pulse that
   // forgets every word fetched from it, raised whenever the program changes.
-  val codeBase    = if (cfg.shaderICacheEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
-  val icacheFlush = if (cfg.shaderICacheEnabled) Some(Input(Bool())) else None
+  val codeBase    = Input(UInt(GpuMemIO.AddrBits.W))
+  val icacheFlush = Input(Bool())
 
   // Draw front end: where SOUT and FATTR go (see Opcodes.MATCH_SOUT_V2).
   val record = if (cfg.drawEnabled) Some(Input(new CoreRecordIO)) else None
@@ -394,11 +393,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- Instruction cache: must follow wireMemStall, whose port it shares ---
 
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
-  if (cfg.hasMemoryOps)
-    wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
-  else
-    io.memBusy := false.B
-  if (cfg.shaderICacheEnabled) wireICache()
+  wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
+  wireICache()
   // --- TEX/TEXA: the descriptor-based texture unit, on the same port ---
   if (cfg.samplerEnabled)
     wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
@@ -407,10 +403,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireExpLog(lanes.map(_.io.recARaw), lanes.map(_.io.memWrite))
 
   // --- Branch evaluation and execution mask ---
-  if (cfg.hasControlFlow) {
-    wireBranch(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw))
-    wireExecMask(lanes.map(_.io.recARaw))
-  }
+  wireBranch(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw))
+  wireExecMask(lanes.map(_.io.recARaw))
 
   // --- Quad derivatives (DDX/DDY): broadcast cross-lane operands to every lane.
   //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
@@ -473,18 +467,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
     // not accidentally an ADD.
-    flags.load  := (if (cfg.hasMemoryOps) rv.load || rv.amo else false.B)
-    flags.store := (if (cfg.hasMemoryOps) rv.store else false.B)
-    val cf = cfg.hasControlFlow
+    flags.load  := rv.load || rv.amo
+    flags.store := rv.store
     flags.branch := rv.br || rv.jal
-    flags.expush := (if (cf) rv.expush else false.B)
-    flags.exelse := (if (cf) rv.exelse else false.B)
-    flags.expop  := (if (cf) rv.expop else false.B)
+    flags.expush := rv.expush
+    flags.exelse := rv.exelse
+    flags.expop  := rv.expop
     flags.execOp := flags.expush || flags.exelse || flags.expop
     flags.barrier := (if (cfg.computeEnabled) rv.barrier else false.B)
     // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
     // divergent loop needs it as much as a compute shader's.
-    flags.exany  := (if (cf) rv.exany else false.B)
+    flags.exany  := rv.exany
     flags.isrl   := rv.srl
     flags.isltu  := rv.sltu
     flags.ztest  := rv.ztest
@@ -641,13 +634,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def imemIndex(pc: UInt): UInt = {
     val n  = cfg.maxInstructions
     val lb = cfg.icacheLinesLog2
-    if (!cfg.shaderICacheEnabled) pc
-    else if ((1 << lb) == n) pc(lb - 1, 0)
+    if ((1 << lb) == n) pc(lb - 1, 0)
     else Mux(pc < n.U, pc(log2Ceil(n) - 1, 0), pc(lb - 1, 0))
   }
 
   // @doc:icache
-  /** Shader instruction cache (BorgConfig.hasShaderICache).
+  /** Shader instruction cache.
     *
     * IMEM is the cache's data array; this adds only bookkeeping. A line is
     * invalid, NEAR -- holding the word of the PC equal to its own index, which
@@ -680,7 +672,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val sIdle :: sFetch :: sSettle :: Nil = Enum(3)
     val state  = RegInit(sIdle)
     val missPc = RegInit(0.U(cfg.pcBits.W))
-    val g = io.gpuMem.get
+    val g = io.gpuMem
     val fill = state === sFetch && g.ready
     val lineHit =
       if (cfg.icacheMetaInRam) icacheLinesRam(pc, inImem, fill, missPc)
@@ -697,7 +689,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.memBusy := true.B
       g.req  := true.B
       g.wr   := false.B
-      g.addr := (io.codeBase.get + (missPc << 2))(GpuMemIO.AddrBits - 1, 0)
+      g.addr := (io.codeBase + (missPc << 2))(GpuMemIO.AddrBits - 1, 0)
       when(g.ready) {
         fillWriteEn   := true.B
         fillWriteIdx  := imemIndex(missPc)
@@ -736,7 +728,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // DMA/MMIO writes that follow each make their line near and valid. (A
     // write in the same cycle as a flush wins: the flush pulses at DMA start,
     // before its first word arrives, so they never actually coincide.)
-    when(io.icacheFlush.get) {
+    when(io.icacheFlush) {
       valid.foreach(_ := false.B)
       isFar.foreach(_ := false.B)
     }
@@ -761,7 +753,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val sweeping   = RegInit(true.B)
     val sweepValid = RegInit(true.B)
     val sweepIdx   = RegInit(0.U(log2Ceil(n).W))
-    val flush = io.icacheFlush.get
+    val flush = io.icacheFlush
 
     val cur = lines.read(imemIndex(nextPC))
     val unswept = RegNext(sweeping && imemIndex(nextPC) >= sweepIdx)
@@ -885,15 +877,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     // The memory port: the sampler's while it runs.
-    sampler.io.gpuMem.data    := io.gpuMem.get.data
-    sampler.io.gpuMem.ready   := io.gpuMem.get.ready && sampler.io.busy
+    sampler.io.gpuMem.data    := io.gpuMem.data
+    sampler.io.gpuMem.ready   := io.gpuMem.ready && sampler.io.busy
     sampler.io.gpuMem.waccept := false.B
     when(sampler.io.busy) {
       io.memBusy := true.B
-      io.gpuMem.get.req   := sampler.io.gpuMem.req
-      io.gpuMem.get.addr  := sampler.io.gpuMem.addr
-      io.gpuMem.get.wr    := false.B
-      io.gpuMem.get.wlen  := 1.U
+      io.gpuMem.req   := sampler.io.gpuMem.req
+      io.gpuMem.addr  := sampler.io.gpuMem.addr
+      io.gpuMem.wr    := false.B
+      io.gpuMem.wlen  := 1.U
     }
   }
 
@@ -1053,11 +1045,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       Mux(is_fattr_reg, attrAddr, Mux(is_sout_reg, soutAddr, lsAddr))
     }.getOrElse(lsAddr)
 
-    io.gpuMem.get.req   := false.B
-    io.gpuMem.get.addr  := 0.U
-    io.gpuMem.get.wr    := false.B
-    io.gpuMem.get.wdata := 0.U
-    io.gpuMem.get.wlen  := 1.U            // single word; only the flusher bursts
+    io.gpuMem.req   := false.B
+    io.gpuMem.addr  := 0.U
+    io.gpuMem.wr    := false.B
+    io.gpuMem.wdata := 0.U
+    io.gpuMem.wlen  := 1.U            // single word; only the flusher bursts
     io.memBusy      := memState =/= sMemIdle
 
     // Start once operands are valid, exactly like TEX/TEXA.
@@ -1117,7 +1109,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // applies to a sequencer-run program: a vertex shader's or the setup
     // ROM's SOUT must not inherit it.
     val laneActive = VecInit(execMask.asBools)(memLaneIdx) && soutLaneOk &&
-                     !((is_store_reg || isAmo) && !io.seqBusy && io.laneHelper.get(memLaneIdx))
+                     !((is_store_reg || isAmo) && !io.seqBusy && io.laneHelper(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
       holdPipe := true.B
@@ -1126,18 +1118,18 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     when(memState === sMemReq && laneActive) {
       holdPipe    := true.B   // hold operands stable
-      io.gpuMem.get.addr  := byteAddr
-      io.gpuMem.get.req   := is_load_reg
-      io.gpuMem.get.wr    := is_store_reg
-      io.gpuMem.get.wdata := curData
-      when(io.gpuMem.get.ready) {
+      io.gpuMem.addr  := byteAddr
+      io.gpuMem.req   := is_load_reg
+      io.gpuMem.wr    := is_store_reg
+      io.gpuMem.wdata := curData
+      when(io.gpuMem.ready) {
         if (BorgDebug.trace) printf("[MEM] load=%d lane=%d addr=0x%x data=0x%x\n",
           is_load_reg, memLane, byteAddr,
-          Mux(is_load_reg, io.gpuMem.get.data, curData))
+          Mux(is_load_reg, io.gpuMem.data, curData))
         when(is_load_reg) {
-          memDataReg := Mux(rvMem, rvLoadData(io.gpuMem.get.data.pad(32)), io.gpuMem.get.data)(config.totalBits - 1, 0)
+          memDataReg := Mux(rvMem, rvLoadData(io.gpuMem.data.pad(32)), io.gpuMem.data)(config.totalBits - 1, 0)
           memState   := Mux(isAmo, sAmoWr, sMemWB)
-          amoNew     := riscv.Rv.amoResult(amoOp, io.gpuMem.get.data.pad(32)(31, 0), curData.pad(32),
+          amoNew     := riscv.Rv.amoResult(amoOp, io.gpuMem.data.pad(32)(31, 0), curData.pad(32),
                                            other = curData.pad(32), cmp = Some(curCmp.pad(32)))
         }.otherwise {
           finishLane()                  // a store has nothing to write back
@@ -1148,10 +1140,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // AMO: the new value goes to the same word, then rd gets the old one.
     when(memState === sAmoWr) {
       holdPipe := true.B
-      io.gpuMem.get.addr  := byteAddr
-      io.gpuMem.get.wr    := true.B
-      io.gpuMem.get.wdata := amoNew
-      when(io.gpuMem.get.ready) { memState := sMemWB }
+      io.gpuMem.addr  := byteAddr
+      io.gpuMem.wr    := true.B
+      io.gpuMem.wdata := amoNew
+      when(io.gpuMem.ready) { memState := sMemWB }
     }
 
     when(memState === sMemWB) {
@@ -1225,10 +1217,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     /** Read FATTR's word from DRAM, then write it back (and cache it). */
     def attrFromMemory(): Unit = {
       holdPipe       := true.B
-      io.gpuMem.get.addr := byteAddr
-      io.gpuMem.get.req  := true.B
-      when(io.gpuMem.get.ready) {
-        memDataReg := io.gpuMem.get.data(config.totalBits - 1, 0)
+      io.gpuMem.addr := byteAddr
+      io.gpuMem.req  := true.B
+      when(io.gpuMem.ready) {
+        memDataReg := io.gpuMem.data(config.totalBits - 1, 0)
         memState   := sAttrWB
       }
     }

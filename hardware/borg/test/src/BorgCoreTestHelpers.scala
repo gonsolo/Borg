@@ -146,19 +146,19 @@ object BorgCoreTestHelpers {
     core.io.control.startPC.poke(0.U)
     // ZTEST response and side-effect suppression: idle / no lane suppressed.
     core.io.zTestDone.poke(false.B)
-    core.io.laneHelper.foreach(_.foreach(_.poke(false.B)))
+    core.io.laneHelper.foreach(_.poke(false.B))
     core.io.seqBusy.poke(false.B)
     // LOAD/STORE DRAM port -- driven idle so nothing X-propagates for the
     // tests that never execute a memory instruction.
-    core.io.gpuMem.get.data.poke(0.U)
-    core.io.gpuMem.get.ready.poke(false.B)
+    core.io.gpuMem.data.poke(0.U)
+    core.io.gpuMem.ready.poke(false.B)
     core.io.ids.foreach { c =>
       c.mode.poke(false.B)
       c.laneMask.poke(0.U)
       c.r30.foreach(_.poke(0.U))
       c.r31.foreach(_.poke(0.U))
     }
-    core.io.gpuMem.get.waccept.poke(false.B)
+    core.io.gpuMem.waccept.poke(false.B)
     core.io.drawMode.foreach(_.poke(false.B))
     core.io.drawSingle.foreach(_.poke(false.B))
     core.io.setupShort.foreach(_.poke(false.B))
@@ -185,21 +185,21 @@ object BorgCoreTestHelpers {
     var idle = false
     var watchdog = 0
     while (!idle && watchdog < 500) {
-      val rd = core.io.gpuMem.get.req.peek().litToBoolean
-      val wr = core.io.gpuMem.get.wr.peek().litToBoolean
+      val rd = core.io.gpuMem.req.peek().litToBoolean
+      val wr = core.io.gpuMem.wr.peek().litToBoolean
       if (rd || wr) {
-        val addr = core.io.gpuMem.get.addr.peek().litValue
-        if (wr) mem(addr) = core.io.gpuMem.get.wdata.peek().litValue
-        core.io.gpuMem.get.data.poke((mem.getOrElse(addr, BigInt(0)) & BigInt("ffffffff", 16)).U)
-        core.io.gpuMem.get.ready.poke(true.B)
+        val addr = core.io.gpuMem.addr.peek().litValue
+        if (wr) mem(addr) = core.io.gpuMem.wdata.peek().litValue
+        core.io.gpuMem.data.poke((mem.getOrElse(addr, BigInt(0)) & BigInt("ffffffff", 16)).U)
+        core.io.gpuMem.ready.poke(true.B)
       } else {
-        core.io.gpuMem.get.ready.poke(false.B)
+        core.io.gpuMem.ready.poke(false.B)
       }
       core.clock.step(1)
       idle = !core.io.status.running.peek().litToBoolean
       watchdog += 1
     }
-    core.io.gpuMem.get.ready.poke(false.B)
+    core.io.gpuMem.ready.poke(false.B)
     utest.assert(idle)
   }
 

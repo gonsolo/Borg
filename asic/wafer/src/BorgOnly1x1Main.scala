@@ -21,21 +21,7 @@ import soc.Emit
   * `SLOT=1x1` against this output.
   */
 object BorgOnly1x1Main extends App {
-  // Extended-ISA knobs, overridable from the environment so the nightly area
-  // probe can A/B them without dirtying the working tree -- same pattern as
-  // CLOCK_MHZ. Defaults match BorgConfig, so an unset environment emits
-  // exactly what it always did.
-  //
-  //   BORG_WAFER_MEMORY_OPS=0   drop LOAD/STORE and the core's DRAM port
-  //   BORG_WAFER_CONTROL_FLOW=0 drop BRZ/BRNZ and the execution mask
-  //   BORG_WAFER_COMPUTE=1      add the compute dispatch sequencer
-  private def envFlag(name: String, default: Boolean): Boolean =
-    sys.env.get(name).map(v => v != "0" && v.toLowerCase != "false").getOrElse(default)
-
-  val cfg = BorgConfig.Wafer.copy(
-    hasMemoryOps   = envFlag("BORG_WAFER_MEMORY_OPS", BorgConfig.Wafer.hasMemoryOps),
-    hasControlFlow = envFlag("BORG_WAFER_CONTROL_FLOW", BorgConfig.Wafer.hasControlFlow),
-    hasCompute     = envFlag("BORG_WAFER_COMPUTE", BorgConfig.Wafer.hasCompute))
+  val cfg = BorgConfig.Wafer
   // narrowCapable: as on 1x0.5, the runtime w=16 -> w=8 mux is the only
   // post-silicon recovery mode, and pins cannot be re-synthesized after
   // tapeout. Note the 1x1 map does NOT need narrow mode to fit -- it carries

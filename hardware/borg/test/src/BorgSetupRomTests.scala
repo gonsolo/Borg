@@ -58,16 +58,16 @@ object BorgSetupRomTests extends TestSuite {
     while (!done && cycles < 20000) {
       val cw = core.io.csrWrite(0)
       if (cw.en.peek().litToBoolean) csrs(cw.addr.peek().litValue.toInt) = cw.data.peek().litValue
-      if (core.io.gpuMem.get.wr.peek().litToBoolean) {
-        mem(core.io.gpuMem.get.addr.peek().litValue) = core.io.gpuMem.get.wdata.peek().litValue
-        core.io.gpuMem.get.ready.poke(true.B)
-      } else core.io.gpuMem.get.ready.poke(false.B)
+      if (core.io.gpuMem.wr.peek().litToBoolean) {
+        mem(core.io.gpuMem.addr.peek().litValue) = core.io.gpuMem.wdata.peek().litValue
+        core.io.gpuMem.ready.poke(true.B)
+      } else core.io.gpuMem.ready.poke(false.B)
       core.clock.step(1); cycles += 1
       val running = core.io.status.running.peek().litToBoolean
       if (running) started = true
       if (started && !running) done = true
     }
-    core.io.gpuMem.get.ready.poke(false.B)
+    core.io.gpuMem.ready.poke(false.B)
     Predef.assert(done, "setup ROM never finished")
     csrs.toMap
   }

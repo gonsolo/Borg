@@ -99,21 +99,21 @@ object BorgCoreTestsC extends TestSuite {
         writeReg(core, 1, BigInt("77", 16))
 
         def run(op: BigInt, helpers: Seq[Boolean]): (Int, Int) = {
-          core.io.laneHelper.get.zip(helpers).foreach { case (p, h) => p.poke(h.B) }
+          core.io.laneHelper.zip(helpers).foreach { case (p, h) => p.poke(h.B) }
           resetCore(core)                      // PC back to 0 for each run
           writeImem(core, 0, op)
           writeImem(core, 1, 0)
           core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
           var reads = 0; var writes = 0; var wd = 0
           while (core.io.status.running.peek().litToBoolean && wd < 500) {
-            val rd = core.io.gpuMem.get.req.peek().litToBoolean
-            val wr = core.io.gpuMem.get.wr.peek().litToBoolean
+            val rd = core.io.gpuMem.req.peek().litToBoolean
+            val wr = core.io.gpuMem.wr.peek().litToBoolean
             if (rd) reads += 1
             if (wr) writes += 1
-            core.io.gpuMem.get.ready.poke((rd || wr).B)
+            core.io.gpuMem.ready.poke((rd || wr).B)
             core.clock.step(1); wd += 1
           }
-          core.io.gpuMem.get.ready.poke(false.B)
+          core.io.gpuMem.ready.poke(false.B)
           utest.assert(wd < 500)
           (reads, writes)
         }
@@ -124,11 +124,11 @@ object BorgCoreTestsC extends TestSuite {
         utest.assert(allW == 4)
         utest.assert(helperW == 2)
         utest.assert(helperR == 4)
-        core.io.laneHelper.get.foreach(_.poke(false.B))
+        core.io.laneHelper.foreach(_.poke(false.B))
       }
     }
 
-    // --- Shader instruction cache (BorgConfig.hasShaderICache) -------------
+    // --- Shader instruction cache ------------------------------------------
     //
     // A program image in "DRAM" (a Scala map) at CODE_BASE, IMEM preloaded
     // with however much of it fits -- exactly what the sequencer's shader DMA
@@ -138,24 +138,24 @@ object BorgCoreTestsC extends TestSuite {
     val small = config.copy(maxInstructions = 72)   // MMIO preloads 72 words at most
     def runFromImage(core: BorgCore, image: Seq[BigInt], preload: Int): Int = {
       resetCore(core)
-      core.io.codeBase.get.poke(CODE_BASE.U)
-      core.io.icacheFlush.get.poke(true.B); core.clock.step(1); core.io.icacheFlush.get.poke(false.B)
+      core.io.codeBase.poke(CODE_BASE.U)
+      core.io.icacheFlush.poke(true.B); core.clock.step(1); core.io.icacheFlush.poke(false.B)
       for (i <- 0 until preload) writeImem(core, i, image(i))
       core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
       var fetches = 0; var wd = 0
       while (core.io.status.running.peek().litToBoolean && wd < 20000) {
-        val rd = core.io.gpuMem.get.req.peek().litToBoolean
+        val rd = core.io.gpuMem.req.peek().litToBoolean
         if (rd) {
-          val a = core.io.gpuMem.get.addr.peek().litValue.toInt
+          val a = core.io.gpuMem.addr.peek().litValue.toInt
           val w = (a - CODE_BASE) / 4
           utest.assert(a >= CODE_BASE && w < image.length)
-          core.io.gpuMem.get.data.poke(image(w).U)
+          core.io.gpuMem.data.poke(image(w).U)
           fetches += 1
         }
-        core.io.gpuMem.get.ready.poke(rd.B)
+        core.io.gpuMem.ready.poke(rd.B)
         core.clock.step(1); wd += 1
       }
-      core.io.gpuMem.get.ready.poke(false.B)
+      core.io.gpuMem.ready.poke(false.B)
       utest.assert(wd < 20000)
       fetches
     }
@@ -192,15 +192,15 @@ object BorgCoreTestsC extends TestSuite {
           core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
           var wd = 0; var f2 = 0
           while (core.io.status.running.peek().litToBoolean && wd < 20000) {
-            val rd = core.io.gpuMem.get.req.peek().litToBoolean
+            val rd = core.io.gpuMem.req.peek().litToBoolean
             if (rd) {
-              val w = (core.io.gpuMem.get.addr.peek().litValue.toInt - CODE_BASE) / 4
-              core.io.gpuMem.get.data.poke(prog(w).U); f2 += 1
+              val w = (core.io.gpuMem.addr.peek().litValue.toInt - CODE_BASE) / 4
+              core.io.gpuMem.data.poke(prog(w).U); f2 += 1
             }
-            core.io.gpuMem.get.ready.poke(rd.B)
+            core.io.gpuMem.ready.poke(rd.B)
             core.clock.step(1); wd += 1
           }
-          core.io.gpuMem.get.ready.poke(false.B)
+          core.io.gpuMem.ready.poke(false.B)
           println(s"  run 2: r1=${readReg(core, 1)} (expect ${countingSum(len)}), $f2 fetches")
           utest.assert(readReg(core, 1) == countingSum(len))
         }
@@ -259,8 +259,8 @@ object BorgCoreTestsC extends TestSuite {
         val old = Seq.fill(config.maxInstructions - 1)(Instructions.IADD(rs1 = 1, rs2 = 4, rd = 1)) :+ BigInt(0)
         countingRegs(core)
         runFromImage(core, old, preload = small.maxInstructions)
-        for (_ <- 0 until 255) { core.io.icacheFlush.get.poke(true.B); core.clock.step(1) }
-        core.io.icacheFlush.get.poke(false.B)
+        for (_ <- 0 until 255) { core.io.icacheFlush.poke(true.B); core.clock.step(1) }
+        core.io.icacheFlush.poke(false.B)
         val prog = countingProgram(150)
         countingRegs(core)
         val f = runFromImage(core, prog, preload = 20)
@@ -373,8 +373,8 @@ object BorgCoreTestsC extends TestSuite {
         // would finish and drop `running` within a handful of cycles.
         var sawRequest = false
         for (_ <- 0 until 60) {
-          core.io.gpuMem.get.ready.poke(false.B)
-          if (core.io.gpuMem.get.req.peek().litToBoolean) sawRequest = true
+          core.io.gpuMem.ready.poke(false.B)
+          if (core.io.gpuMem.req.peek().litToBoolean) sawRequest = true
           core.clock.step(1)
         }
         val stillRunning = core.io.status.running.peek().litToBoolean
@@ -388,17 +388,17 @@ object BorgCoreTestsC extends TestSuite {
         var idle = false
         var wd = 0
         while (!idle && wd < 200) {
-          val rq = core.io.gpuMem.get.req.peek().litToBoolean
+          val rq = core.io.gpuMem.req.peek().litToBoolean
           if (rq) {
-            val a = core.io.gpuMem.get.addr.peek().litValue
-            core.io.gpuMem.get.data.poke((mem.getOrElse(a, BigInt(0))).U)
-            core.io.gpuMem.get.ready.poke(true.B)
-          } else core.io.gpuMem.get.ready.poke(false.B)
+            val a = core.io.gpuMem.addr.peek().litValue
+            core.io.gpuMem.data.poke((mem.getOrElse(a, BigInt(0))).U)
+            core.io.gpuMem.ready.poke(true.B)
+          } else core.io.gpuMem.ready.poke(false.B)
           core.clock.step(1)
           idle = !core.io.status.running.peek().litToBoolean
           wd += 1
         }
-        core.io.gpuMem.get.ready.poke(false.B)
+        core.io.gpuMem.ready.poke(false.B)
         utest.assert(idle)
         println(f"  released: r2 = 0x${readReg(core, 2).toInt.toHexString} (expect 0xff)")
         utest.assert(readReg(core, 2) == BigInt("00ff", 16))

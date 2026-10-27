@@ -159,34 +159,6 @@ object BorgTilePathElabTests extends TestSuite {
       println("  sampleCtr present only for MSAA + blend/stencil -- which the shipped Test/Default config now always is")
     }
 
-    // --- The extended ISA is gated too --------------------------------------
-
-    utest.test("a build without the extended ISA carries none of it") {
-      // These gate instructions, not fixed-function state, so unlike the
-      // knobs above they default TRUE -- silently dropping an opcode a
-      // compiler already emitted would execute as something else rather than
-      // fail. Turning them off is an explicit smaller-ISA decision, and this
-      // checks it actually removes the hardware rather than just the decode.
-      val off = elaborate(BorgConfig.Test.copy(
-        hasMemoryOps = false, hasControlFlow = false))
-      utest.assert(!off.contains("execStack"))
-      utest.assert(!off.contains("memRdReg"))
-      println("  no exec stack, no load/store state")
-
-      val on = elaborate(BorgConfig.Test)
-      utest.assert(on.contains("execStack"))
-      utest.assert(on.contains("memRdReg"))
-      println("  default build has both")
-    }
-
-    utest.test("each extended-ISA half can be dropped on its own") {
-      // The point of two knobs rather than one: the wafer.space tradeoff can
-      // be measured at finer grain than all-or-nothing.
-      utest.assert(elaborate(BorgConfig.Test.copy(hasMemoryOps = false)).nonEmpty)
-      utest.assert(elaborate(BorgConfig.Test.copy(hasControlFlow = false)).nonEmpty)
-      println("  memory-only and control-flow-only builds both elaborate")
-    }
-
     // --- And they coexist ---------------------------------------------------
 
     utest.test("all three optional tile-path features coexist") {

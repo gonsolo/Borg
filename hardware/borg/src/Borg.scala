@@ -354,7 +354,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     rast.io.zTestReq := core.io.zTestReq
     core.io.zTestDone := rast.io.zTestDone
-    core.io.laneHelper.foreach(_ := rast.io.laneHelper)
+    core.io.laneHelper := rast.io.laneHelper
   }
 
   private def wireRasterizer(): Unit = {
@@ -381,10 +381,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // the mux collapses to the three-way form it had before, rather than
     // carrying a permanently-idle fourth input.
     val coreMem = core.io.memBusy
-    def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt =
-      core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
-    def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool =
-      core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
+    def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt = Mux(coreMem, sel(core.io.gpuMem), fallback)
+    def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool = Mux(coreMem, sel(core.io.gpuMem), fallback)
 
     io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
@@ -417,7 +415,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val splitData = Mux(upperHalf, wordData(31, 16), wordData(15, 0))
     io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
                        Mux(wideWr, splitData, wordData))
-    core.io.gpuMem.foreach { g =>
+    locally {
+      val g = core.io.gpuMem
       g.data    := io.gpuMem.data
       g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
       g.waccept := false.B
@@ -863,7 +862,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     d.io.desc      := Mux(s.io.busy, s.io.dma.desc,  mmioDesc)
     s.io.dma.busy  := d.io.busy
 
-    // Instruction cache backing store (BorgConfig.hasShaderICache). A shader
+    // Instruction cache backing store. A shader
     // DMA into IMEM defines the program: the word it reads from address A
     // lands in IMEM word i, so program word `pc` is at A + 4*(pc - i), i.e.
     // codeBase = A - 4*i. Setting it here means every sequencer-loaded shader
@@ -879,7 +878,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // address (the DMA's read address) and the exact IMEM index. The flush
     // lands in the same cycle; the core lets the write win, so that line
     // stays valid.
-    core.io.codeBase.foreach { cb =>
+    locally {
       val codeBaseReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
       val awaitFirst   = RegInit(false.B)
       val flush = WireDefault(false.B)
@@ -894,8 +893,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         codeBaseReg := bus.data_in
         flush := true.B
       }
-      cb := codeBaseReg
-      core.io.icacheFlush.get := flush
+      core.io.codeBase := codeBaseReg
+      core.io.icacheFlush := flush
     }
     rdlRegs.io.hw.status_dma_busy := d.io.busy.asUInt
   }
