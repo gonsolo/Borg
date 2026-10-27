@@ -238,11 +238,11 @@ object BorgGpuMemWordTests extends TestSuite {
 
   val tests = Tests {
     utest.test("fp32_store_load_direct") {
-      simulate(new BorgTestWrapper(cfg)) { d => storeLoadScenario(d) }
+      simulate(new BorgTestWrapper(cfg), additionalResetCycles = 4) { d => storeLoadScenario(d) }
     }
 
     utest.test("two_simultaneous_bindings_dont_alias") {
-      simulate(new BorgTestWrapper(cfg)) { d => multiBindingScenario(d) }
+      simulate(new BorgTestWrapper(cfg), additionalResetCycles = 4) { d => multiBindingScenario(d) }
     }
     utest.test("fp32_store_load_over_link") {
       // Used to fail intermittently: a one-cycle reset releases the link
