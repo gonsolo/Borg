@@ -8,9 +8,9 @@ import chisel3.simulator.SharedSim._
 import utest._
 import BorgCoreTestHelpers._
 
-/** cfg.pipelined (docs/B9_pipeline.md, step 1): the next instruction decodes in this one's
-  * write-back cycle unless it reads this one's rd. Each test runs the same program with and
-  * without the overlap and compares results and cycles. */
+/** cfg.pipelined (docs/B9_pipeline.md, step 1): an instruction issues every cycle unless it
+  * reads a register an instruction in flight writes. Each test runs the same program with and
+  * without the pipeline and compares results and cycles. */
 object BorgPipelineTests extends TestSuite {
 
   private val piped   = BorgConfig.Test
@@ -47,12 +47,12 @@ object BorgPipelineTests extends TestSuite {
   private val ints = Seq(1 -> BigInt(5), 2 -> BigInt(3))
 
   val tests = Tests {
-    utest.test("independent_instructions_overlap_write_back") {
+    utest.test("independent_instructions_issue_every_cycle") {
       val prog = (3 to 10).map(rd => Instructions.IADD(1, 2, rd))
       val (cu, cp, r) = both("8 independent IADDs", ints, prog, 3 to 10)
       utest.assert(r.forall(_ == 8))
-      // One cycle per instruction, and the HALT behind the last one.
-      utest.assert(cu - cp == prog.length)
+      // One instruction per cycle, then the last one's way to write-back.
+      utest.assert(cp == prog.length + piped.cBusyLoad)
     }
 
     utest.test("dependent_instruction_waits_for_write_back") {
@@ -68,10 +68,10 @@ object BorgPipelineTests extends TestSuite {
       val prog = (3 to 9 by 2).flatMap(rd => Seq(Instructions.IADD(1, 2, rd), Opcodes.ADDI(rd + 1, 1, rd)))
       val (cu, cp, r) = both("IADD, ADDI with imm = rd before", ints, prog, 3 to 10)
       utest.assert(r == (3 to 10).map(rd => BigInt(if (rd % 2 == 1) 8 else 4 + rd)))
-      utest.assert(cu - cp == prog.length)
+      utest.assert(cp == prog.length + piped.cBusyLoad)
     }
 
-    utest.test("branch_target_with_the_early_fetch") {
+    utest.test("branch_redirects_the_fetch") {
       // r5 counts the iterations of a loop over r1 = 5 .. 1.
       val minusOne = (BigInt(1) << 32) - 1
       val prog = Seq(
