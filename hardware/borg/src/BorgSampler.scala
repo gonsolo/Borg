@@ -208,7 +208,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
   private val states = Enum(28)                            // (three patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
-               sLevel :: sLevelDims :: sLayer :: sAxis :: sAxisMul :: Nil) = states.take(12)
+               sLevel :: sLevelDims :: sLayer :: _ :: sAxisMul :: Nil) = states.take(12)
   private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
                sAccWait :: sTapNext :: sResp :: Nil) = states.slice(12, 24)
   private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
@@ -337,6 +337,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private def mul(a: SInt, b: UInt, next: UInt): Unit = {
     mulA := a; mulB := b; mulRet := next
     state := sMul
+  }
+  /** Axis `a` next, or the taps after the last. */
+  private def toAxis(a: UInt): Unit = {
+    ax := a
+    when(a >= dims) { tap := 0.U; state := sTap }.otherwise { state := sAxisMul }
   }
   /** Tile row: (y / 4) * tiles per row. Linear layout: y * row pitch. */
   private def rowMul(): Unit =
@@ -517,8 +522,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       tpr := (w +& 3.U) >> 2
       // Multiplies by zero are skipped: no slices but in 3D, layer 0.
       when(ttype =/= T3D.U && layerN === 0.U) {
-        sliceTexels := 0.U; layerOff := 0.U; ax := 0.U; wrapEnd := 0.U
-        state := sAxis
+        sliceTexels := 0.U; layerOff := 0.U; wrapEnd := 0.U
+        toAxis(0.U)
       }.otherwise {
         // texels per 3D slice: tiles per row * tile rows * 16
         mul(((w +& 3.U) >> 2).zext, ((h +& 3.U) >> 2) << 4, sLayer)
@@ -530,8 +535,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sLayerOff) {
       layerOff := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      ax := 0.U; wrapEnd := 0.U
-      state := sAxis
+      wrapEnd := 0.U
+      toAxis(0.U)
     }
     is(sMul) {
       product := mulAR * mulBR.zext
@@ -539,13 +544,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
 
     // --- Axes: coordinate -> texel -----------------------------------------
-    is(sAxis) {
-      when(ax >= dims) {
-        tap := 0.U; state := sTap
-      }.otherwise {
-        state := sAxisMul
-      }
-    }
     is(sAxisMul) {
       val a = args(lane)
       val c = MuxLookup(ax, a.u)(Seq(1.U -> a.v, 2.U -> a.w))
@@ -602,7 +600,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       }
       when(done) {
         when(wrapEnd === 0.U && linear) { wrapEnd := 1.U }
-          .otherwise { ax := ax + 1.U; state := sAxis }
+          .otherwise { toAxis(ax + 1.U) }
       }
     }
 
