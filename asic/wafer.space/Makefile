@@ -173,11 +173,11 @@ COCOTB_PY := $(shell cocotb-config --python-bin 2>/dev/null || echo python3)
 # (BorgOnlyTop1x1 or BorgOnlyTop), and the RTL run reads that slot's
 # emission (out/hardware/borg/verilog_wafer_1x1 or verilog_wafer).
 sim-link: clone-pdk defines ## Borg link pad-level tests at RTL (SLOT=1x1 default)
-	cd cocotb; PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
 .PHONY: sim-link
 
 sim-link-gl: clone-pdk defines ## Borg link pad-level tests, gate level (after copy-final)
-	cd cocotb; GL=1 PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+	cd cocotb; GL=1 PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
 .PHONY: sim-link-gl
 
 # The latest synthesis netlist under librelane/runs/. Produced by any full run,
@@ -191,7 +191,7 @@ librelane-synth: clone-pdk defines generated-sources ## LibreLane up to and incl
 sim-link-synth: clone-pdk defines ## Borg link pad-level tests on the latest synthesis netlist
 	@test -n "$(SYNTH_NETLIST)" || { echo "no synthesis netlist under librelane/runs/ -- run make librelane-synth"; exit 1; }
 	@echo "netlist: $(SYNTH_NETLIST)"
-	cd cocotb; GL=1 GL_NETLIST=$(MAKEFILE_DIR)/$(SYNTH_NETLIST) PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+	cd cocotb; GL=1 GL_NETLIST=$(MAKEFILE_DIR)/$(SYNTH_NETLIST) PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
 .PHONY: sim-link-synth
 
 sim-view: ## View simulation waveforms in GTKWave
