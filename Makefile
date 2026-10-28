@@ -26,6 +26,7 @@ help:
 	@echo -e "  rust-project:\t\t\tWrite mesa/rust-project.json for rust-analyzer."
 	@echo -e "  test-borgvk:\t\t\tRun the borgvk driver unit tests (meson)."
 	@echo -e "  test-all:\t\t\tRun all tests."
+	@echo -e "  review:\t\t\tReview this branch's commits (RANGE=, default origin/main..HEAD)."
 	@echo -e "  build-vkcube:\t\t\tBuild Vulkan-Tools vkcube host binary."
 	@echo -e "  vulkan-cts:\t\t\tRun the Vulkan CTS survivor slice against borgvk."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
@@ -201,6 +202,11 @@ test-chisel-core: rdl
 test-all:
 	@MILL_JOBS=$(MILL_JOBS) python3 scripts/test_runner.py
 
+# The script rebases; mesa must stay where it is.
+review:
+	GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=submodule.recurse GIT_CONFIG_VALUE_0=false \
+	GIT_CONFIG_KEY_1=submodule.mesa.ignore GIT_CONFIG_VALUE_1=all ./scripts/review_commits.py $(RANGE)
+
 build-vkcube: Vulkan-Tools/build/cube/vkcube
 
 Vulkan-Tools/build/cube/vkcube:
@@ -294,7 +300,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl isa-copy-check no-generated-check \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all review clean rdl isa-copy-check no-generated-check \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-chisel-borg test-chisel-core test-borgvk rust-project \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
