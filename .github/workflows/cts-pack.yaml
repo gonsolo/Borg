@@ -42,7 +42,7 @@ jobs:
           sudo tar -xf pack/nix-closure.tar -C /
       - name: Run
         run: pack/scripts/cts_pack_shard.sh "${{ matrix.shard }}" out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: shard-${{ matrix.shard }}
@@ -54,7 +54,7 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: shard-*
           path: shards
@@ -69,7 +69,7 @@ jobs:
           cat merged/*/results.txt | sort -k2 > results.txt
           { echo "shards: $(ls shards | wc -l)"; head -6 "$(ls -d merged/* | head -1)/manifest.env"
             awk '{n[$1]++} END{for (k in n) printf "%-22s %d\n", k, n[k]}' results.txt | sort; } | tee summary.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: results
           path: |
