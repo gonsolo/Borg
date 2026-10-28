@@ -1,8 +1,10 @@
 # borgc in SSA
 
-Status: steps 1 to 3 built 2026-10-28 (phis from NIR, webs coalesced on NIR's per-lane
-liveness); 6,395 CTS cases (the borgc corpora, loops, indexing, switch, compute) show no new
-failure. Item 3 of the borgc architecture list (basic blocks, SSA, use-def chains), after B8 and
+Status: steps 1 to 3 built 2026-10-28 (phis from NIR, webs coalesced on NIR's per-lane liveness);
+6,395 CTS cases (the borgc corpora, loops, indexing, switch, compute) show no new failure. Step 4:
+the logical CFG with dominators built; the per-value passes dropped, they gain nothing measured
+(`root_accesses` by dominance changed 0 of 797 replayed shaders, the other per-block passes at most
+120 bytes). Item 3 of the borgc architecture list (basic blocks, SSA, use-def chains), after B8 and
 next to B9, whose scheduler wants blocks too. The spilling allocator (item 2) comes after it, on
 top.
 
@@ -65,7 +67,7 @@ not intend to change code, and runs both corpora where it does.
    allocation. Byte-identical is not expected (copy placement changes); the corpora decide.
 4. Passes per value, one per commit (`root_accesses`, constants, TEX addresses, `fuse_fmadd`,
    DCE), deleting their stale-fact handling.
-5. Legalization pass (item 1), then the spilling allocator (item 2).
+5. Legalization pass (item 1), then the spilling allocator (item 2): `B12_borgc_spilling.md`.
 
 ## Risks
 
