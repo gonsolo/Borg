@@ -28,7 +28,7 @@ Measured on the replay (797 shaders, `out/borgc_replay`, `BORGC_DEBUG=1`):
 | Piece | What |
 |---|---|
 | Legal | `legal(instr)`: what the encoder takes. Register-only RISC-V forms, at most one window operand, immediate ranges, the TEX result block r20-r23, consecutive FATTR results. Checked before encoding; a refusal names the instruction. |
-| Legalize | one pass, `legalize.rs`, after scheduling: the fix-ups above move into it. ISA forms (`iseq_forms`, `fstep_forms`) stay lowering, not legalization. |
+| Legalize | one pass, `legalize.rs`, between the pressure and the latency schedule: the fix-ups above move into it. ISA forms (`iseq_forms`, `fstep_forms`) stay lowering, not legalization. |
 | Spilling | in one compile, on the selected program: while allocation does not fit, spill the value with the furthest next use. Stored once after each definition (a phi web's every copy), reloaded once per block where used. A constant is rebuilt, never stored. |
 | Helper lanes | they also execute spill stores (hardware, below), so every stage can spill. |
 | Compile | one selection; the recompile ladders go. |
@@ -62,4 +62,5 @@ spills, compiles, compile time), both corpora as a CTS pack, and the vertex and 
   one side of an if is not in its register on the other. Reloads are per block for this reason.
 - Compile time: one compile with a spill loop must cost less than today's ladders; measured on
   the replay.
-- Spill memory: 16 graphics slots per lane today (`MAX_SPILL_SLOTS`), 64 in compute.
+- Spill memory per lane: graphics 16 slots for early spills (`MAX_SPILL_SLOTS`), 128 for late
+  ones (`MAX_LATE_SLOTS`); compute 64.
