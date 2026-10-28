@@ -122,6 +122,11 @@ run_chunk() {   # $1 = chunk file; its run directory is named after it
   CTS_PAR_WORKER=1 OUT="$d" NO_FW_BUILD=1 timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
   echo $? > "$d.rc"
   echo "$(( $(date +%s) - t0 )) $(basename "$1") $(wc -l < "$1")" >> "$OUT/chunk_times.txt"
+  # With DIRECT_PROGRESS: the chunk's simulated cycles, and cts_one's exit status (124: timeout).
+  if [[ -n "${DIRECT_PROGRESS:-}" ]]; then
+    echo "$(awk '$3 == "total" {c += $4} END {print c + 0}' "$d/deqp.log" 2>/dev/null) $(basename "$1") $(cat "$d.rc")" \
+      >> "$OUT/chunk_cycles.txt"
+  fi
 }
 export -f run_chunk; export OUT HERE
 collect() {     # per-case results of the run directories given
@@ -133,7 +138,7 @@ collect() {     # per-case results of the run directories given
   done
 }
 start=$(date +%s)
-: > "$OUT/chunk_times.txt"
+: > "$OUT/chunk_times.txt"; : > "$OUT/chunk_cycles.txt"
 find "$OUT/chunks" -type f -name 'c*' 2>/dev/null | sort | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
 collect "$OUT"/run_c* > "$OUT/results.txt"
 # A crash takes the rest of its chunk with it: run the cases that have no result one by one.
