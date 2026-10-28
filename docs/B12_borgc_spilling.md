@@ -3,7 +3,8 @@
 Status: steps 1 to 5 built 2026-10-28, CTS on both corpora (6,276 cases): no Pass lost, 6 fixed.
 Built: legalization; late spilling in compute and, as the ladder's last try, in fragment shaders;
 SWS. Replay: 1,330 -> 1,065 compiles; 4 compute shaders shrink (3,346 -> 2,811 words); 1 refused
-compute and the 2 refused fragment shaders compile. Step 6 open. Step 5 of B10, items 1 and 2 of the
+compute and the 2 refused fragment shaders compile. Step 6, one compile with late spilling, measured
+and refused (below); the ladders go with C instead. Step 5 of B10, items 1 and 2 of the
 borgc architecture list. B10's logical CFG (`block::Cfg`, dominators) is built for it.
 
 ## Today
@@ -53,12 +54,53 @@ spills, compiles, compile time), both corpora as a CTS pack, and the vertex and 
 4. Hardware: the spill store helper lanes run, its encoding, a Chisel test with a helper lane.
 5. 5b: fragment shaders spill with it; `needs_helper_lanes` goes; the 2 refused shaders compile. A
    vertex shader that branches still does not spill.
-6. 5b: the recompile ladders go.
+6. 5b: the recompile ladders go. Measured as one compile with late spilling and refused; now C.
+
+## Step 6, measured
+
+One compile with late spilling (mesa `feat/borgc-one-compile`, not merged), as a cycles pack
+against main on the 6,276 cases (`chunk_cycles.txt`): +19.9% cycles over the 117 chunks both ran
+cleanly; 43 Pass -> Fail (38 depth line lists, whose vertex shaders could not spill; 3 precision; 2
+compute shared atomics), 6 -> Timeout. `roundeven.highp.vec4`: main compiles 5 times and keeps 4
+constants in registers, no spill, 9.19 M cycles; one compile spills 8 values, 15.46 M.
+
+The ladder's constant cap is rematerialization by hand. The late spiller does the reverse: values
+go to memory, constants keep their registers. Every Braun-Hack spiller in Mesa (NAK, ir3, ACO,
+Bifrost) evicts a rebuildable value first, and LLVM halves its spill weight.
+
+## C: a Braun-Hack spiller
+
+Braun & Hack, "Register Spilling and Live-Range Splitting for SSA-Form Programs" (CC 2009), as NAK
+(`spill_values.rs`) and ir3 (`ir3_spill.c`) build it.
+
+| Piece | What |
+|---|---|
+| Next use | per block on `block::Cfg`: each value's distance to its next use; an edge leaving a loop counts as far, so uses after the loop do not keep a value in a register through it. |
+| In registers | per block entry: a loop head takes what the loop uses; a join what its logical predecessors all have, as a reload under a mask reaches that edge's lanes only. |
+| Eviction | rebuildable values first (a constant: its reload is LUI/ADDI), then the furthest next use. |
+| Stores | once after each definition (each definition of a phi web): SW in compute, SWS in draw shaders. None for a constant. |
+| Reloads | at a block's entry or before the use, into a fresh value; reloads on every edge into a join define the same value, as a phi web. |
+| Pressure | counted on the linear CFG, as `live_ranges`; the TEX block counts 4 while live. |
+| Barriers | no value in a register across a BARRIER: the set empties there. |
+| Constants | values without a fixed register; `pool_consts`'s cap and `const_gap` go, the spiller decides. |
+| Allocation | once, with a margin of 1-2 registers for the fixed constraints (TEX block, FATTR, window). |
+
+Steps, each with the tests and the replay statistics; cycles packs against main at C3 and C5:
+
+1. C1: next-use distances and loop structure on `block::Cfg`, with unit tests.
+2. C2: the spiller for values, as the ladder's last try instead of the late spill; same slots and
+   lane keys, vertex shaders included.
+3. C3: constants rebuilt by the spiller instead of held in fixed registers.
+4. C4: barriers; `spill_across_barriers` goes.
+5. C5: one compile; the ladders, the early spill and `spill.limit` go. Both corpora and a vertex
+   pack (glsl matrix, loops, indexing, branches).
 
 ## Risks
 
 - Reloads under masks: a reload runs for its block's lanes only, so each sits right before its use.
 - Compile time: one compile with a spill loop must cost less than today's ladders; measured on
   the replay.
+- C: masked edges, unit-tested per shape (if/else, nested if, loop with an early exit, a value
+  carried round a loop); the 2 compute shared atomics step 6 broke, checked again at C5.
 - Spill memory per lane: graphics 16 slots for early spills (`MAX_SPILL_SLOTS`), 128 for late
   ones (`MAX_LATE_SLOTS`); compute 64.
