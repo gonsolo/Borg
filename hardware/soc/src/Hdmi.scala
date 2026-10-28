@@ -98,3 +98,71 @@ class TmdsEncoder extends Module {
   when(en_reg2) { disp := disp_next }
   io.tmds := out
 }
+
+class HdmiColourBarsIO extends Bundle {
+  val tick  = Output(Bool())
+  val tmds  = Output(Vec(4, UInt(10.W)))
+  val de    = Output(Bool())
+  val hsync = Output(Bool())
+  val vsync = Output(Bool())
+}
+
+/** 640x480 colour bars in a 125 MHz domain, a pixel every fifth cycle (`tick`): TMDS words for B, G, R and the clock. */
+class HdmiColourBars extends Module {
+  val io = IO(new HdmiColourBarsIO)
+
+  val count = RegInit(0.U(3.W))
+  val tick25 = (count === 4.U)
+  when(tick25) { count := 0.U } .otherwise { count := count + 1.U }
+
+  val hCount = RegInit(0.U(10.W))
+  val vCount = RegInit(0.U(10.W))
+
+  // 640x480 @ 60 Hz (25.175 MHz pixel clock approx 25.0 MHz)
+  val hTotal = 800.U
+  val vTotal = 525.U
+  val hActive = 640.U
+  val vActive = 480.U
+  val hFront = 16.U
+  val hSync = 96.U
+  val vFront = 10.U
+  val vSync = 2.U
+
+  when(tick25) {
+    when(hCount === hTotal - 1.U) {
+      hCount := 0.U
+      when(vCount === vTotal - 1.U) {
+        vCount := 0.U
+      } .otherwise {
+        vCount := vCount + 1.U
+      }
+    } .otherwise {
+      hCount := hCount + 1.U
+    }
+  }
+
+  val de = (hCount < hActive) && (vCount < vActive)
+  val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
+  val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync))
+
+  // Colour bars: 8 vertical bars, White/Yellow/Cyan/Green/Magenta/Red/Blue/Black.
+  val barIdx = hCount / 80.U
+  val red   = Mux(de && (barIdx === 0.U || barIdx === 1.U || barIdx === 4.U || barIdx === 5.U), 255.U(8.W), 0.U(8.W))
+  val green = Mux(de && (barIdx === 0.U || barIdx === 1.U || barIdx === 2.U || barIdx === 3.U), 255.U(8.W), 0.U(8.W))
+  val blue  = Mux(de && (barIdx === 0.U || barIdx === 2.U || barIdx === 4.U || barIdx === 6.U), 255.U(8.W), 0.U(8.W))
+
+  val enc = Seq((blue, Cat(vsync, hsync)), (green, 0.U), (red, 0.U)).map { case (data, c) =>
+    val e = Module(new TmdsEncoder)
+    e.io.en   := tick25
+    e.io.data := data
+    e.io.c    := c
+    e.io.de   := de
+    e.io.tmds
+  }
+
+  io.tick  := tick25
+  io.tmds  := VecInit(enc :+ "b0000011111".U(10.W))
+  io.de    := de
+  io.hsync := hsync
+  io.vsync := vsync
+}
