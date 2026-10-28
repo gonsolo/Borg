@@ -1,8 +1,10 @@
 # borgc in SSA
 
-Status: design for review, 2026-10-25, not implemented. Item 3 of the borgc architecture list
-(basic blocks, SSA, use-def chains), after B8 and next to B9, whose scheduler wants blocks too.
-The spilling allocator (item 2) comes after it, on top.
+Status: steps 1 to 3 built 2026-10-28 (phis from NIR, webs coalesced on NIR's per-lane
+liveness); 6,395 CTS cases (the borgc corpora, loops, indexing, switch, compute) show no new
+failure. Item 3 of the borgc architecture list (basic blocks, SSA, use-def chains), after B8 and
+next to B9, whose scheduler wants blocks too. The spilling allocator (item 2) comes after it, on
+top.
 
 ## Today
 
