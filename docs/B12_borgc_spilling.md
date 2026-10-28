@@ -1,7 +1,10 @@
 # borgc: legalization and a spilling allocator
 
-Status: design for review, 2026-10-28. Step 5 of B10, items 1 and 2 of the borgc architecture
-list. B10's logical CFG (`block::Cfg`, dominators) is built for it.
+Status: steps 1 to 5 built 2026-10-28, CTS pending: legalization; late spilling in compute and, as
+the ladder's last try, in fragment shaders; SWS. Replay: 1,330 -> 1,065 compiles; 4 compute shaders
+shrink (3,346 -> 2,811 words); 1 refused compute and the 2 refused fragment shaders compile. Step 6
+open. Step 5 of B10, items 1 and 2 of the borgc architecture list. B10's logical CFG (`block::Cfg`,
+dominators) is built for it.
 
 ## Today
 
