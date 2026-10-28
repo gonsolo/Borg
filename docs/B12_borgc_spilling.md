@@ -1,6 +1,7 @@
 # borgc: legalization and a spilling allocator
 
 Status: steps 1 to 5 built 2026-10-28, CTS on both corpora (6,276 cases): no Pass lost, 6 fixed.
+C built 2026-10-28, its CTS cycles pack pending (below).
 Built: legalization; late spilling in compute and, as the ladder's last try, in fragment shaders;
 SWS. Replay: 1,330 -> 1,065 compiles; 4 compute shaders shrink (3,346 -> 2,811 words); 1 refused
 compute and the 2 refused fragment shaders compile. Step 6, one compile with late spilling, measured
@@ -70,30 +71,37 @@ Bifrost) evicts a rebuildable value first, and LLVM halves its spill weight.
 
 ## C: a Braun-Hack spiller
 
-Braun & Hack, "Register Spilling and Live-Range Splitting for SSA-Form Programs" (CC 2009), as NAK
-(`spill_values.rs`) and ir3 (`ir3_spill.c`) build it.
+Braun & Hack, "Register Spilling and Live-Range Splitting for SSA-Form Programs" (CC 2009), with NAK
+(`spill_values.rs`) and ir3 (`ir3_spill.c`) as the reference. Built 2026-10-28 (mesa
+`feat/borgc-spiller`) as interval splitting with their heuristics: borgc allocates ranges over the
+linear program, which on SIMT is exact (a value written on one side of an `if` keeps the other
+lanes' contents in its register while the other side runs).
 
-| Piece | What |
+| Piece | As built |
 |---|---|
-| Next use | per block on `block::Cfg`: each value's distance to its next use; an edge leaving a loop counts as far, so uses after the loop do not keep a value in a register through it. |
-| In registers | per block entry: a loop head takes what the loop uses; a join what its logical predecessors all have, as a reload under a mask reaches that edge's lanes only. |
-| Eviction | rebuildable values first (a constant: its reload is LUI/ADDI), then the furthest next use. |
-| Stores | once after each definition (each definition of a phi web): SW in compute, SWS in draw shaders. None for a constant. |
-| Reloads | at a block's entry or before the use, into a fresh value; reloads on every edge into a join define the same value, as a phi web. |
-| Pressure | counted on the linear CFG, as `live_ranges`; the TEX block counts 4 while live. |
-| Barriers | no value in a register across a BARRIER: the set empties there. |
-| Constants | values without a fixed register; `pool_consts`'s cap and `const_gap` go, the spiller decides. |
-| Allocation | once, with a margin of 1-2 registers for the fixed constraints (TEX block, FATTR, window). |
+| Next use | `block::NextUse`: per block on the logical CFG, each value's distance to its next read; an edge leaving a loop adds 2^16. |
+| Where | the first position with more live values than free registers (linear CFG, the TEX block counts 4), or a BARRIER any value crosses. |
+| Eviction | a constant built near its reads, rebuilt per block (LUI/ADDI); then compute's least read preset constant, for the whole program; then the value with the furthest next use. A reload leaves again for one more load. Never a value read at the peak or right after it, except at a barrier. |
+| Split | at the peak, or at the start of the outermost loop the value enters live there; earlier reads keep it. |
+| Stores, reloads | a store after each definition (SW in compute, SWS in draw shaders); from the split on, a block loads the value once. |
+| Compile | once; compute sinks loads only when that runs out of registers. |
 
-Steps, each with the tests and the replay statistics; cycles packs against main at C3 and C5:
+Replay (797 shaders): 1,065 -> 802 compiles, 7.1 -> 5.8 s, none refused; 44 compute shaders 3%
+smaller, the 2 largest fragment shaders 14%. In one compile, six compute cases that cost step 6 up
+to +107% cycles: -38% to +-0% against main. Squeezed to 20, 16, 12 and 8 free registers (a test
+switch, not committed) every shader compiles without a hang; that found two endless loops, which the
+eviction rule's last sentence ends. Steps C1 to C5 built; the CTS cycles pack against main is
+pending.
 
-1. C1: next-use distances and loop structure on `block::Cfg`, with unit tests.
-2. C2: the spiller for values, as the ladder's last try instead of the late spill; same slots and
-   lane keys, vertex shaders included.
-3. C3: constants rebuilt by the spiller instead of held in fixed registers.
-4. C4: barriers; `spill_across_barriers` goes.
-5. C5: one compile; the ladders, the early spill and `spill.limit` go. Both corpora and a vertex
-   pack (glsl matrix, loops, indexing, branches).
+Open, against NAK and ir3:
+
+- Reloads out of loops: a value spilled in a loop is loaded in every block that reads it, on every
+  trip; Braun-Hack loads it before the loop when the pressure inside allows. Under the exec mask
+  this trades a load per trip for a register held through the whole loop.
+- Presets all or nothing: a preset constant leaves its register for the whole program.
+- A store after every definition and one slot per value: no check for stores never reloaded, no
+  slot sharing.
+- Only constants are rebuilt; cheap values such as addresses from r30 could be too.
 
 ## Risks
 
@@ -102,5 +110,4 @@ Steps, each with the tests and the replay statistics; cycles packs against main 
   the replay.
 - C: masked edges, unit-tested per shape (if/else, nested if, loop with an early exit, a value
   carried round a loop); the 2 compute shared atomics step 6 broke, checked again at C5.
-- Spill memory per lane: graphics 16 slots for early spills (`MAX_SPILL_SLOTS`), 128 for late
-  ones (`MAX_LATE_SLOTS`); compute 64.
+- Spill memory per lane: 128 slots in draw shaders (`MAX_LATE_SLOTS`), 64 in compute.
