@@ -15,7 +15,7 @@ export PATH="$P/bin:$PATH"
 [[ "$KIND" == fractions ]] && export DEQP_ARGS="--deqp-log-images=disable --deqp-log-shader-sources=disable"
 jobs=${JOBS:-$(nproc)}
 VK_GL_CTS="$P/cts" MESA_ROOT="$P/mesa" SIM_BIN="$P/simulation/direct/direct_sim" DIRECT=1 \
-  JOBS="$jobs" SIM_BUDGET="$jobs" CASELIST="$P/shards/$shard.txt" OUT="$O/$shard" \
+  JOBS="$jobs" SIM_BUDGET="$jobs" CASE_TIMEOUT="${CASE_TIMEOUT:-120}" CASELIST="$P/shards/$shard.txt" OUT="$O/$shard" \
   "$P/scripts/cts_par.sh" "$shard"
 cp "$P/manifest.env" "$O/$shard/"
 ( cd "$O/$shard" && tar --zstd -cf "$O/$shard.tar.zst" manifest.env results.txt summary.txt chunk_times.txt \
