@@ -13,8 +13,9 @@ Measured on the replay (797 shaders, `out/borgc_replay`, `BORGC_DEBUG=1`):
 - Graphics never spills: `spill_one` refuses a shader with a branch, a derivative or an
   implicit-LOD TEX, because a helper lane skips its STOREs (`BorgCore` `laneHelper`) and would
   reload a wrong value. All 216 spills are compute.
-- 2 fragment shaders are refused at peak pressure 26 of 30 registers: the allocator fails on the
-  fixed registers and the TEX block, not on pressure.
+- Every failed allocation (536) is pressure: more values live at one point than free registers
+  (the 2 refused fragment shaders: 85 live, 26 free). The regalloc debug line's "peak pressure"
+  counts only the values that got a register. The allocator is not the problem; spilling is.
 - Legalization is spread over `split_window_reads`, `v2_operands`, `place_const_operands`,
   `copy_tex_results` and `window_copy`; the encoder counts what it cannot encode (`pending`,
   `bad`) afterwards.
@@ -25,7 +26,6 @@ Measured on the replay (797 shaders, `out/borgc_replay`, `BORGC_DEBUG=1`):
 |---|---|
 | Legal | `legal(instr)`: what the encoder takes. Register-only RISC-V forms, at most one window operand, immediate ranges, the TEX result block r20-r23, consecutive FATTR results. Checked before encoding; a refusal names the instruction. |
 | Legalize | one pass, `legalize.rs`, after scheduling: the fix-ups above move into it. ISA forms (`iseq_forms`, `fstep_forms`) stay lowering, not legalization. |
-| Allocation | fixed registers and the 4-register TEX block placed first, the other values around them; it succeeds whenever peak pressure fits the free registers. |
 | Spilling | in one compile, on the selected program: while allocation does not fit, spill the value with the furthest next use. Stored once after each definition (a phi web's every copy), reloaded once per block where used. A constant is rebuilt, never stored. |
 | Helper lanes | they also execute spill stores (hardware, below), so every stage can spill. |
 | Compile | one selection; the recompile ladders go. |
@@ -47,11 +47,11 @@ spills, compiles, compile time), both corpora as a CTS pack, and the vertex and 
 
 1. 5a: `legal()` and the check before encoding.
 2. 5a: each fix-up into `legalize.rs`, one per commit.
-3. 5b: allocation around fixed registers and the TEX block; the 2 refused shaders compile.
-4. 5b: spilling in one compile; reloads per block; constants rebuilt.
-5. Hardware: the spill store helper lanes run, its encoding, a Chisel test with a helper lane.
-6. 5b: fragment and vertex shaders spill with it; `needs_helper_lanes` goes.
-7. 5b: the recompile ladders go.
+3. 5b: spilling in one compile; reloads per block; constants rebuilt.
+4. Hardware: the spill store helper lanes run, its encoding, a Chisel test with a helper lane.
+5. 5b: fragment and vertex shaders spill with it; `needs_helper_lanes` goes; the 2 refused
+   shaders compile.
+6. 5b: the recompile ladders go.
 
 ## Risks
 
