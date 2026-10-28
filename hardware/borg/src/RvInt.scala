@@ -29,7 +29,9 @@ class RvInt(instr: UInt) {
   val csrMask = csrrs && csr === Csr.SampleMask.U
   /** LB, LH, LW, LBU, LHU at rs1 + imm12; SW at rs1 + the S-type immediate. */
   val load  = opc === Opcodes.OPCODE_LW.U && (f3 === 0.U || f3 === 1.U || f3 === 2.U || f3 === 4.U || f3 === 5.U)
-  val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U
+  /** SWS: SW to a spill slot, which helper lanes run too (custom-2). */
+  val sws   = (instr & Opcodes.MASK_SWS.U(32.W)) === Opcodes.MATCH_SWS.U(32.W)
+  val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U || sws
   val width = f3
   /** Custom-1 (B8 step 11): TEX by descriptor address (rs3), TEXA, and TEXS (sampler address, control word). */
   val custom1 = opc === Opcodes.OPCODE_TEXD.U

@@ -978,6 +978,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // STORE and SOUT: both write rs2 per lane and differ only in the address.
     val is_store_reg = RegInit(false.B)
     val is_sout_reg  = RegInit(false.B)
+    val is_sws_reg   = RegInit(false.B)
     val is_fattr_reg = RegInit(false.B)
     // LB..LW, SW and the AMOs: byte address rs1 + imm.
     val rvMem = RegInit(false.B); val rvWidth = Reg(UInt(3.W)); val rvImm = Reg(UInt(32.W))
@@ -989,6 +990,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_load_reg  := opFlags.load
       is_store_reg := opFlags.store || opFlags.sout
       is_sout_reg  := opFlags.sout
+      is_sws_reg   := rv.sws
       is_fattr_reg := opFlags.fattr
     }
 
@@ -1064,6 +1066,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_load_reg  := false.B
       is_store_reg := false.B
       is_sout_reg  := false.B
+      is_sws_reg   := false.B
       is_fattr_reg := false.B
       squashPipe := true.B
       programCounter := programCounter + 1.U
@@ -1092,12 +1095,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A helper lane (see io.laneHelper) runs everything except its STOREs:
     // Vulkan requires stores by helper invocations, and by fragments that
     // failed the early tests or were discarded, to have no effect. Its LOADs
-    // still happen, since derivatives of loaded values need them.
+    // still happen, since derivatives of loaded values need them. SWS it
+    // runs: a spill slot is the lane's own, so its store has no effect.
     // laneHelper describes the quad the dispatcher last shaded, so it never
     // applies to a sequencer-run program: a vertex shader's or the setup
     // ROM's SOUT must not inherit it.
     val laneActive = VecInit(execMask.asBools)(memLaneIdx) && soutLaneOk &&
-                     !((is_store_reg || isAmo) && !io.seqBusy && io.laneHelper(memLaneIdx))
+                     !((is_store_reg && !is_sws_reg || isAmo) && !io.seqBusy && io.laneHelper(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
       holdPipe := true.B
