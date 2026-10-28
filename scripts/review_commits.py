@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review commits one by one and add your Reviewed-by tag. It never pushes.
+"""Review commits one by one and add your Reviewed-by tag; merge and push only on your yes.
 
     scripts/review_commits.py [RANGE]        # default: origin/main..HEAD
 
@@ -25,8 +25,10 @@ Only when EVERY commit was accepted does it
   2. check the result with scripts/check_ai_policy.py,
   3. warn if a submodule commit the range points at is not on the submodule's
      remote (a bump to an unpushed commit breaks everyone else),
-  4. print the commands to merge <branch>-reviewed into main and to push it;
-     both are left to you.
+  4. ask, one step at a time: fast-forward main to <branch>-reviewed, delete
+     <branch> and <branch>-reviewed, push main (not offered after a warning in 3).
+
+Submodules stay where they are: the script's switches and rebases do not move them.
 
 The review is a human act: the script refuses to run without a terminal on
 stdin, so it cannot be scripted or driven by an assistant.
@@ -137,6 +139,8 @@ def main():
         rewrite_todo(todo, [r for r in reword.split(",") if r], exec_cmd, [r for r in none.split(",") if r], none_cmd)
         return
 
+    os.environ.update(GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="submodule.recurse", GIT_CONFIG_VALUE_0="false",
+                      GIT_CONFIG_KEY_1="submodule.mesa.ignore", GIT_CONFIG_VALUE_1="all")
     if not sys.stdin.isatty():
         sys.exit("review_commits.py needs a terminal: a review is done by a human.")
     if git("status", "--porcelain", "--untracked-files=no"):
@@ -244,16 +248,28 @@ def main():
         sys.exit(f"policy check failed -- fix the commit messages, nothing was pushed. Back: git switch {cur}; git branch -D {reviewed}")
 
     # 3. warn about submodule bumps whose commit is not on the submodule's remote.
+    unpushed = False
     for path, sha in submodule_bumps(base, "HEAD"):
         sub = ROOT / path
         if (sub / ".git").exists() and not git("branch", "-r", "--contains", sha, check=False, cwd=sub):
             print(f"\nWARNING: {path}: {sha[:11]} is not on the submodule's remote; push it first.")
+            unpushed = True
 
-    print(f"\nReviewed-by added to {base}..HEAD on {reviewed}; {cur} is unchanged. Nothing was pushed. To merge:")
-    print(f"  git switch main && git merge --ff-only {reviewed}")
-    if (ROOT / "mesa" / ".git").exists():
-        print("  git -C mesa switch main   # submodule.recurse leaves mesa detached")
-    print("  git -c http.https://github.com/.extraheader= push origin main   # only if you want to")
+    # 4. merge, delete, push: each only on a yes.
+    print(f"\nReviewed-by added to {base}..HEAD on {reviewed}; {cur} is unchanged.")
+    if ask(f"Fast-forward main to {reviewed}?", "yn") == "n":
+        sys.exit(f"Nothing merged or pushed. Later: git switch main && git merge --ff-only {reviewed}")
+    git("switch", "main")
+    if subprocess.run(["git", "merge", "--ff-only", reviewed], cwd=ROOT).returncode:
+        sys.exit(f"main cannot fast-forward to {reviewed}; nothing pushed. Rebase {reviewed} on main first.")
+    if ask(f"Delete {cur} and {reviewed}?", "yn") == "y":
+        git("branch", "-D", cur, reviewed)
+    if unpushed:
+        sys.exit("Not pushed: a submodule commit is not on its remote (see the warning above).")
+    if ask("Push main to origin?", "yn") == "y":
+        subprocess.run(["git", "-c", "http.https://github.com/.extraheader=", "push", "origin", "main"], cwd=ROOT)
+    else:
+        print("Not pushed.")
 
 if __name__ == "__main__":
     main()

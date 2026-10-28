@@ -26,7 +26,7 @@ help:
 	@echo -e "  rust-project:\t\t\tWrite mesa/rust-project.json for rust-analyzer."
 	@echo -e "  test-borgvk:\t\t\tRun the borgvk driver unit tests (meson)."
 	@echo -e "  test-all:\t\t\tRun all tests."
-	@echo -e "  review:\t\t\tReview this branch's commits (RANGE=, default origin/main..HEAD)."
+	@echo -e "  review:\t\t\tReview this branch, then merge, delete and push on a yes (RANGE=)."
 	@echo -e "  build-vkcube:\t\t\tBuild Vulkan-Tools vkcube host binary."
 	@echo -e "  vulkan-cts:\t\t\tRun the Vulkan CTS survivor slice against borgvk."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
@@ -202,10 +202,8 @@ test-chisel-core: rdl
 test-all:
 	@MILL_JOBS=$(MILL_JOBS) python3 scripts/test_runner.py
 
-# The script rebases; mesa must stay where it is.
 review:
-	GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=submodule.recurse GIT_CONFIG_VALUE_0=false \
-	GIT_CONFIG_KEY_1=submodule.mesa.ignore GIT_CONFIG_VALUE_1=all ./scripts/review_commits.py $(RANGE)
+	./scripts/review_commits.py $(RANGE)
 
 build-vkcube: Vulkan-Tools/build/cube/vkcube
 
