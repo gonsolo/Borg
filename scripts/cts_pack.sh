@@ -7,6 +7,7 @@
 #   scripts/cts_pack.sh <label> fractions <shards>      the 16 mustpass fractions, <shards> each
 #
 # CASE_TIMEOUT (seconds, default 120) is the limit for a case run alone; the pack keeps it.
+# The cases in scripts/cts_slow.txt (over 10 min each) are left out unless SLOW=1.
 #
 # Writes out/cts-pack/<label>/cts-pack.tar.zst and shards.json, the two release assets the
 # workflow takes.
@@ -14,7 +15,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
 MESA_ROOT="${MESA_ROOT:-$REPO/mesa}"
-[[ $# -eq 3 ]] || { sed -n 2,10p "$0"; exit 2; }
+[[ $# -eq 3 ]] || { sed -n 2,13p "$0"; exit 2; }
 label=$1 list=$2 n=$3
 DEQP_DIR="$VK_GL_CTS/build/external/vulkancts/modules/vulkan"
 VK="$MESA_ROOT/build-borg/src/borg"
@@ -43,7 +44,8 @@ tar -cf "$P/nix-closure.tar" $(nix-store -qR $roots)
 
 # Shards: the cases shuffled with a fixed seed, dealt round robin so every shard gets a mix.
 deal() {   # $1 = case list, $2 = shard name prefix
-  shuf --random-source=<(yes) "$1" | split -n r/"$n" -d -a 3 - "$P/shards/$2"
+  { [[ ${SLOW:-0} == 1 ]] && cat "$1" || grep -vxFf "$REPO/scripts/cts_slow.txt" "$1" || true; } |
+    shuf --random-source=<(yes) | split -n r/"$n" -d -a 3 - "$P/shards/$2"
 }
 kind=list
 if [[ "$list" == fractions ]]; then
