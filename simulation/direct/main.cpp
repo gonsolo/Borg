@@ -65,6 +65,7 @@ static int run_compute(const char *jobf, const char *outf) {
     st = sim.mmio(C_CTRL, false, 0);
   }
   if (getenv("DIRECT_DBG")) fprintf(stderr, "[direct] compute status 0x%x, %llu cycles\n", st, (unsigned long long)sim.cycles);
+  if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
   if (!(st & 1)) return 3;
   if (st & 8) { fprintf(stderr, "[direct] compute barrier fault\n"); return 4; }
   FILE *o = fopen(outf, "wb");
@@ -151,7 +152,9 @@ int main(int argc, char **argv) {
   if (argc == 3 && std::string(argv[1]) == "--serve") {   // direct_sim --serve <memory fd>
     DirectSim sim(atoi(argv[2]));
     Driver drv(sim);
-    return drv.serve(0, 1);
+    int r = drv.serve(0, 1);
+    if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
+    return r;
   }
   if (argc < 4) { fprintf(stderr, "usage: %s <stream.bin> <W> <H> [out.rgb]\n", argv[0]); return 1; }
   std::ifstream f(argv[1], std::ios::binary);
