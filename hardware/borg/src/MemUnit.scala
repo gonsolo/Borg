@@ -86,7 +86,6 @@ class MemUnit(cfg: BorgConfig) extends Module {
   io.busy      := state =/= sIdle
 
   when(io.atOps && state === sIdle && (isLoad || isStore)) {
-    io.hold := true.B
     rd := regs.rd; lane := 0.U
     state := sReq
     compIdx := Cat(regs.rs1, regs.rd)          // SOUT: index in rs1:rd
@@ -94,7 +93,6 @@ class MemUnit(cfg: BorgConfig) extends Module {
   // FATTR is one access for the whole quad: the three per-vertex values are the same for every
   // fragment of the triangle.
   when(io.atOps && state === sIdle && isFattr) {
-    io.hold := true.B
     rd := regs.rd; attrK := 0.U
     state := sAttrReq
     compIdx := Cat(regs.rs2, regs.rs1)         // FATTR: index in rs2:rs1
@@ -107,7 +105,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
   }
   private def finishLane(): Unit = {
     when(lane === (N - 1).U) { finishInstr() }
-      .otherwise { lane := lane + 1.U; state := sReq; io.hold := true.B }
+      .otherwise { lane := lane + 1.U; state := sReq }
   }
 
   // The helper bits describe the quad the dispatcher shades, never a sequencer's program.
@@ -115,11 +113,9 @@ class MemUnit(cfg: BorgConfig) extends Module {
     !((isStore && !isSws || isAmo) && !io.seqBusy && io.laneHelper(lane))
 
   when(state === sReq && !laneActive) {
-    io.hold := true.B
     finishLane()
   }
   when(state === sReq && laneActive) {
-    io.hold := true.B
     io.mem.addr  := byteAddr
     io.mem.req   := isLoad
     io.mem.wr    := isStore
@@ -139,14 +135,12 @@ class MemUnit(cfg: BorgConfig) extends Module {
   }
   // AMO: the new value goes to the same word, then rd gets the old one.
   when(state === sAmoWr) {
-    io.hold := true.B
     io.mem.addr  := byteAddr
     io.mem.wr    := true.B
     io.mem.wdata := amoNew
     when(io.mem.ready) { state := sWB }
   }
   when(state === sWB) {
-    io.hold := true.B
     io.wb.zipWithIndex.foreach { case (w, i) =>
       w.en := io.wbReady && i.U === lane && !(rvMem && rd === 0.U); w.addr := rd; w.data := data
     }
@@ -189,12 +183,10 @@ class MemUnit(cfg: BorgConfig) extends Module {
     .elsewhen(fcFill) { fcMem.write(fcIndex(byteAddr), Cat(fcAddr, fcEpoch, data)) }
 
   when(state === sAttrReq) {
-    io.hold := true.B
     fcAddr := byteAddr(GpuMemIO.AddrBits - 1, 2)
     state  := sAttrLook
   }
   when(state === sAttrLook) {
-    io.hold := true.B
     val eTag   = fcRead(fcWidth - 1, 8 + W)
     val eEpoch = fcRead(8 + W - 1, W)
     when(!fcSweeping && eEpoch === fcEpoch && eTag === fcAddr) {
@@ -202,13 +194,11 @@ class MemUnit(cfg: BorgConfig) extends Module {
     }.otherwise { state := sAttrMem }
   }
   when(state === sAttrMem) {
-    io.hold     := true.B
     io.mem.addr := byteAddr
     io.mem.req  := true.B
     when(io.mem.ready) { data := io.mem.data(W - 1, 0); state := sAttrWB }
   }
   when(state === sAttrWB) {
-    io.hold := true.B
     fcFill  := fcFromMem
     io.wb.zipWithIndex.foreach { case (w, i) => w.en := io.wbReady && mask(i); w.addr := rd + attrK; w.data := data }
     when(io.wbReady) {

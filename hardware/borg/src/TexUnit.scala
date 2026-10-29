@@ -72,11 +72,9 @@ class TexUnit(cfg: BorgConfig) extends Module {
   private val mask = RegEnable(io.mask, start)   // the sampler latches the rest
   when(start) {
     sampler.io.req.valid := true.B
-    io.hold := true.B
     st := sWait
   }
   when(st === sWait) {
-    io.hold := true.B
     when(sampler.io.resp.valid) {
       respLane := sampler.io.resp.bits.lane; respData := sampler.io.resp.bits.data
       lastResp := sampler.io.done
@@ -84,7 +82,6 @@ class TexUnit(cfg: BorgConfig) extends Module {
     }
   }
   when(st === sWB) {
-    io.hold := true.B
     io.wb.zipWithIndex.foreach { case (w, i) =>
       w.en := io.wbReady && i.U === respLane && mask(i); w.addr := rd + wbK; w.data := respData(wbK)
     }

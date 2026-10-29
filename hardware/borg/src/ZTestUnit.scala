@@ -11,15 +11,14 @@ class ZTestUnitIO(cfg: BorgConfig) extends CoreUnitIO(cfg) {
 }
 
 /** ZTEST: the early per-fragment tests. The dispatcher owns the tile buffer, tests the whole quad
-  * and answers once; ZTEST writes no register. */
+  * and answers once; ZTEST writes no register. The request starts at the operands and is held. */
 class ZTestUnit(cfg: BorgConfig) extends Module {
   val io = IO(new ZTestUnitIO(cfg))
   io.idle()
   private val isZTest = RegInit(false.B)
+  private val active  = RegInit(false.B)
   when(io.issue.valid) { isZTest := RvInt(io.issue.bits.word).ztest }
-  io.req := io.atOps && isZTest
-  when(io.req) {
-    io.hold := true.B
-    when(io.done) { isZTest := false.B; io.finish := true.B }
-  }
+  io.req := io.atOps && isZTest || active
+  when(io.req) { active := true.B }
+  when(io.req && io.done) { isZTest := false.B; active := false.B; io.finish := true.B }
 }

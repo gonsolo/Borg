@@ -65,7 +65,7 @@ object Decode {
     flags.csr  := rv.csr
     flags.explog := rv.fexp2 || rv.flog2
     flags.unit := flags.load || flags.store || flags.sout || flags.fattr || flags.tex || flags.texa ||
-      flags.texs || flags.explog
+      flags.texs || flags.explog || flags.ztest
 
     (regs, flags)
   }

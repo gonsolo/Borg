@@ -25,13 +25,11 @@ class ExpLogUnit(cfg: BorgConfig) extends Module {
   private val (opA, mask) = (RegEnable(io.a, start), RegEnable(io.mask, start))
   when(start) {
     active := true.B; sent := 0.U; back := 0.U
-    io.hold := true.B
   }
   unit.io.log := isLog
   unit.io.in.valid := active && sent < N.U
   unit.io.in.bits  := opA(sent((log2Up(N) max 1) - 1, 0))
   when(active) {
-    io.hold := true.B
     when(sent < N.U) { sent := sent + 1.U }
   }
   // BorgExpLog cannot stall: a result the port does not take waits in its lane's buffer.
