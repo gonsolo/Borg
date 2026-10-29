@@ -381,8 +381,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // over this default for every cycle none of them is.
   lanes.map(_.io.memWrite).foreach { mw => mw.en := false.B; mw.addr := 0.U; mw.data := 0.U }
 
-  // --- ZTEST: stall while the dispatcher runs the early per-fragment tests ---
-  wireZTest()
+  private val zTest = Module(new ZTestUnit(cfg))
+  attach(zTest.io)
+  io.zTestReq := zTest.io.req
+  zTest.io.done := io.zTestDone
 
   // --- Instruction cache: must follow wireMemStall, whose port it shares ---
 
@@ -817,31 +819,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := w.addr; l.io.memWrite.data := w.data }
     }
   }
-
-  /** ZTEST stall. Same freeze-at-operands shape as TEX/TEXA and LOAD/STORE, but
-    * there is no per-lane loop here: the dispatcher tests every lane of the
-    * quad itself (it owns the tile buffer) and answers once. Resuming by
-    * squashing the stages skips the lanes' write-back cycle, so ZTEST
-    * writes no register, exactly like STORE. */
-  private def wireZTest(): Unit = {
-    val is_ztest_reg = RegInit(false.B)
-    when(fma_start) {
-      is_ztest_reg := opFlags.ztest
-    }
-    val waiting = at(cfg.cOperands) && is_ztest_reg
-    io.zTestReq := waiting
-    when(waiting) {
-      holdPipe := true.B
-      when(io.zTestDone) {
-        squashPipe   := true.B
-        programCounter := programCounter + 1.U
-        is_ztest_reg   := false.B
-        // IMEM still holds the ZTEST word for a cycle, same as the other stall FSMs.
-        texResumeDelay := true.B
-      }
-    }
-  }
-
 
   // @doc:branch
   /** Conditional branch: `BRZ`/`BRNZ rs1, target`.
