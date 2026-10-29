@@ -194,6 +194,28 @@ object BorgComputeTests extends TestSuite {
       }
     }
 
+    utest.test("masked_barrier_steps_over") {
+      // Every lane masked off at the BARRIER (an `if` the workgroup skipped): no quad stops
+      // there, so none resumes past it unmasked and runs the skipped branch.
+      val prog = words(
+        Instructions.EXPUSH(rs1 = 10),                  // r10 = 0: no lane takes the branch
+        Instructions.BARRIER(),
+        Instructions.IADD(rs1 = 30, rs2 = 13, rd = 3),
+        st(3, 11),                                      // output[16+i] = 1000, skipped
+        Instructions.EXPOP(),
+        st(30, 12)                                      // output[i] = 7
+      )
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, Map(10 -> 0, 11 -> 1000, 12 -> 7, 13 -> 16), (1, 1, 1), (8, 1, 1))
+        val status = mmioRead(d, dram, off(BorgGpuRegs.compute_ctrl_offset))
+        for (i <- 0 until 8) {
+          utest.assert(word(dram, i) == 7)
+          utest.assert(word(dram, 16 + i) == 0)
+        }
+        utest.assert((status & 9) == 1)  // done, no barrier fault
+      }
+    }
+
     // -- Phase 3: hand-written ISA patterns borgc will need to emit ---------
     //
     // Neither pattern below is new hardware -- both are proofs, ahead of the

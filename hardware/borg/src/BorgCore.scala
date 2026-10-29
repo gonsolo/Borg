@@ -273,6 +273,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Decode + FSM ---
   val (regs, opFlags) = decode(fetchedInstruction)
+  // A BARRIER with every lane masked off is one the workgroup skipped (barriers are in uniform
+  // control flow): it steps over, since a resume would restart those lanes unmasked.
+  val barrierStop = opFlags.barrier && execMask =/= 0.U
   val next = RvInt(fetchedInstruction)
   val issued = Wire(new StageInfo)
   issued.writes := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite
@@ -305,7 +308,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.issueStats.waitEmpty  := waiting && !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain)
     io.issueStats.waitUnit   := waiting && !hazard && !behindBranch && holdPipe
     io.issueStats.drains     := fma_start && issued.drain
-    val step = fma_start && !opFlags.branch && !issued.drain && !opFlags.barrier
+    val step = fma_start && !opFlags.branch && !issued.drain && !barrierStop
     redirecting := at(redirect) && info(redirect).branch
     nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
   }
@@ -498,7 +501,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(fetchedInstruction === 0.U) {
         running      := false.B
         atBarrierReg := false.B
-      }.elsewhen(opFlags.barrier) {
+      }.elsewhen(barrierStop) {
         // Zero-latency stop, same as HALT above -- the difference is only in
         // what BorgComputeSequencer does with it (resume this same invocation
         // one word past BARRIER next segment, rather than treating it as
