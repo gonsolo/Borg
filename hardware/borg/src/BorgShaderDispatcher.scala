@@ -47,7 +47,8 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val tileWrite   = new TileWriteIO(cfg.samples, cfg.tileDepthBits)
   val tileRead    = new TileReadIO(16, cfg.samples, cfg.tileDepthBits)
 
-  val autoRunStall = Output(Bool())     // from a quad's start until it is written
+  val autoRunStall = Output(Bool())     // from a quad's start until every quad is written
+  val slotStall    = Output(Bool())     // no free slot: a new quad waits
   val insideFlag   = Output(Bool())
   val phase        = Output(UInt(4.W))  // debug only
   // Consumers test this, never a phase number.
@@ -306,8 +307,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   outs.captureRast(io.csrWrite, phase(io.csrSlot) === sRast, io.csrSlot)
   outs.captureFrag(io.csrWrite, phase(io.csrSlot) === sFrag, io.csrSlot)
 
-  // A new quad waits for a free slot; a new tile command for all of them.
-  io.autoRunStall := !phase.map(_ === sIdle).reduce(_ || _)
+  // A new quad waits for a free slot; a new tile command, MMIO and the flusher for all of them.
+  io.slotStall    := !phase.map(_ === sIdle).reduce(_ || _)
+  io.autoRunStall := !phase.map(_ === sIdle).reduce(_ && _)
   io.insideFlag   := cov.at(eq).anyInside
   io.phase        := phase(0)
   io.idle         := phase.map(_ === sIdle).reduce(_ && _)

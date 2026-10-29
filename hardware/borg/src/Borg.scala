@@ -750,7 +750,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.cullMode        := seqCfgPipe(rdlRegs.io.hw.cull_cfg_cull_mode)
       s.io.mmio.frontFaceInvert := seqCfgPipe(rdlRegs.io.hw.cull_cfg_front_face_invert.asBool)
       s.io.iter.complete        := rast.io.tileComplete
-      s.io.iter.stall           := rast.io.autoRunStall
+      s.io.iter.stall           := rast.io.slotStall
       // Flushing waits for it, or the flusher reads slot 15 before the dispatcher writes it.
       s.io.iter.dispatcherIdle  := rast.io.dispatcherIdle
 

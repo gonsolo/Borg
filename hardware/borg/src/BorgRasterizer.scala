@@ -47,6 +47,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val iterValid     = Output(Bool())
   val uniformPage   = Output(UInt(1.W))
   val autoRunStall  = Output(Bool())
+  val slotStall     = Output(Bool())
   val coreTrigger   = new CoreTriggerIO
 
   // Pulse: all 16 pixels of the tile have been advanced.
@@ -85,8 +86,8 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val dispatcher = Module(new BorgShaderDispatcher(cfg))
 
   iterator.io.cmdPop    <> io.cmdPop
-  // An advance during autoRunStall is dropped; firmware retries while iterValid.
-  iterator.io.advance   := io.advance && !dispatcher.io.autoRunStall
+  // An advance without a free slot is dropped; firmware retries while iterValid.
+  iterator.io.advance   := io.advance && !dispatcher.io.slotStall
   iterator.io.phaseIdle := dispatcher.io.idle
 
   dispatcher.io.pixelReady     := iterator.io.pixelReady
@@ -132,6 +133,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.tileWrite    <> dispatcher.io.tileWrite
   io.tileRead     <> dispatcher.io.tileRead
   io.autoRunStall := dispatcher.io.autoRunStall
+  io.slotStall    := dispatcher.io.slotStall
   io.insideFlag   := dispatcher.io.insideFlag
 
   dispatcher.io.zTestReq := io.zTestReq
