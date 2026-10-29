@@ -1,7 +1,7 @@
 # borgc: legalization and a spilling allocator
 
 Status: steps 1 to 5 built 2026-10-28, CTS on both corpora (6,276 cases): no Pass lost, 6 fixed.
-C built 2026-10-28, its CTS cycles pack pending (below).
+C built 2026-10-28; its CTS pack: -3.4% cycles against main, no Pass lost (below).
 Built: legalization; late spilling in compute and, as the ladder's last try, in fragment shaders;
 SWS. Replay: 1,330 -> 1,065 compiles; 4 compute shaders shrink (3,346 -> 2,811 words); 1 refused
 compute and the 2 refused fragment shaders compile. Step 6, one compile with late spilling, measured
@@ -90,8 +90,13 @@ Replay (797 shaders): 1,065 -> 802 compiles, 7.1 -> 5.8 s, none refused; 44 comp
 smaller, the 2 largest fragment shaders 14%. In one compile, six compute cases that cost step 6 up
 to +107% cycles: -38% to +-0% against main. Squeezed to 20, 16, 12 and 8 free registers (a test
 switch, not committed) every shader compiles without a hang; that found two endless loops, which the
-eviction rule's last sentence ends. Steps C1 to C5 built; the CTS cycles pack against main is
-pending.
+eviction rule's last sentence ends. Steps C1 to C5 built.
+
+CTS cycles pack against main on the 6,276 cases: -3.42% cycles over the 120 chunks both ran
+cleanly (115 faster, 2 slower by 0.8% and 0.2%), every shard faster. No Pass -> Fail; 6 Pass ->
+Timeout, 1 Timeout -> Pass. The 6 pass locally on both drivers in the same wall time (C: atan2
+-5.6% to -15.2% cycles, the 3 vertex cases identical); they ran out of time on slower runners
+(0.07 M cycles/s, where main's run had two at 0.16), as single retries at 120 s.
 
 Open, against NAK and ir3:
 
