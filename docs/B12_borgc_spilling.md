@@ -96,7 +96,7 @@ CTS cycles pack against main on the 6,276 cases: -3.42% cycles over the 120 chun
 cleanly (115 faster, 2 slower by 0.8% and 0.2%), every shard faster. No Pass -> Fail; 6 Pass ->
 Timeout, 1 Timeout -> Pass. The 6 pass locally on both drivers in the same wall time (C: atan2
 -5.6% to -15.2% cycles, the 3 vertex cases identical); they ran out of time on slower runners
-(0.07 M cycles/s, where main's run had two at 0.16), as single retries at 120 s.
+(0.07 M cycles/s, where main's run had two at 0.16), as single retries at 600 s.
 
 Open, against NAK and ir3:
 
