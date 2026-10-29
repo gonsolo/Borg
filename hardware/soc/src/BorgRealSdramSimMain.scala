@@ -5,15 +5,9 @@ package soc
 
 import borg.BorgConfig
 
-/** Verilog emission entry point for the verilator simulation on the ULX3S's
-  * real SDRAM path: BorgSimTop(realSdram = true), whose memory is
-  * SdramBackend -> SdramController -> SdramChipModel instead of the
-  * fixed-latency SdramBackendSim. Same harness, firmware and captures as the
-  * regular sim (simulation/verilator `make cts-uart-realsdram`).
-  *
-  * Run via: CLOCK_MHZ=4 mill hardware.soc.runMain soc.BorgRealSdramSimMain
-  *
-  * Emits split Verilog into out/hardware/borg/verilog_sim_realsdram/.
+/** Verilator sim Verilog for the ULX3S real-SDRAM path: BorgSimTop(realSdram = true), with
+  * SdramBackend -> SdramController -> SdramChipModel (`make cts-uart-realsdram`).
+  * Run: CLOCK_MHZ=4 mill hardware.soc.runMain soc.BorgRealSdramSimMain
   */
 object BorgRealSdramSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt

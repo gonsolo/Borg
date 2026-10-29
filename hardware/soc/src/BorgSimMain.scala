@@ -5,14 +5,8 @@ package soc
 
 import borg.BorgConfig
 
-/** Verilog emission entry point for the verilator simulation target.
-  *
-  * Run via: CLOCK_MHZ=4 mill hardware.soc.runMain soc.BorgSimMain
-  *
-  * Emits split Verilog into out/hardware/borg/verilog_sim/ and writes
-  * sim_files.txt for the verilator build.  Separate from the ASIC flow
-  * (QspiSocMain → out/hardware/borg/verilog/) so the two never clobber each other.
-  */
+/** Emits the Verilator sim top and sim_files.txt into its own directory, apart
+  * from QspiSocMain's. */
 object BorgSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
   println(s"Generating sim Verilog with CLOCK_MHZ = $clockMhz")
@@ -30,7 +24,7 @@ object BorgSimMain extends App {
   allFiles.toList.sorted.foreach(fw.println)
   fw.close()
 
-  // Emit FIRRTL for the arcilator sim top (flat MemBackendIO, no SdramBackendSim).
+  // The arcilator top: flat MemBackendIO, no SdramBackendSim.
   val firrtlSimTargetDir = "out/hardware/borg/firrtl_sim"
   Emit.emitFIRRTL(new BorgArcSimTop(clockMhz), firrtlSimTargetDir)
 }

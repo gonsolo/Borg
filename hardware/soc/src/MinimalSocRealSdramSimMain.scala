@@ -3,13 +3,8 @@
 
 package soc
 
-/** Verilog emission entry point for the MinimalSoC + real SdramBackend/
-  * SdramController/SdramChipModel verilator simulation target.
-  *
-  * Run via: CLOCK_MHZ=25 mill hardware.soc.runMain soc.MinimalSocRealSdramSimMain
-  *
-  * Emits split Verilog into out/hardware/soc/verilog_realsdram_sim/ and
-  * writes sim_files.txt for the verilator build.
+/** Emits [[MinimalSocRealSdramSimTop]] and sim_files.txt for the verilator build.
+  * Run: CLOCK_MHZ=25 mill hardware.soc.runMain soc.MinimalSocRealSdramSimMain
   */
 object MinimalSocRealSdramSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt

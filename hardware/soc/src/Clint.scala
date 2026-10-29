@@ -7,16 +7,8 @@ import chisel3._
 import chisel3.util._
 import hutt.{HuttBus, HuttDebug}
 
-/** Core-Local Interruptor (CLINT) — 64-bit mtime counter + mtimecmp compare.
-  *
-  * MMIO layout (32-bit word accesses from the CPU):
-  *   offset 0x0: mtime_lo     (R/W)
-  *   offset 0x4: mtime_hi     (R/W)
-  *   offset 0x8: mtimecmp_lo  (R/W)
-  *   offset 0xC: mtimecmp_hi  (R/W)
-  *
-  * timerIrq is asserted when mtime >= mtimecmp (unsigned 64-bit compare).
-  * On reset mtimecmp = 0xFFFF_FFFF_FFFF_FFFF so no interrupt fires at boot.
+/** CLINT: 64-bit mtime and mtimecmp, as 32-bit words mtime_lo, mtime_hi, mtimecmp_lo and
+  * mtimecmp_hi at 0x0..0xC. timerIrq is mtime >= mtimecmp; mtimecmp resets to all ones.
   */
 class ClintIO extends Bundle {
   val mmio               = Flipped(new HuttBus(24))

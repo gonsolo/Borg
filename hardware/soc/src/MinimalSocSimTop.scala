@@ -7,21 +7,9 @@ import chisel3._
 import borg.BorgConfig
 import memory.SdramBackendSim
 
-/** Verilator-only top-level module for booting real firmware (OpenSBI/Linux)
-  * against the Borg-free MinimalSoC — the counterpart of
-  * BorgSimTop (this package), but for MinimalSoCLogic instead of the full SoCLogic.
-  *
-  * Exists to answer a question the ULX3S hardware silent-boot investigation
-  * couldn't answer by itself: is a genuine full-chip timing-closure/logic
-  * bug in the CPU (Hutt), or is it specific to MinimalSoCLogic's own
-  * UART/CLINT/MemoryController wiring (untested end-to-end anywhere before
-  * this) — vs. something that only shows up on real silicon. A behavioral
-  * SdramBackendSim (same MemBackendIO contract as real hardware) plus a
-  * host debug backdoor lets the C++ harness preload firmware directly
-  * (bypassing FlashBootLoader's slow byte-serial SPI read, which the real
-  * hardware LEDs already showed completing — boot_done=1) and just watch
-  * whether OpenSBI/Linux actually executes and produces UART output.
-  */
+/** Verilator top that boots OpenSBI/Linux on MinimalSoCLogic, the counterpart
+  * of BorgSimTop. The harness preloads firmware through the SDRAM backdoor,
+  * skipping FlashBootLoader. */
 class MinimalSocSimTop(val CLOCK_MHZ: Int, override val borgCfg: Option[BorgConfig] = None) extends RawModule with MinimalSoCLogic {
   val ui_in  = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
@@ -29,14 +17,13 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int, override val borgCfg: Option[BorgConf
   val clk    = IO(Input(Clock()))
   val rst_n  = IO(Input(Bool()))
 
-  // Host backdoor into the behavioral SDRAM (firmware preload + readback).
+  // Host backdoor into the SDRAM model: firmware preload and readback.
   val dbg_we    = IO(Input(Bool()))
   val dbg_waddr = IO(Input(UInt(24.W)))
   val dbg_wdata = IO(Input(UInt(16.W)))
   val dbg_raddr = IO(Input(UInt(24.W)))
   val dbg_rdata = IO(Output(UInt(16.W)))
 
-  // MinimalSoCLogic abstract members.
   def soc_clk   = clk
   def soc_rst_n = rst_n
   lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk.asBool).asClock, false.B) {
@@ -44,7 +31,7 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int, override val borgCfg: Option[BorgConf
   }
   def soc_ui_in = ui_in
 
-  // Match ULX3S hardware: RV64IMAC Hutt core, Borg only when borgCfg is set.
+  // Matches the RV64 Linux bitstream.
   override def xlen: Int = 64
 
   val uo_out_val = wireSoC()

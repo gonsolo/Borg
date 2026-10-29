@@ -17,11 +17,8 @@ class TmdsEncoderIO extends Bundle {
 class TmdsEncoder extends Module {
   val io = IO(new TmdsEncoderIO)
 
-  // ── Stage 1: parallel q_m (breaks the 8-deep serial XOR chain) ───────────
-  // Mathematical identity: q_m(i) = XOR(data[0..i]) XOR (use_xnor if i odd)
-  // Proof: q_m(i) = q_m(i-1) XOR data(i) XOR use_xnor, unrolled gives a
-  // prefix XOR where each use_xnor term cancels at even positions.
-  // This reduces depth from O(n) serial to O(log n) prefix tree.
+  // q_m(i) = XOR(data[0..i]) XOR (use_xnor if i odd): the serial XOR chain unrolled into a prefix
+  // XOR, since the use_xnor terms cancel at even positions.
   val ones     = PopCount(io.data)
   val use_xnor = (ones > 4.U) || (ones === 4.U && io.data(0) === 0.U)
 
@@ -33,26 +30,13 @@ class TmdsEncoder extends Module {
   }
   q_m(8) := !use_xnor
 
-  // Pipeline register: cuts the path before the disparity/PopCount logic
   val q_m_reg = RegNext(q_m.asUInt)
   val de_reg  = RegNext(io.de,    false.B)
   val c_reg   = RegNext(io.c,     0.U)
   val en_reg  = RegNext(io.en,    false.B)
 
-  // ── Stage 2a: PopCount/diff, registered ───────────────────────────────────
-  // Once the frame buffer's own BRAM-read critical path was fixed (see
-  // HdmiScanoutFp16's display() pipeline), THIS became the new critical
-  // path on real hardware: PopCount + the disp-dependent Mux/add chain
-  // below, all in one combinational hop from q_m_reg to the serializer's
-  // shift register (measured ~10.4 ns against an 8 ns budget at 125 MHz).
-  // Registering PopCount/diff here (one more pipeline stage, one more cycle
-  // of overall latency) breaks that into two shorter hops. Correctness:
-  // `disp` is a running total across pixels, updated once per pixel
-  // (en_reg2 fires once per hdmiTick25) -- delaying WHEN in the pipeline a
-  // pixel's diff becomes available doesn't change the ORDER pixels update
-  // disp in, only adds one more cycle of constant latency before the first
-  // pixel's result appears, so TMDS's running-disparity protocol still
-  // sees the same sequence of decisions.
+  // PopCount/diff registered apart from the disparity chain, for 125 MHz. The extra cycle of
+  // latency keeps the order in which pixels update the running disparity.
   val ones_q_m  = PopCount(q_m_reg(7, 0))
   val zeros_q_m = 8.U - ones_q_m
   val diff_q_m  = ones_q_m.zext - zeros_q_m.zext
@@ -65,7 +49,6 @@ class TmdsEncoder extends Module {
   val zeros_reg = RegNext(zeros_q_m)
   val diff_reg  = RegNext(diff_q_m)
 
-  // ── Stage 2b: disparity → output ──────────────────────────────────────────
   val disp      = RegInit(0.S(5.W))
   val out       = WireDefault(0.U(10.W))
   val disp_next = WireDefault(disp)

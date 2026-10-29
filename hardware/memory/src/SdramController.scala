@@ -1,67 +1,44 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-//
-// Native Chisel SDRAM controller — faithful port of sdram_pnru.v.
-//
-// Simplistic controller for 4×4M×16 SDRAM chips (e.g. IS42S16160G on ULX3S):
-//   - One SDRAM access per system request (no bursts)
-//   - Can keep all 4 banks open simultaneously
-//   - Distributed auto-refresh
-//
-// The system interface is word-oriented (16-bit).  The byte-serial
-// bridge (SdramBackend) sits above this module.
 
 package memory
 
 import chisel3._
 import chisel3.util._
 
-// ---------------------------------------------------------------------------
-// System-side interface (word-oriented, directly connected by SdramBackend)
-// ---------------------------------------------------------------------------
-
 class SdramSysIO extends Bundle {
-  val rd  = Input(Bool())         // request read  (active for 1 cycle)
-  val wr  = Input(Bool())         // request write (active for 1 cycle)
-  val rdy = Output(Bool())        // controller ready / data valid
-  val ack = Input(Bool())         // system acknowledges current r/w
-  val ab  = Input(UInt(24.W))     // 24-bit word address
-  val di  = Input(UInt(16.W))     // write data
-  val do_ = Output(UInt(16.W))    // read data
-  val debug_state = Output(UInt(3.W))  // FSM state for debug
+  val rd  = Input(Bool())         // one-cycle request
+  val wr  = Input(Bool())
+  val rdy = Output(Bool())        // ready / read data valid
+  val ack = Input(Bool())
+  val ab  = Input(UInt(24.W))     // 16-bit word address
+  val di  = Input(UInt(16.W))
+  val do_ = Output(UInt(16.W))
+  val debug_state = Output(UInt(3.W))
 }
-
-// ---------------------------------------------------------------------------
-// SDRAM controller
-// ---------------------------------------------------------------------------
 
 class SdramControllerIO extends Bundle {
   val sys  = new SdramSysIO
   val pins = new SdramPinsIO
 }
 
+/** Port of sdram_pnru.v for 4x4Mx16 SDRAM (IS42S16160G on ULX3S): one access per request, all
+  * four banks kept open, distributed auto-refresh. */
 class SdramController(clockMhz: Int = 125) extends Module {
   val io = IO(new SdramControllerIO)
 
-  // ── SDRAM timing parameters (scaled to actual clock) ──
   val tRP  = math.max((clockMhz * 20  + 999) / 1000, 2) // tRP  = 20 ns min
-  val tMRD = 2                                           // tMRD = 2 cycles
+  val tMRD = 2
   val tRCD = math.max((clockMhz * 20  + 999) / 1000, 2) // tRCD = 20 ns min
   val tRC  = math.max((clockMhz * 63  + 999) / 1000, 2) // tRC  = 63 ns min
-  // tWR = write-recovery (data-in to precharge). The datasheet minimum is
-  // ~2 clocks (≈14 ns), but we size it generously so a write followed by a
-  // row-change access (precharge → activate → read/write) cannot truncate
-  // the just-issued write, and so the DQ bus has time to turn around before
-  // a following read.  The old 2-halfword GPU write path provided this
-  // spacing implicitly; single-halfword writes (MemoryController) must add it
-  // explicitly, otherwise sporadic writes are lost at tile/quad boundaries
-  // (manifested as green streaks on the ULX3S HDMI output).
+  // Write recovery above the ~14 ns minimum, so a following precharge cannot truncate the write
+  // and DQ turns around before a read; shorter loses sporadic back-to-back halfword writes.
   val tWR  = math.max((clockMhz * 30  + 999) / 1000, 3) // ~30 ns / ≥3 cycles
-  val CL   = if (clockMhz > 100) 3 else 2                // CAS latency
-  val INITLEN = clockMhz * 100                           // 100 µs
-  val RFTIME  = (clockMhz * 7800 + 999) / 1000           // 7.8 µs
+  val CL   = if (clockMhz > 100) 3 else 2
+  val INITLEN = clockMhz * 100                           // 100 us
+  val RFTIME  = (clockMhz * 7800 + 999) / 1000           // 7.8 us
 
-  // ── SDRAM command encodings: {nCS, nRAS, nCAS, nWE} ──
+  // {nCS, nWE, nRAS, nCAS}
   val CMD_NOP      = "b1000".U(4.W)
   val CMD_PRECHRG  = "b0001".U(4.W)
   val CMD_AUTORFRSH= "b0100".U(4.W)
@@ -70,11 +47,9 @@ class SdramController(clockMhz: Int = 125) extends Module {
   val CMD_WRITE    = "b0010".U(4.W)
   val CMD_ACTIVATE = "b0101".U(4.W)
 
-  // ── SDRAM mode register: CL=2 or 3, burst length=1, sequential ──
-  // Bits: 13'b000_1_00_CCC_0_000  where CCC = CAS latency
+  // Single-location write burst, CAS latency, sequential, burst length 1.
   val MODE = Cat(0.U(3.W), 1.U(1.W), 0.U(2.W), CL.U(3.W), 0.U(1.W), 0.U(3.W))
 
-  // ── FSM states ──
   val sIDLE   = 0.U(3.W)
   val sRFRSH1 = 1.U(3.W)
   val sRFRSH2 = 2.U(3.W)
@@ -84,16 +59,12 @@ class SdramController(clockMhz: Int = 125) extends Module {
   val sACKWT  = 6.U(3.W)
   val sWAIT   = 7.U(3.W)
 
-  // ── Registers ──
-
-  // Cross-clock-domain input registers (matching the Verilog's registered inputs)
   val di  = RegNext(io.sys.di)
   val ab  = RegNext(io.sys.ab)
   val rd  = RegNext(io.sys.rd)
   val wr  = RegNext(io.sys.wr)
   val ack = RegNext(io.sys.ack)
 
-  // Controller state
   val sdrCmd = RegInit(CMD_NOP)
   val state  = RegInit(sIDLE)
   val next   = RegInit(sIDLE)
@@ -106,64 +77,57 @@ class SdramController(clockMhz: Int = 125) extends Module {
   val sysDo  = RegInit(0.U(16.W))
   val sdrAb  = RegInit(0.U(13.W))
 
-  // ── Convenience address decoding ──
-  val col = ab(8, 0)    // 9-bit column
-  val row = ab(23, 11)  // 13-bit row
-  val ba  = ab(10, 9)   // 2-bit bank
+  val col = ab(8, 0)
+  val row = ab(23, 11)
+  val ba  = ab(10, 9)
 
-  // ── init flag: DQM==2'b11 during init, 2'b00 thereafter ──
+  // DQM is 11 during init only.
   val init = sdrDqm(0)
 
-  // ── Data bus direction ──
   val dqOe  = (state === sRWRDY) && wr
   val dqOut = di
 
-  // ── FSM ──
   ctr := ctr + 1.U
   dly := dly - 1.U
 
-  // defaults (overridden per-state)
   sdrCmd := CMD_NOP
   state  := sWAIT
 
   switch(state) {
     is(sIDLE) {
       when(init) {
-        // Remain in idle for >100 µs during power-up
         state := Mux(ctr === INITLEN.U, sRFRSH1, sIDLE)
       }.otherwise {
         sysRdy := false.B
         when(ctr >= RFTIME.U) {
-          state := sRFRSH1                         // time for a refresh
+          state := sRFRSH1
         }.elsewhen(rd || wr) {
-          state := sRDWR                            // serve a read/write
+          state := sRDWR
         }.otherwise {
           sysRdy := true.B
-          state  := sIDLE                           // nothing to do
+          state  := sIDLE
         }
       }
     }
 
     is(sRFRSH1) {
-      // Close all banks before refresh
       sdrCmd := CMD_PRECHRG
-      sdrAb  := sdrAb | (1.U << 10)   // A10=1 → all banks
+      sdrAb  := sdrAb | (1.U << 10)   // A10: all banks
       open   := 0.U
       dly    := (tRP - 2).U
       next   := Mux(init, sCONFIG, sRFRSH2)
     }
 
     is(sRFRSH2) {
-      // Auto-refresh, then back to idle (or repeat during init)
+      // Repeats during init.
       sdrCmd := CMD_AUTORFRSH
       sdrDqm := "b00".U               // end init
-      ctr    := 0.U                    // reset refresh timer
+      ctr    := 0.U
       dly    := (tRC - 2).U
       next   := Mux(init, sRFRSH2, sIDLE)
     }
 
     is(sCONFIG) {
-      // Load mode register
       sdrCmd := CMD_MODESET
       sdrAb  := MODE
       dly    := (tMRD - 2).U
@@ -172,7 +136,6 @@ class SdramController(clockMhz: Int = 125) extends Module {
 
     is(sRDWR) {
       when(!open(ba)) {
-        // Bank not open → activate row
         sdrCmd := CMD_ACTIVATE
         sdrAb  := row
         open   := open | (1.U << ba)
@@ -180,34 +143,26 @@ class SdramController(clockMhz: Int = 125) extends Module {
         dly    := (tRCD - 2).U
         next   := sRDWR
       }.elsewhen(opnrow(ba) =/= row) {
-        // Wrong row open → precharge this bank, then retry
+        // Wrong row open: precharge this bank, then retry.
         sdrCmd := CMD_PRECHRG
-        sdrAb  := sdrAb & ~(1.U(13.W) << 10)  // A10=0 → single bank
+        sdrAb  := sdrAb & ~(1.U(13.W) << 10)  // A10: single bank
         open   := open & ~(1.U << ba)
         dly    := (tRP - 2).U
         next   := sRDWR
       }.otherwise {
-        // Row already open → issue read or write.
-        // dly := CL (not CL-1). The textbook CL-1 wait samples DQ one SOC
-        // cycle too early when the SDRAM clock is 90° behind the SOC clock
-        // (data isn't valid yet at the SOC rising edge). Adding one extra
-        // cycle gives a safe sample window.
+        // CL, not CL-1: the SDRAM clock lags the SoC clock by 90 degrees.
         sdrCmd := Mux(rd, CMD_READ, CMD_WRITE)
         sdrAb  := Cat(0.U(4.W), col)
         dly    := CL.U
         next   := sRWRDY
         when(wr) {
-          state := sRWRDY  // writes need no CAS latency wait
+          state := sRWRDY
         }
       }
     }
 
     is(sRWRDY) {
-      // Reads: latch DQ and signal ready immediately (CL already waited).
-      // Writes: data is driven on DQ this cycle (dqOe). Defer completion by
-      // tWR cycles of write recovery before signalling ready, so a following
-      // precharge/read can't truncate the write and the DQ bus releases
-      // (dqOe drops outside sRWRDY) before any read turns the bus around.
+      // A write drives DQ this cycle and completes after tWR.
       when(rd) {
         sysDo  := io.pins.dq_in
         sysRdy := true.B
@@ -220,20 +175,15 @@ class SdramController(clockMhz: Int = 125) extends Module {
     }
 
     is(sACKWT) {
-      // Signal ready (no-op for reads, which already asserted it in sRWRDY;
-      // for writes this is the post-tWR completion edge).
       sysRdy := true.B
-      // Wait for system to acknowledge the transfer
       state := Mux(ack, sIDLE, sACKWT)
     }
 
     is(sWAIT) {
-      // Wait `dly` cycles, then go to `next`
       state := Mux(dly.orR, sWAIT, next)
     }
   }
 
-  // ── Output wiring ──
   io.sys.rdy  := sysRdy
   io.sys.do_  := sysDo
   io.sys.debug_state := state
@@ -247,5 +197,5 @@ class SdramController(clockMhz: Int = 125) extends Module {
   io.pins.dqm    := sdrDqm
   io.pins.dq_out := dqOut
   io.pins.dq_oe  := dqOe
-  io.pins.cke    := true.B   // always enabled
+  io.pins.cke    := true.B
 }

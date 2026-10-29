@@ -5,10 +5,8 @@ package soc
 
 import borg.BorgConfig
 
-/** Verilator sim of the RV64 SoC with the Cube Borg (the linux_borg FPGA top, without
-  * the board pins).
-  *
-  * CLOCK_MHZ=20 mill hardware.soc.runMain soc.MinimalSocBorgSimMain
+/** Verilator sim of the RV64 SoC with the Cube Borg (the linux_borg FPGA top without pins).
+  * Run: CLOCK_MHZ=20 mill hardware.soc.runMain soc.MinimalSocBorgSimMain
   */
 object MinimalSocBorgSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "20").toInt

@@ -6,25 +6,11 @@ package soc
 import chisel3.RawModule
 import circt.stage.ChiselStage
 
-/** Shared Verilog emission utilities.
-  *
-  * Central definition of firtool options, used by all Main objects
-  * (hardware/borg, hardware/soc, hardware/hutt, fpga/ulx3s, asic/wafer)
-  * to ensure consistent
-  * Verilog output.
-  */
+/** Verilog emission shared by every Main object, so all use the same firtool options. */
 object Emit {
 
-  /** Recursively delete targetDir, then recreate it empty.
-    *
-    * firtool's --split-verilog only writes the files a given elaboration
-    * produces — it never prunes files a *previous* run left behind. A
-    * conditional emission (e.g. Chisel debug printfs gated by an env var)
-    * can therefore leave stale .sv files under verification/ referencing
-    * signals that no longer exist in the freshly emitted design, which downstream
-    * tools (verilator) then glob in and fail to elaborate against the new
-    * Verilog. Wipe the directory before each Main object's emission run.
-    */
+  /** Empty targetDir: --split-verilog never prunes files an earlier run left, such as stale
+    * verification/ printfs that verilator would glob in. */
   def cleanTargetDir(dir: String): Unit = {
     def deleteRecursively(f: java.io.File): Unit = {
       if (f.isDirectory) f.listFiles().foreach(deleteRecursively)
@@ -44,7 +30,6 @@ object Emit {
     "--disable-all-randomization"
   )
 
-  /** Emit split-verilog and collect generated filenames. */
   def emitAndCollect(
       gen: => RawModule,
       targetDir: String,

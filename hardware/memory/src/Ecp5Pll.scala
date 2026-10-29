@@ -1,31 +1,11 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-//
-// Chisel wrapper for the ECP5 EHXPLLL hard PLL primitive.
-//
-// PLL divider parameters are computed at Scala elaboration time by
-// Ecp5PllParams.solve(), which is a direct port of EMARD's ecp5pll.sv
-// parameter-solving functions.
-//
-// Usage:
-//   val pll = Module(new Ecp5Pll(Ecp5PllParams(
-//     inHz   = 25000000,
-//     out0Hz = 125000000, out0Deg = 0,
-//     out1Hz = 125000000, out1Deg = 90  // 90° phase for SDRAM clock
-//   )))
-//   val clk125     = pll.io.clk_o(0)
-//   val clk125_90  = pll.io.clk_o(1)
-//   val pllLocked  = pll.io.locked
 
 package memory
 
 import chisel3._
 import chisel3.experimental.{fromIntToIntParam, fromStringToStringParam}
 import chisel3.util.HasExtModuleInline
-
-// ---------------------------------------------------------------------------
-// Compile-time PLL parameter solver (port of EMARD's F_ecp5pll)
-// ---------------------------------------------------------------------------
 
 /** PLL divider solution for EHXPLLL. */
 case class Ecp5PllSolution(
@@ -47,7 +27,7 @@ case class Ecp5PllSolution(
     sec3FPhase: Int
 )
 
-/** Request for PLL outputs.  Up to 4 clocks (out0 is primary). */
+/** Up to 4 PLL outputs; out0 is primary. */
 case class Ecp5PllParams(
     inHz: Long = 25000000L,
     out0Hz: Long = 25000000L,
@@ -68,7 +48,7 @@ object Ecp5PllParams {
   private val VCO_MAX: Long = 800000000L
   private val VCO_OPTIMAL: Long = (VCO_MIN + VCO_MAX) / 2
 
-  /** Port of F_ecp5pll — brute-force PLL parameter search. */
+  /** Brute-force divider search, ported from EMARD's ecp5pll.sv F_ecp5pll. */
   def solve(p: Ecp5PllParams): Ecp5PllSolution = {
     val inHz = p.inHz
     val out0Hz = p.out0Hz
@@ -83,7 +63,7 @@ object Ecp5PllParams {
     val inputDivMax = math.min((inHz / PFD_MIN).toInt, 128)
 
     for (inputDiv <- inputDivMin to inputDivMax) {
-      // Avoid 32-bit overflow: pick multiplication order carefully
+      // Multiplication order avoids 32-bit overflow.
       val fbBase: Int = if (out0Hz / 1000000L * inputDiv < 2000L)
         (out0Hz * inputDiv / inHz).toInt
       else
@@ -181,17 +161,10 @@ object Ecp5PllParams {
     )
   }
 
-  /** Enriches [[Ecp5PllParams]] with a `solved` accessor that runs the
-    * PLL parameter solver.
-    */
   implicit class Ecp5PllParamsOps(private val p: Ecp5PllParams) extends AnyVal {
     def solved: Ecp5PllSolution = Ecp5PllParams.solve(p)
   }
 }
-
-// ---------------------------------------------------------------------------
-// Chisel IO bundle for Ecp5Pll
-// ---------------------------------------------------------------------------
 
 class Ecp5PllIO extends Bundle {
   val clk_i  = Input(Clock())
@@ -199,21 +172,9 @@ class Ecp5PllIO extends Bundle {
   val locked = Output(Bool())
 }
 
-// ---------------------------------------------------------------------------
-// EHXPLLL ExtModule — instantiates the hard PLL primitive
-// ---------------------------------------------------------------------------
-
-/** ECP5 PLL wrapper.
-  *
-  * Wraps the `EHXPLLL` hard PLL primitive with parameters computed from
-  * [[Ecp5PllParams]].  The module has no Chisel logic — just parameter
-  * propagation to the ECP5 primitive.
-  *
-  * @param params PLL frequency/phase configuration
-  */
+/** The ECP5 EHXPLLL hard PLL, with dividers solved from [[Ecp5PllParams]] at elaboration. */
 class Ecp5Pll(params: Ecp5PllParams) extends ExtModule(
   Map(
-    // Computed by the Scala solver
     "CLKI_DIV"  -> params.solved.refclkDiv,
     "CLKFB_DIV" -> params.solved.feedbackDiv,
 
@@ -252,7 +213,6 @@ class Ecp5Pll(params: Ecp5PllParams) extends ExtModule(
 ) with HasExtModuleInline {
   override val desiredName = "Ecp5PllPrim"
 
-  // EHXPLLL port map — directly matches the ECP5 primitive interface.
   val CLKI         = IO(Input(Clock()))
   val CLKFB        = IO(Input(Clock()))
   val RST          = IO(Input(Bool()))
@@ -311,25 +271,18 @@ class Ecp5Pll(params: Ecp5PllParams) extends ExtModule(
       |endmodule
       |""".stripMargin)
 
-  /** Lazy solution — run the solver once on first access. */
   private lazy val _solved = Ecp5PllParams.solve(params)
 }
 
-/** Convenience wrapper: provides a simple IO and ties off unused EHXPLLL ports.
-  *
-  * Instantiate this instead of [[Ecp5Pll]] directly to avoid manual wiring
-  * of the unused phase/standby/enable pins.
-  */
+/** [[Ecp5Pll]] with a simple IO and the unused phase/standby/enable ports tied off. */
 class Ecp5PllWrapper(params: Ecp5PllParams) extends RawModule {
   val io = IO(new Ecp5PllIO)
 
   val pll = Module(new Ecp5Pll(params))
 
-  // Clock input
   pll.CLKI := io.clk_i
-  pll.CLKFB := pll.CLKOP  // Internal feedback (CLKOP → CLKFB)
+  pll.CLKFB := pll.CLKOP
 
-  // Tie off unused control inputs
   pll.RST          := false.B
   pll.STDBY        := false.B
   pll.PLLWAKESYNC  := false.B
@@ -343,7 +296,6 @@ class Ecp5PllWrapper(params: Ecp5PllParams) extends RawModule {
   pll.ENCLKOS2     := false.B
   pll.ENCLKOS3     := false.B
 
-  // Outputs
   io.clk_o(0) := pll.CLKOP
   io.clk_o(1) := pll.CLKOS
   io.clk_o(2) := pll.CLKOS2

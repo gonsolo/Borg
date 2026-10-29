@@ -6,23 +6,15 @@ package soc
 import chisel3._
 import borg.{Borg, BorgConfig, GpuMemIO}
 
-/** Borg alone, for the direct simulator (`simulation/direct`).
-  *
-  * No CPU, no UART, no memory controller: the C++ harness is the host.  It
-  * drives the register bus (`mmio`) like a driver would and answers the GPU's
-  * memory port (`gpuMem`) from a flat byte array, so the simulated hardware is
-  * exactly the `Borg` module that sits behind the CPU on the SoC targets.
-  *
-  * Config is `Default`, the same as the SoC sims, so the goldens made through the
-  * firmware path stay comparable.
-  *
-  * Emit FIRRTL: `mill hardware.soc.runMain soc.BorgDirectSimMain`
+/** Borg alone, for the direct simulator (`simulation/direct`): the C++ harness drives `mmio`
+  * and answers `gpuMem` from a flat byte array. Config `Default`, as in the SoC sims, so the
+  * goldens stay comparable. Emit FIRRTL: `mill hardware.soc.runMain soc.BorgDirectSimMain`
   */
 class BorgDirectSimTop(cfg: BorgConfig) extends RawModule {
   val clk   = IO(Input(Clock()))
   val rst_n = IO(Input(Bool()))
 
-  // Register bus (HuttBus(10) flattened).  Single outstanding transaction.
+  // HuttBus(10) flattened; one outstanding transaction.
   val mmio_req_valid  = IO(Input(Bool()))
   val mmio_req_ready  = IO(Output(Bool()))
   val mmio_req_addr   = IO(Input(UInt(10.W)))
@@ -33,7 +25,7 @@ class BorgDirectSimTop(cfg: BorgConfig) extends RawModule {
   val mmio_resp_ready = IO(Input(Bool()))
   val mmio_resp_data  = IO(Output(UInt(32.W)))
 
-  // GPU memory port (GpuMemIO flattened; the harness is the slave).
+  // GpuMemIO flattened; the harness is the slave.
   val gpu_addr    = IO(Output(UInt(GpuMemIO.AddrBits.W)))
   val gpu_req     = IO(Output(Bool()))
   val gpu_data    = IO(Input(UInt(32.W)))

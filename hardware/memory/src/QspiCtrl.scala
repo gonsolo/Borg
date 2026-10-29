@@ -32,7 +32,6 @@ class QspiControllerIO extends Bundle {
 
 class QspiController extends Module {
   val io = IO(new QspiControllerIO)
-  // FSM States
   object State extends ChiselEnum {
     val IDLE, CMD, ADDR, DUMMY1, DUMMY2, DATA, STALLED, STALL_RECOVER = Value
   }
@@ -51,7 +50,6 @@ class QspiController extends Module {
     val last_ram_a_sel = RegInit(true.B)
     val last_ram_b_sel = RegInit(true.B)
 
-    // Registers for IO signals that were 'reg' in Verilog and assigned in posedge clk block
     val spi_data_oe_reg = RegInit(0.U(4.W))
     val spi_flash_select_reg = RegInit(true.B)
     val spi_ram_a_select_reg = RegInit(true.B)
@@ -59,7 +57,6 @@ class QspiController extends Module {
     val data_ready_reg = RegInit(false.B)
     val data_req_reg = RegInit(false.B)
 
-    // --- Combinational Signals ---
     val spi_clk_pos_wire = WireDefault(spi_clk_pos)
     val spi_clk_use_neg_wire = WireDefault(spi_clk_use_neg)
 
@@ -67,14 +64,11 @@ class QspiController extends Module {
     private def ram_a_block  = (last_ram_a_sel === false.B) && io.addr_in(24, 23) === 2.U
     private def ram_b_block  = (last_ram_b_sel === false.B) && io.addr_in(24, 23) === 3.U
 
-    // --- Core Wiring ---
     wireConfig()
     wireFsm()
     wireAddressShift()
     wireDataShift()
     wireOutputs()
-
-    // --- Implementation Methods ---
 
     private def wireConfig(): Unit = {
       // Configuration latched during reset

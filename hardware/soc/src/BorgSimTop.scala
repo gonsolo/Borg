@@ -7,25 +7,9 @@ import chisel3._
 import memory.{SdramBackend, SdramBackendSim, SdramChipModel}
 import borg.BorgConfig
 
-/** Verilator-only top-level module.
-  *
-  * Identical SoC (CPU, MemoryController, Peripherals, Borg) as
-  * [[QspiSocTop]], but the MemoryController backend is driven by a real
-  * Chisel [[SdramBackendSim]] (behavioral SDRAM with realistic latency and a
-  * registered done/busy handshake) instead of QSPI or a hand-written C++ flat
-  * backend.  This removes the C++ backend as a variable when debugging the
-  * ULX3S SDRAM path: the GPU/MemoryController now talk to the same kind of
-  * MemBackendIO backend they use on hardware.
-  *
-  * A `dbg_*` host backdoor (into SdramBackendSim's memory) lets the C++ harness
-  * preload firmware/texture and read back the framebuffer without modeling the
-  * bus.  NOT used for the cocotb SoC tests (those use QspiSocTop).
-  *
-  * `realSdram` swaps SdramBackendSim for the ULX3S's own memory path:
-  * SdramBackend -> SdramController -> pins -> SdramChipModel (the real JEDEC
-  * protocol: row activates, CAS latency, refresh), clocked like the board
-  * (`sdramMhz`). The backdoor then reaches into the chip model, so the same
-  * harness and firmware run on both; see BorgRealSdramSimMain.
+/** Verilator top: the [[QspiSocTop]] SoC on a Chisel SDRAM backend ([[SdramBackendSim]], or with
+  * `realSdram` the board's SdramBackend into SdramChipModel). The `dbg_*` backdoor lets the C++
+  * harness preload memory and read back the framebuffer.
   */
 class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMhz: Int = 25)
     extends RawModule with SoCLogic {
@@ -35,14 +19,12 @@ class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMh
   val clk     = IO(Input(Clock()))
   val rst_n   = IO(Input(Bool()))
 
-  // Host backdoor into the behavioral SDRAM (firmware/texture load + readback).
   val dbg_we    = IO(Input(Bool()))
   val dbg_waddr = IO(Input(UInt(24.W)))
   val dbg_wdata = IO(Input(UInt(16.W)))
   val dbg_raddr = IO(Input(UInt(24.W)))
   val dbg_rdata = IO(Output(UInt(16.W)))
 
-  // SoCLogic abstract members — identical to QspiSocTop.
   def soc_clk   = clk
   def soc_rst_n = rst_n
   lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk.asBool).asClock, false.B) {
@@ -50,20 +32,14 @@ class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMh
   }
   def soc_ui_in = ui_in
 
-  // Match ULX3S hardware: RV32I Hutt core (see ULX3S.scala's own comment
-  // for why RV64 no longer fits the ECP5-85K).
-  // Also matches ULX3S.scala's hasSupervisorMode = false (see its own
-  // comment): the same bare-metal firmware, never leaves M-mode.
+  // Matches ULX3S.scala: RV32I, bare-metal firmware in M-mode.
   override def hasSupervisorMode: Boolean = false
 
-  // 2×2 quad SIMT fragment shading (sim).
   override def BORG_CFG: BorgConfig = BorgConfig.Default
 
-  // Immediately reflect fb_select writes back as scanoutCurBuf so the firmware's
-  // PERI_FB_SELECT sync loop exits on the first read (no real scanout in the sim).
+  // No scanout in the sim: the firmware's PERI_FB_SELECT sync loop exits on the first read.
   override def scanoutCurBuf: Bool = fbSelectReg
 
-  // Wire up the SoC.
   val uo_out_val = wireSoC()
 
   // SDRAM, full 24-bit word space (32 MB) like the board's chip.
@@ -83,7 +59,6 @@ class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMh
     chip.dbg.raddr := dbg_raddr
     dbg_rdata := chip.dbg.rdata
   } else {
-    // Behavioral SDRAM backend.
     val sdram = withClockAndReset(clk, !soc_rst_reg_n) {
       Module(new SdramBackendSim(words = 0x1000000, rdDelay = 4, wrDelay = 2, dbg = true))
     }
@@ -96,13 +71,7 @@ class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMh
     dbg_rdata := d.rdata
   }
 
-  // ── SDRAM bandwidth instrumentation (sim-only) ─────────────────────────────
-  // Count backend read/write *beats* bucketed by address region, exposed as
-  // outputs the C++ harness reads at the end of the run.  This is the real
-  // SDRAM traffic the GPU/CPU generate (the SDRAM model is internal to this
-  // top, so C++ flat_* counting can't see it).  Region = 16-bit-word offset
-  // within the chip (spi_byte>>1), boundaries from borg_layout.h:
-  //   code/cpu <0x2540 | desc <0x2B40 | texture <0x42B40 | fb <0x62B40 | other
+  // SDRAM read/write beats per address region, read by the C++ harness at the end of the run.
   val rb_code  = IO(Output(UInt(32.W)));  val wb_code  = IO(Output(UInt(32.W)))
   val rb_desc  = IO(Output(UInt(32.W)));  val wb_desc  = IO(Output(UInt(32.W)))
   val rb_tex   = IO(Output(UInt(32.W)));  val wb_tex   = IO(Output(UInt(32.W)))
@@ -114,9 +83,7 @@ class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMh
     val be   = mem.io.backend
     val isP  = be.addrIn(23)
     val wOff = be.addrIn(22, 0)
-    // 128×128 layout (word offsets = spi_byte>>1): code <0x2540 | desc <0x2B40 |
-    // tex <0x42B40 | fb <0x62B40 | bin <0x162B40 (2MB, SEQ_MAX_TRI=1024) |
-    // setup <0x172B40 (128KB) | above = stack/heap.
+    // Word-offset boundaries of the 128x128 layout in borg_layout.h.
     val region = Wire(UInt(3.W))
     when(!isP)                     { region := 0.U }   // flash → code bucket
       .elsewhen(wOff < 0x2540.U)   { region := 0.U }   // code/cpu/instr/stack-lo

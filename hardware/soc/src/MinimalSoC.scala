@@ -1,9 +1,5 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-//
-// Minimal SoC backbone for fast iteration on UART / HDMI / CPU bring-up.
-// Hutt + MemoryController + DEBUG UART + SoC inline regs only — no Borg,
-// no user-peripheral router.  Build time is a fraction of the full SoC.
 
 package soc
 
@@ -13,22 +9,15 @@ import hutt.{Hutt, HuttBus, HuttBusReq, HuttDataWidthAdapter, HuttInstrBus}
 import memory.MemoryController
 import borg.{Borg, BorgConfig}
 
-/** Slimmed-down SoCLogic — same address map as the full version but with no
-  * Borg / no Peripherals / no GPU memory port consumer.  Suitable for testing
-  * UART output, HDMI scanout, and CPU bring-up without paying for the GPU
-  * pipeline's synthesis time (~80% of total).
-  *
-  * The CPU's MMIO writes to PERI_DEBUG_UART (addr 0x08000018) still drive
-  * the debug UART exactly as the full SoC.  Reads from un-implemented user
-  * peripherals return 0xFFFFFFFF.
-  */
+/** SoCLogic's address map with Hutt, memory, CLINT and the debug UART, and an
+  * optional Borg: fast builds for CPU, UART and HDMI bring-up. Unmapped user
+  * peripherals read 0xFFFFFFFF. */
 trait MinimalSoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
   def CLOCK_HZ: Long = CLOCK_MHZ.toLong * 1000000L   // exact when the PLL cannot hit CLOCK_MHZ
-  def xlen: Int = 32   // 32 = RV32I, 64 = RV64I (override with def, not val)
+  def xlen: Int = 32   // override with def, not val
   def borgCfg: Option[BorgConfig] = None   // Some(cfg) attaches Borg at BORG_BASE (0x08000C00)
 
-  // Abstract — provided by the top module.
   def soc_clk: Clock
   def soc_rst_n: Bool
   def soc_rst_reg_n: Bool
@@ -38,11 +27,8 @@ trait MinimalSoCLogic { self: RawModule =>
     Module(new Hutt(xlen = xlen))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    // Every MinimalSoCLogic target uses SdramBackend, not QspiBackend -- see
-    // MemoryController's constructor doc for why gpuVramRegionBit is false
-    // here (no flash/PSRAM split at this level, and no CPU address path
-    // adds a matching offset for its own DRAM accesses). With a Borg the GPU
-    // sees SDRAM bytes 16 MB up (bit 24), the Linux carve-out.
+    // SDRAM: no flash/PSRAM bit, except that a Borg sees SDRAM 16 MB up
+    // (bit 24), the Linux carve-out.
     Module(new MemoryController(gpuVramRegionBit = borgCfg.isDefined))
   }
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
@@ -52,9 +38,7 @@ trait MinimalSoCLogic { self: RawModule =>
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
   lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
 
-  /** GPU port tied off — no scanout / no Borg.  Overridable by the top for
-    * HDMI bring-up (where scanout owns the gpuMem port).
-    */
+  /** Overridden by HDMI bring-up tops, where scanout owns the port. */
   def wireGpuMem(): Unit = {
     if (borgCfg.isDefined) {
       mem.io.gpuMem <> borg.io.gpuMem
@@ -85,13 +69,12 @@ trait MinimalSoCLogic { self: RawModule =>
     val cpuAddr = cpuData.req.bits.addr
 
     val isMem   = cpuAddr(27, 25) === 0.U
-    val isClint = cpuAddr(27, 24) === 2.U   // 0x02000000–0x02FFFFFF: CLINT (mtime/mtimecmp)
+    val isClint = cpuAddr(27, 24) === 2.U   // 0x02000000-0x02FFFFFF
     val isSoc   = SoCDecode.socRegion.matches(cpuAddr)
     val isUser  = SoCDecode.userRegion.matches(cpuAddr)
-    // Borg sits at user-peripheral slot 3 (addr[11:10]); other user slots stay unmapped.
+    // Borg is user slot 3 (addr[11:10]); the others stay unmapped.
     val isBorg  = isUser && !isSoc && cpuAddr(11, 10) === 3.U && borgCfg.isDefined.B
 
-    // CLINT instance — mtime / mtimecmp at 0x02000000–0x0200000F.
     clint.io.mmio.req.valid      := cpuData.req.valid && isClint
     clint.io.mmio.req.bits.addr  := cpuAddr(23, 0)
     clint.io.mmio.req.bits.write := cpuData.req.bits.write
@@ -106,7 +89,6 @@ trait MinimalSoCLogic { self: RawModule =>
       borg.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
     }
 
-    // Memory port from CPU.
     mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
     mem.io.cpuData.req.bits.addr       := cpuAddr(24, 0)
     mem.io.cpuData.req.bits.write      := cpuData.req.bits.write
@@ -115,7 +97,6 @@ trait MinimalSoCLogic { self: RawModule =>
 
     val socPeri = SoCDecode.socRegion.index(cpuAddr)
 
-    // Inline registers — minimum needed for the debug UART path.
     val gpio_out_sel = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(Cat(!soc_ui_in(0), 0.U(1.W)))
     }
@@ -173,7 +154,7 @@ trait MinimalSoCLogic { self: RawModule =>
     val anyActive   = activeMem || activeSoc || activeClint || activeBorg
     val borgReady   = if (borgCfg.isDefined) borg.io.mmio.req.ready else true.B
 
-    // User-region reads/writes get auto-acked with 0xFFFFFFFF (treated as SoC).
+    // Unmapped accesses are answered as SoC reads of 0xFFFFFFFF.
     cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
       isMem   -> mem.io.cpuData.req.ready,
       isClint -> clint.io.mmio.req.ready,
@@ -186,7 +167,7 @@ trait MinimalSoCLogic { self: RawModule =>
         activeMem   := isMem
         activeClint := isClint
         activeBorg  := isBorg
-        activeSoc   := !isMem && !isClint && !isBorg  // SoC OR unmapped user → treat as SoC
+        activeSoc   := !isMem && !isClint && !isBorg
       }
       when(cpuData.resp.fire) {
         activeMem   := false.B
@@ -218,7 +199,7 @@ trait MinimalSoCLogic { self: RawModule =>
 
     cpu.io.interrupt := clint.io.timerIrq
 
-    // uo_out: bit 6 = debug UART TX (consumed by the ULX3S top to drive ftdi_rxd).
+    // Bit 6: debug UART TX, the ULX3S top's ftdi_rxd.
     val uo_out_val = Cat(0.U(1.W), debug_uart_txd, 0.U(6.W))
     uo_out_val
   }

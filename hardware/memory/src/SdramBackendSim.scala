@@ -1,9 +1,5 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-//
-// Behavioral SDRAM — drop-in replacement for SdramBackend backed by SyncReadMem.
-// Implements the new 16-bit-word MemBackendIO protocol (one halfword per
-// transaction) for use in cocotb/test simulations.
 
 package memory
 
@@ -18,7 +14,7 @@ class SdramBackendSimIO extends Bundle {
   val debug_readWord   = Output(UInt(16.W))
 }
 
-/** Host backdoor port for verilator-sim load/readback (gated by `dbg`). */
+/** Host backdoor for Verilator preload and readback. */
 class SdramDbgIO extends Bundle {
   val we    = Input(Bool())
   val waddr = Input(UInt(24.W))
@@ -27,24 +23,17 @@ class SdramDbgIO extends Bundle {
   val rdata = Output(UInt(16.W))
 }
 
-/** Behavioral SDRAM model.
-  *
-  * @param words   Number of 16-bit words backing the memory (default 4096 = 8 KB).
-  * @param rdDelay Cycles between startRead and done (simulates CAS latency).
-  * @param wrDelay Cycles between startWrite and done (simulates write latency).
-  */
+/** Behavioral drop-in for SdramBackend: `words` 16-bit words, `rdDelay` and
+  * `wrDelay` cycles from start to done. */
 class SdramBackendSim(
   words:   Int = 4096,
   rdDelay: Int = 4,
   wrDelay: Int = 2,
-  dbg:     Boolean = false   // expose a host backdoor port (verilator sim load/readback)
+  dbg:     Boolean = false
 ) extends Module {
 
   val io = IO(new SdramBackendSimIO)
 
-  // Optional host backdoor: lets the verilator harness preload firmware/texture
-  // and read back the framebuffer without going through the MemBackendIO bus.
-  // Gated by `dbg` so cocotb users (default) get no extra ports.
   val dbgIO: Option[SdramDbgIO] = if (dbg) Some(IO(new SdramDbgIO)) else None
 
   val mem      = SyncReadMem(words, UInt(16.W))
@@ -63,14 +52,13 @@ class SdramBackendSim(
   val dataReg = RegInit(0.U(16.W))
   val readReg = RegInit(0.U(16.W))
   val counter = RegInit(0.U(8.W))
-  val lenReg  = RegInit(1.U(7.W))   // burst word count latched at startWrite
+  val lenReg  = RegInit(1.U(7.W))
   val beatReg = RegInit(0.U(7.W))   // words written so far this burst
 
-  // Synchronous read port — issue address now, data available next cycle.
   val rdAddrWire = WireDefault(0.U(wordBits.W))
   val rdData     = mem.read(rdAddrWire)
 
-  val acceptW = WireDefault(false.B)   // burst-beat pull: present next word next cycle
+  val acceptW = WireDefault(false.B)   // the arbiter presents the next word next cycle
 
   io.backend.dataOut := readReg
   io.backend.accept  := acceptW
@@ -91,7 +79,7 @@ class SdramBackendSim(
         state   := sRd
       }.elsewhen(io.backend.startWrite) {
         addrReg := io.backend.addrIn
-        dataReg := io.backend.dataIn   // first burst word
+        dataReg := io.backend.dataIn
         lenReg  := io.backend.lenIn
         beatReg := 0.U
         isWrite := true.B
@@ -109,13 +97,13 @@ class SdramBackendSim(
       }
     }
 
-    // First burst word: pay the full write latency.
+    // The first word pays the write latency, the rest one per cycle.
     is(sWr) {
       counter := counter + 1.U
       when(counter >= wrDelay.U) {
         mem.write(addrReg(wordBits - 1, 0), dataReg)
         when(beatReg + 1.U < lenReg) {
-          acceptW := true.B            // pull next word; arbiter presents it next cycle
+          acceptW := true.B
           beatReg := beatReg + 1.U
           addrReg := addrReg + 1.U
           state   := sWrBeat
@@ -125,7 +113,6 @@ class SdramBackendSim(
       }
     }
 
-    // Subsequent burst words: open row, one word per cycle straight from dataIn.
     is(sWrBeat) {
       mem.write(addrReg(wordBits - 1, 0), io.backend.dataIn)
       when(beatReg + 1.U < lenReg) {

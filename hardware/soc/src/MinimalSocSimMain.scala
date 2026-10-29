@@ -3,13 +3,8 @@
 
 package soc
 
-/** Verilog emission entry point for the MinimalSoC (Borg-free, RV64)
-  * verilator simulation target.
-  *
-  * Run via: CLOCK_MHZ=25 mill hardware.soc.runMain soc.MinimalSocSimMain
-  *
-  * Emits split Verilog into out/hardware/soc/verilog_sim/ and writes
-  * sim_files.txt for the verilator build.
+/** Verilator sim Verilog for the MinimalSoC (no Borg, RV64).
+  * Run: CLOCK_MHZ=25 mill hardware.soc.runMain soc.MinimalSocSimMain
   */
 object MinimalSocSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt

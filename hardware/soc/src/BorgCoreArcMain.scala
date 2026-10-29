@@ -5,15 +5,8 @@ package soc
 
 import borg.{BorgConfig, BorgCore}
 
-/** Debug: emit FIRRTL for a standalone BorgCore with the custom FMA, for the
-  * arcilator custom-FMA investigation (see docs/arcilator_custom_fma_bug.md).
-  * The C++ harness simulation/arcilator/debug/core_harness.cpp drives ADD/MUL/
-  * FMA/FNEG via MMIO and reads regReadData — all correct in arcilator, which is
-  * the paradox (BorgCore is fine standalone; only the full SoC miscompiles).
-  * Not a build target.
-  *
-  * Emit FIRRTL: `mill hardware.soc.runMain soc.BorgCoreArcMain`
-  * (also prints the instruction encodings used by the harness)
+/** Debug: FIRRTL of a standalone BorgCore for simulation/arcilator/debug/core_harness.cpp,
+  * plus the instruction encodings it uses (docs/arcilator_custom_fma_bug.md).
   */
 object BorgCoreArcMain extends App {
   println("ENC ADD(0,1,2)=0x"   + borg.Instructions.ADD(0, 1, 2).toString(16))

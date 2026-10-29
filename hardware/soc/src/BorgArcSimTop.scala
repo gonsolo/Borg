@@ -6,12 +6,8 @@ package soc
 import chisel3._
 import borg.BorgConfig
 
-/** Arcilator simulation top-level module.
-  *
-  * Same SoC as [[BorgSimTop]] but exposes the [[memory.MemBackendIO]] as
-  * plain IOs instead of wiring to an internal [[memory.SdramBackendSim]].
-  * The C++ harness drives the backend bus directly (flat_read16/flat_write16),
-  * keeping the arcilated circuit small (no 32 MB SDRAM state array).
+/** Arcilator top: [[BorgSimTop]]'s SoC with [[memory.MemBackendIO]] as ports for the C++
+  * harness, so the arcilated circuit carries no 32 MB SDRAM array.
   */
 class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val ui_in  = IO(Input(UInt(8.W)))
@@ -20,15 +16,12 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val clk    = IO(Input(Clock()))
   val rst_n  = IO(Input(Bool()))
 
-  // MemBackendIO exposed as ports — driven by the C++ harness.
-  // MemoryController (arbiter) → C++ (backend):
   val be_addrIn     = IO(Output(UInt(24.W)))
   val be_startRead  = IO(Output(Bool()))
   val be_startWrite = IO(Output(Bool()))
   val be_dataIn     = IO(Output(UInt(16.W)))
   val be_byteEnIn   = IO(Output(UInt(2.W)))
   val be_lenIn      = IO(Output(UInt(7.W)))   // burst word count (1..64)
-  // C++ (backend) → MemoryController (arbiter):
   val be_dataOut = IO(Input(UInt(16.W)))
   val be_done    = IO(Input(Bool()))
   val be_busy    = IO(Input(Bool()))
@@ -41,20 +34,13 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
-  // Match ULX3S hardware: RV32I Hutt core (see ULX3S.scala's own comment
-  // for why RV64 no longer fits the ECP5-85K).
-  // Also matches ULX3S.scala's hasSupervisorMode = false (see its own
-  // comment): the same bare-metal firmware, never leaves M-mode.
+  // Matches ULX3S.scala: RV32I, bare-metal firmware in M-mode.
   override def hasSupervisorMode: Boolean = false
 
-  // Unified 2×2 quad SIMT config, matching the verilator BorgSimTop and ULX3S.
-  // Arcilator ignores $readmemh, so its C++ harness pokes the per-lane LUTs into
-  // all 4 lanes (see ArcBorgSimulator::load_luts).  One config everywhere keeps
-  // sim == hardware.
+  // Arcilator ignores $readmemh: the harness pokes the LUTs (ArcBorgSimulator::load_luts).
   override def BORG_CFG: BorgConfig = BorgConfig.Default
 
-  // No scanout: immediately reflect fb_select writes so the firmware's
-  // PERI_FB_SELECT sync loop exits on the first read.
+  // No scanout: the firmware's PERI_FB_SELECT sync loop exits on the first read.
   override def scanoutCurBuf: Bool = fbSelectReg
 
   val uo_out_val = wireSoC()

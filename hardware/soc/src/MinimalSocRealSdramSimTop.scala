@@ -6,16 +6,8 @@ package soc
 import chisel3._
 import memory.{SdramBackend, SdramChipModel}
 
-/** Same purpose as MinimalSocSimTop, but with the REAL hardware SDRAM path
-  * (MemoryController -> SdramBackend -> SdramController -> physical pins ->
-  * SdramChipModel) instead of the idealized, fixed-latency SdramBackendSim.
-  *
-  * SdramChipModel's own docs: it models the actual JEDEC SDR protocol
-  * (ACTIVATE -> READ/WRITE -> PRECHARGE, per-bank open rows, CAS latency) so
-  * a co-sim through the real SdramBackend/SdramController exhibits variable
-  * read timing that the behavioral SdramBackendSim flattens away — exactly
-  * the gap between "boots in sim" (MinimalSocSimTop, confirmed working) and
-  * "silent on real hardware" this target exists to close.
+/** MinimalSocSimTop with the real SDRAM path (SdramBackend, SdramController, pins) into
+  * SdramChipModel, whose JEDEC protocol gives the variable read timing SdramBackendSim hides.
   */
 class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogic {
   val ui_in  = IO(Input(UInt(8.W)))
@@ -48,14 +40,7 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   backend.io.backend <> mem.io.backend
 
   val chip = withClockAndReset(clk, !soc_rst_reg_n) {
-    // addrBits=24 (16M words = 32MB) to match borg.dts's declared
-    // `reg = <0x0 0x0 0x0 0x02000000>` (32MB) memory region -- task #15's
-    // real-SDRAM-cosim corruption was root-caused to this being previously
-    // addrBits=22 (8MB): any physical write the kernel legitimately made
-    // above 8MB silently aliased (wrapped mod 8MB) onto low SDRAM addresses,
-    // corrupting real content including OpenSBI's own resident code. This
-    // was a harness sizing bug, not an RTL race -- real hardware has the
-    // full 32MB chip and was never affected.
+    // 32MB, borg.dts's memory region; a smaller model aliases the kernel's high writes.
     Module(new SdramChipModel(addrBits = 24, readLatency = 2))
   }
   chip.io.cs_n   := backend.io.sdramPins.cs_n
@@ -78,8 +63,7 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
 
   uo_out := uo_out_val
 
-  // -- Debug probes: SoC/memory-backend state and CPU bus activity, for
-  // future boot-sequence debugging in this harness. --------------------------
+  // Debug probes for boot debugging; see Hutt.scala's dbg* ports.
   val dbg_mem_state        = IO(Output(UInt(3.W)))
   val dbg_be_state         = IO(Output(UInt(3.W)))
   val dbg_ctrl_state       = IO(Output(UInt(3.W)))
@@ -111,19 +95,11 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_data_resp_valid   := cpu.io.data.resp.valid
   dbg_data_resp_data    := cpu.io.data.resp.bits
 
-  // Chasing task #15's real-SDRAM-co-sim-only hang (kernel's misaligned-
-  // access calibration never sees its own 8ms timeout): directly expose
-  // Hutt's free-running cycleCounter (backing the `time` CSR) and CLINT's
-  // independent mtime, to check whether either is genuinely advancing
-  // during the stuck loop.
   val dbg_cycle_counter = IO(Output(UInt(64.W)))
   val dbg_mtime         = IO(Output(UInt(64.W)))
   dbg_cycle_counter := cpu.io.dbgCycleCounter
   dbg_mtime         := clint.io.dbgMtime
 
-  // nputs() loop GPRs (see Hutt.scala's dbgS1/dbgA5/dbgS3/dbgS5) -- reading
-  // `s5 - s1` directly reveals whether OpenSBI's print-buffer length is
-  // corrupted, instead of inferring it from a PC census.
   val dbg_s1 = IO(Output(UInt(64.W)))
   val dbg_a5 = IO(Output(UInt(64.W)))
   val dbg_s3 = IO(Output(UInt(64.W)))
@@ -133,29 +109,19 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_s3 := cpu.io.dbgS3
   dbg_s5 := cpu.io.dbgS5
 
-  // s2 -- the flush-loop progress counter in print()'s console_tbuf flush
-  // (see Hutt.scala's dbgS2).
   val dbg_s2 = IO(Output(UInt(64.W)))
   dbg_s2 := cpu.io.dbgS2
 
-  // nputs()'s return value register (see Hutt.scala's dbgA0).
   val dbg_a0 = IO(Output(UInt(64.W)))
   dbg_a0 := cpu.io.dbgA0
 
-  // ra=x1 (see Hutt.scala's dbgRa, task #15 Bug A scheduler-stall).
   val dbg_ra = IO(Output(UInt(64.W)))
   dbg_ra := cpu.io.dbgRa
 
-  // Continuous privilege level (0=U,1=S,3=M) -- distinguishes real U-mode
-  // (userspace) execution from M-mode OpenSBI trap-vector code, both of
-  // which can show low dbg_pc values (task #15 post-fork stall probing).
+  // 0 = U, 1 = S, 3 = M.
   val dbg_priv = IO(Output(UInt(2.W)))
   dbg_priv := cpu.io.dbgPrivLevel
 
-  // Trap-event tracer (see Hutt.scala's dbgTrap*) -- kept as reusable
-  // infrastructure (the "boot/reset loop" theory it was added to test has
-  // since been retracted, but it's cheap, event-counted, and useful for any
-  // future trap-related debugging).
   val dbg_trap_seq       = IO(Output(UInt(32.W)))
   val dbg_trap_from_pc   = IO(Output(UInt(64.W)))
   val dbg_trap_cause     = IO(Output(UInt(64.W)))
@@ -171,9 +137,6 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_trap_stvec     := cpu.io.dbgTrapStvec
   dbg_trap_target_pc := cpu.io.dbgTrapTargetPc
 
-  // x18 (s2) write tracer (see Hutt.scala's dbgX18Write*) -- catches the
-  // exact instruction that zeros s2 inside nputs(), if any RTL write ever
-  // actually fires for it during the hang window.
   val dbg_x18_write_seq = IO(Output(UInt(32.W)))
   val dbg_x18_write_pc  = IO(Output(UInt(64.W)))
   val dbg_x18_write_val = IO(Output(UInt(64.W)))
@@ -181,7 +144,6 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_x18_write_pc  := cpu.io.dbgX18WritePc
   dbg_x18_write_val := cpu.io.dbgX18WriteVal
 
-  // Raw continuous regfile write bus + PC (see Hutt.scala's dbgRegWen/*).
   val dbg_pc         = IO(Output(UInt(64.W)))
   val dbg_reg_wen    = IO(Output(Bool()))
   val dbg_reg_waddr  = IO(Output(UInt(5.W)))
@@ -200,12 +162,6 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_d_rd      := cpu.io.dbgDRd
   dbg_instr     := cpu.io.dbgInstr
 
-  // InstrCache debug (task #15): a direct-mapped icache sits between the CPU
-  // and MemoryController (see hutt.InstrCache) -- hits resolve in 2 cycles
-  // straight from BRAM, which is what made the corrupted nputs+0x2c fetch
-  // LOOK like an impossibly fast real-SDRAM round trip. Expose the cache's
-  // own hit/miss state plus every fill event so the exact historical fill
-  // that wrote the bad word can be found in one run instead of bisecting.
   val dbg_ic_state         = IO(Output(UInt(3.W)))
   val dbg_ic_addr_reg      = IO(Output(UInt(23.W)))
   val dbg_ic_is_hit        = IO(Output(Bool()))
@@ -219,12 +175,7 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_ic_fill_word_addr := iCache.io.dbgFillWordAddr
   dbg_ic_fill_data     := iCache.io.dbgFillData
 
-  // Raw SDRAM data-bus + halfword-capture debug (task #15): isolates whether
-  // a corrupted 32-bit word already arrived wrong off the physical dq_in bus
-  // (implicates SdramChipModel/SdramController's read-command sequencing) or
-  // was correct on the bus but mis-captured/mis-assembled afterward
-  // (implicates SdramBackend's readDataReg latch or MemoryController's
-  // hw0Reg/hw1Reg halfword assembly).
+  // Raw dq_in against the backend's and MemoryController's captured halfwords.
   val dbg_dq_in       = IO(Output(UInt(16.W)))
   val dbg_be_readword = IO(Output(UInt(16.W)))
   val dbg_mem_hw0     = IO(Output(UInt(16.W)))
@@ -234,10 +185,7 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_mem_hw0     := mem.io.debug_hw0
   dbg_mem_hw1     := mem.io.debug_hw1
 
-  // SdramChipModel's own address-reconstruction/read-decode (task #15,
-  // narrowing the corrupted-dq_in finding further): lets a bad read be
-  // checked against the hand-computed expected ba/row/col instead of
-  // trusting the controller's view, which could itself be wrong.
+  // The chip model's own decode of each command.
   val dbg_chip_is_read  = IO(Output(Bool()))
   val dbg_chip_is_act   = IO(Output(Bool()))
   val dbg_chip_ba       = IO(Output(UInt(2.W)))
@@ -264,9 +212,6 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_chip_write_data     := chip.dbgWriteData
   dbg_chip_write_dqm      := chip.dbgWriteDqm
 
-  // CPU store tracer (task #15, pinpointing the wild write found at
-  // cyc 52,465,968/52,465,979): already existed in Hutt.scala from the
-  // fork-crash investigation, never wired to this harness.
   val dbg_store_seq       = IO(Output(UInt(32.W)))
   val dbg_store_pc        = IO(Output(UInt(64.W)))
   val dbg_store_phys_addr = IO(Output(UInt(64.W)))

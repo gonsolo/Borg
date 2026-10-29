@@ -10,12 +10,8 @@ import memory.{MemoryController, MemoryControllerIO, QspiPinsIO}
 import borg.BorgConfig
 import borg.link.LinkParams
 
-// ---------------------------------------------------------------------------
-// SoC-internal bus decoder constants.  Inherited from the original SoC
-// address-decode scheme so existing firmware keeps working.
-// ---------------------------------------------------------------------------
+// SoC-internal bus decoder constants, kept for firmware compatibility.
 private[soc] object SoCDecode {
-  // Magic comparison values for SoC vs User region detection
   private val SOC_REGION_ID  = 0x800000  // Cat(addr[27:6], addr[1:0])
   private val USER_REGION_ID = 0x8000    // addr[27:12]
 
@@ -40,86 +36,44 @@ private[soc] object SoCDecode {
   val PERI_DEBUG_UART        = 0x6
   val PERI_DEBUG_UART_STATUS = 0x7
   val PERI_DEBUG_UART_BAUD   = 0x8
-  val PERI_SCANOUT_FB0       = 0x4   // scanout framebuffer base (buffer 0), firmware-programmed
+  val PERI_SCANOUT_FB0       = 0x4
   val PERI_FB_SELECT         = 0x9
-  val PERI_SCANOUT_FB1       = 0xA   // scanout framebuffer base (buffer 1), firmware-programmed
+  val PERI_SCANOUT_FB1       = 0xA
   val PERI_TIME_LIMIT        = 0xB
   val PERI_DEBUG             = 0xC
-  val PERI_WARM_RESET        = 0x5   // write WARM_RESET_MAGIC → pulse warm reset (serial firmware reload)
-  // Read-only: bit0 = link_up, bit1 = link_err. Only wired when
-  // peripherals.io.link is Some(...) (borgMode != BorgDirect); on a
-  // BorgDirect target this address is simply unmapped and falls through to
-  // the same 0xFFFFFFFF "unknown address" default every other unmapped
-  // register gets -- firmware can treat that as "no link support" without a
-  // special case. No PERI_LINK_CTRL yet: a real link-reset needs a reset
-  // port threaded through BorgLinkMaster/Slave that doesn't exist yet, and
-  // rung A's same-bitstream loopback doesn't need one (a full system reset
-  // already clears a wedged link there) -- real scope for rungs B/C, where
-  // you don't want to reset the whole board just to recover the link.
-  val PERI_LINK_STATUS       = 0xD
+  val PERI_WARM_RESET        = 0x5   // write WARM_RESET_MAGIC: warm reset for serial firmware reload
+  val PERI_LINK_STATUS       = 0xD   // read-only: bit0 link_up, bit1 link_err
   val PERI_USER              = 0xF
 
   def socPeriU(idx: Int): UInt = idx.U(4.W)
 
-  // Magic value the firmware writes to PERI_WARM_RESET to request a warm reboot.
-  // A non-trivial constant so a stray store can't accidentally reset the SoC.
+  // Non-trivial so a stray store can't reset the SoC.
   val WARM_RESET_MAGIC: Long = 0x0B16B007L
 }
 
-/** Platform-independent SoC backbone shared by all target top-level modules.
-  *
-  * Wires together the three peer components:
-  *   - [[Hutt]]             — RV32I CPU; clean Decoupled buses
-  *   - [[MemoryController]] — owns SPI/QSPI pins; arbitrates CPU instr-fetch,
-  *                            CPU data, and GPU read/write
-  *   - [[Peripherals]]      — Borg GPU + UART + GPIO (user-peripheral region)
-  *
-  * The CPU's single data bus is demuxed in this layer to three destinations:
-  *   - Memory region        (addr[27:25] == 0)        → MemoryController.cpuData
-  *   - SoC peripheral region (addr matches SOC_REGION_ID) → inline regs
-  *   - User peripheral region (addr matches USER_REGION_ID) → Peripherals.mmio
-  */
+/** SoC backbone shared by all targets: Hutt, MemoryController and Peripherals,
+  * with the CPU data bus demuxed to memory (addr[27:25] == 0), the SoC inline
+  * registers and the user peripheral region. */
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
   def BORG_CFG: BorgConfig = BorgConfig.Default
-  def xlen: Int = 32   // 32 = RV32I, 64 = RV64I (override with def, not val)
-  // See Hutt's constructor doc. Default (true) matches every already
-  // timing-closed target (ULX3S @ 25MHz); override false only for a target
-  // whose clock is slow enough to not need the split (e.g. TT ASIC @ 4MHz).
+  def xlen: Int = 32   // override with def, not val
   def pipelinedCsrRead: Boolean = true
-  // See Hutt's constructor doc. Default true matches ULX3S/Linux; override
-  // false only for a target with no S-mode software (e.g. TT ASIC's
-  // bare-metal firmware, which never leaves M-mode).
   def hasSupervisorMode: Boolean = true
-  // CLINT (mtime/mtimecmp, timer interrupts) is Linux/OpenSBI-only --
-  // software/borg's bare-metal firmware never sets mtvec and never takes
-  // an interrupt (Hutt's own free-running cycleCounter backs the `cycle`
-  // CSR it does read). Default true matches ULX3S/Linux; override false
-  // for a target with no interrupt-driven software.
+  // Only Linux/OpenSBI takes interrupts; the bare-metal firmware never does.
   def hasClint: Boolean = true
-  // Hutt's store/load/trap/sfence/x1/x18 debug trace registers, plus
-  // HuttRegFile's forensic register-read taps -- observed only by ULX3S/
-  // sim debug harnesses, never by Hutt itself. Default true preserves
-  // ULX3S debug capability; the ASIC has no such harness to observe them.
+  // Hutt's debug trace registers, observed only by ULX3S and sim harnesses.
   def hasDebugPorts: Boolean = true
-  // Which physical arrangement drives Borg's mmio/gpuMem: local instantiation
-  // (every target so far), the FPGA-only bridge loopback (rung A of the
-  // wafer.space Borg-only bridge's on-hardware ladder), or the real link out
-  // to pads. See BorgMode's doc.
   def borgMode: BorgMode = BorgDirect
   def linkParams: LinkParams = LinkParams()
-  // See MemoryController's constructor doc: true is correct for QspiBackend
-  // (the default -- bit 24 is QspiCtrl's real flash-vs-PSRAM chip select),
-  // false for SdramBackend targets (no flash/PSRAM split at this level).
+  // True for QspiBackend (bit 24 selects flash or PSRAM), false for SDRAM.
   def gpuVramRegionBit: Boolean = true
 
-  // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
   def soc_rst_n: Bool
   def soc_rst_reg_n: Bool
   def soc_ui_in: UInt
 
-  // --- Core + peripherals ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new Hutt(xlen = xlen, pipelinedCsrRead = pipelinedCsrRead,
       hasSupervisorMode = hasSupervisorMode, hasDebugPorts = hasDebugPorts))
@@ -134,51 +88,31 @@ trait SoCLogic { self: RawModule =>
     Module(new peri.uart.UartTx(13))
   }
 
-  // fb_select register — populated by wireSoC().  Concrete targets (e.g. ULX3S)
-  // that need to read it after wireSoC() returns access it here.
+  // Set by wireSoC().
   protected var _fbSelectReg: Bool = null.asInstanceOf[Bool]
   def fbSelectReg: Bool = _fbSelectReg
 
-  // Buffer the scanout is currently displaying.  Overridden by targets with a
-  // double-buffered scanout; read back via PERI_FB_SELECT so firmware can wait
-  // for the scanout to release the back buffer before the GPU re-renders it.
+  // The buffer on screen, read back via PERI_FB_SELECT so firmware can wait
+  // for the scanout to release the back buffer.
   def scanoutCurBuf: Bool = false.B
 
-  // Scanout framebuffer base registers — written by firmware (from the same
-  // borg_layout.h constants that drive the GPU flush base) so the scanout and the
-  // GPU can never drift apart.  Exposed to the board top (ULX3S) via these vars.
+  // Firmware writes these from the same constants as the GPU flush base.
   protected var _scanoutFbBase0: UInt = null
   protected var _scanoutFbBase1: UInt = null
   def scanoutFbBase0: UInt = _scanoutFbBase0
   def scanoutFbBase1: UInt = _scanoutFbBase1
 
-  // One-cycle pulse: firmware wrote WARM_RESET_MAGIC to PERI_WARM_RESET, asking
-  // the board top to warm-reboot the CPU/bootloader (for serial firmware reload)
-  // without disturbing the video clock domain.  Populated by wireSoC(); targets
-  // that don't implement warm reload simply ignore it.
+  // One-cycle pulse asking the board top to warm-reboot the CPU without
+  // disturbing the video clock domain.
   protected var _warmReset: Bool = null
   def warmReset: Bool = if (_warmReset != null) _warmReset else false.B
 
-  /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
   def wireGpuMem(): Unit = {
     mem.io.gpuMem <> peripherals.io.gpuMem
   }
 
-  /** Rung A of the wafer.space Borg-only bridge's on-hardware ladder: close
-    * `peripherals.io.link` back on a same-bitstream `BorgLinkSlave` + `Borg`
-    * pair, so the CPU's every Borg access -- and every gpuMem transaction Borg
-    * itself initiates -- travels the real link RTL (framing, credits,
-    * arbitration, beat-phase training, all four adapter hazards) with no ASIC
-    * involved at all.
-    *
-    * "Pins" are internal wires here, so training locks in a handful of
-    * cycles -- both `BorgLinkClockGen`s divide the *same* clock with zero
-    * board delay between them, unlike the real off-chip case this rehearses.
-    *
-    * Call this instead of leaving `peripherals.io.link` unconnected whenever
-    * `borgMode == BorgLoopback`; it is a no-op-shaped error (dangling IO) to
-    * select that mode and not call it.
-    */
+  /** Rung A: close the link back on a same-bitstream BorgLinkSlave + Borg, so
+    * all Borg traffic crosses the real link RTL. Required under BorgLoopback. */
   def wireBorgLoopback(): Unit = {
     require(borgMode == BorgLoopback, "wireBorgLoopback() only makes sense under BorgLoopback")
     val linkIo = peripherals.io.link.getOrElse(
@@ -199,36 +133,17 @@ trait SoCLogic { self: RawModule =>
     slave.io.linkFast := linkIo.linkFast
     slave.io.narrow   := linkIo.linkNarrow
 
-    // linkFast is otherwise a board strap (input_in[3] in the wafer.space
-    // lane map) with no such pin here. Default to N=2 -- the reset-default
-    // safe mode -- so a target that selects BorgLoopback and forgets this
-    // input entirely still elaborates to something meaningful rather than an
-    // uninitialized-sink firtool error. A real caller overrides it after this
-    // call (Chisel's last-connect-wins) if it has an actual strap to honor.
+    // Board straps elsewhere; default to the reset-default safe mode. A caller
+    // with a real strap overrides after this call.
     linkIo.linkFast   := false.B
     linkIo.linkNarrow := false.B
 
-    // The master reads the slave's link_up back on a pin before sending real
-    // traffic (see BorgLinkClockGen's training doc); here that pin is just a
-    // wire, same as everything else in this loopback.
     linkIo.farLinkUp := slave.io.linkUp
   }
 
-  /** Rung B: rung A's complete system, but every master<->slave wire leaves
-    * the FPGA and comes back over a ribbon cable.
-    *
-    * Both endpoints are on this chip, so each logical wire needs a driving pad
-    * AND a receiving pad -- the cable bridges the two. That is why this takes a
-    * bundle with paired `*Out`/`*In` halves rather than the single set of pins
-    * [[wireBorgLoopback]] hands straight to the slave.
-    *
-    * `linkUpOut`/`linkUpIn` must carry the *slave's* `linkUp`, which is a
-    * constant `true` (see BorgLinkClockGen: only the master's `linkUp` follows
-    * `farLinkUp`). Routing the master's own `linkUp` out and back instead --
-    * the obvious-looking "expose link_up as a jumper target" -- closes a
-    * combinational loop through the cable, `farLinkUp = linkUp = farLinkUp`,
-    * which a pulled-down pad holds at 0 forever so the link never trains.
-    */
+  /** Rung B: rung A, but every master-slave wire leaves the FPGA and comes back
+    * over a ribbon cable. linkUp must be the slave's (constant true): looping
+    * the master's own linkUp closes farLinkUp = linkUp, stuck at 0. */
   def wireBorgPadLoop(pads: BorgPadLoopIO): Unit = {
     require(borgMode == BorgPadLoop, "wireBorgPadLoop() only makes sense under BorgPadLoop")
     val linkIo = peripherals.io.link.getOrElse(
@@ -260,25 +175,16 @@ trait SoCLogic { self: RawModule =>
     slave.io.narrow   := linkIo.linkNarrow
   }
 
-  /** Wire up the entire SoC. Call this from the top-level module body. */
+  /** Call from the top-level module body. */
   def wireSoC(): UInt = {
 
-    // -------------------------------------------------------------------------
-    // Instruction fetch — via InstrCache.
-    // -------------------------------------------------------------------------
     val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
     iCache.io.cpu <> cpu.io.instr
     iCache.io.mem <> mem.io.instr
 
-    // -------------------------------------------------------------------------
-    // Synchronized ui_in for peripheral interrupts.
-    // -------------------------------------------------------------------------
     val ui_in_sync0 = withClockAndReset(soc_clk, false.B) { RegNext(soc_ui_in) }
     val ui_in_sync  = withClockAndReset(soc_clk, false.B) { RegNext(ui_in_sync0) }
 
-    // -------------------------------------------------------------------------
-    // Data bus router — demux CPU data port to memory / SoC peri / user peri.
-    // -------------------------------------------------------------------------
     val cpuData: HuttBus = if (xlen > 32) {
       val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
         Module(new HuttDataWidthAdapter(28))
@@ -291,23 +197,13 @@ trait SoCLogic { self: RawModule =>
     val cpuAddr = cpuData.req.bits.addr  // 28-bit byte address
 
     val isMem   = cpuAddr(27, 25) === 0.U
-    // 0x02000000–0x02FFFFFF: CLINT (mtime/mtimecmp). false when !hasClint --
-    // leaves the region unclaimed, falling through to the same "unknown
-    // address" handling any other unmapped region already gets.
+    // 0x02000000-0x02FFFFFF: CLINT.
     val isClint = if (hasClint) (cpuAddr(27, 24) === 2.U) else false.B
     val isSoc   = SoCDecode.socRegion.matches(cpuAddr)
-    // The SoC inline-reg window is a strict subset of the user-peripheral
-    // window (same addr[27:12]=0x8000), so exclude isSoc from isUser to make
-    // the regions mutually exclusive.  Without this, a SoC write also fires
-    // peripherals, where addr[11:10]==0 (PERI_NONE) never produces a resp —
-    // bus locks waiting for an ack that never arrives.  Proved by
-    // hardware.soc.test SoCRoutingTests.
+    // The SoC window lies inside the user window, whose PERI_NONE never
+    // answers: overlap would hang the bus.
     val isUser  = SoCDecode.userRegion.matches(cpuAddr) && !isSoc
 
-    // CLINT instance — mtime / mtimecmp at 0x02000000–0x0200000F. None when
-    // !hasClint; every use below goes through clintOpt so nothing crashes at
-    // elaboration when it's absent (isClint is already hardwired false.B in
-    // that case, so none of this would ever fire even if it did exist).
     val clintOpt: Option[Clint] = if (hasClint) Some(
       withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
     ) else None
@@ -319,7 +215,6 @@ trait SoCLogic { self: RawModule =>
       clint.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
     }
 
-    // Per-target req.valid gating
     mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
     mem.io.cpuData.req.bits.addr       := cpuAddr(24, 0)
     mem.io.cpuData.req.bits.write      := cpuData.req.bits.write
@@ -333,20 +228,14 @@ trait SoCLogic { self: RawModule =>
     peripherals.io.mmio.req.bits.data  := cpuData.req.bits.data
     peripherals.io.ui_in               := ui_in_sync
 
-    // -------------------------------------------------------------------------
-    // SoC-internal MMIO: PERI_ID, DEBUG_UART, GPIO_OUT_SEL, TIME_LIMIT, ...
-    // -------------------------------------------------------------------------
     import SoCDecode._
     val socPeri = SoCDecode.socRegion.index(cpuAddr)  // addr[5:2]
 
-    // Configuration registers
     val gpio_out_sel = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(Cat(!soc_ui_in(0), 0.U(1.W)))
     }
     val fb_select = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     _fbSelectReg = fb_select
-    // Scanout framebuffer bases — firmware writes these from DRAM_OUT_SPI(0) and
-    // DRAM_OUT_SPI(FRAME_STRIDE); power-on default 0 (blank) until programmed.
     val scanout_fb_base0 = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(25.W)) }
     val scanout_fb_base1 = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(25.W)) }
     _scanoutFbBase0 = scanout_fb_base0
@@ -364,9 +253,6 @@ trait SoCLogic { self: RawModule =>
 
     val socFire = cpuData.req.fire && isSoc
 
-    // Warm-reset request: 1-cycle pulse when firmware writes the magic value to
-    // PERI_WARM_RESET.  Routed to the board top (ULX3S) which holds the bootloader
-    // + CPU in reset just long enough to re-copy the serial-streamed image.
     val warm_reset_pulse = WireDefault(false.B)
     _warmReset = warm_reset_pulse
 
@@ -384,10 +270,7 @@ trait SoCLogic { self: RawModule =>
     }
 
     val debug_uart_tx_busy = uartTx.io.uart_tx_busy
-    // Absent (borgMode == BorgDirect) reads as all-zero -- both link_up and
-    // link_err false -- rather than falling through to the generic
-    // 0xFFFFFFFF "unknown address" default, since 0 reads more naturally as
-    // "no link" than as an error.
+    // No link reads 0, not the unmapped 0xFFFFFFFF.
     val linkStatusBits = peripherals.io.link
       .map(l => Cat(0.U(30.W), l.linkErr, l.linkUp))
       .getOrElse(0.U(32.W))
@@ -404,8 +287,7 @@ trait SoCLogic { self: RawModule =>
       is(socPeriU(PERI_LINK_STATUS))       { socReadData := linkStatusBits }
     }
 
-    // SoC inline registers respond one cycle after req.fire (matches the
-    // single-outstanding pattern used by UART / Borg / Peripherals).
+    // Inline registers answer one cycle after req.fire.
     val socRespPending = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     val socRespData    = withClockAndReset(soc_clk, false.B)         { Reg(UInt(32.W)) }
     withClockAndReset(soc_clk, false.B) {
@@ -416,8 +298,6 @@ trait SoCLogic { self: RawModule =>
       }
     }
 
-    // Debug UART TX write — special-cased so we can emit a byte without
-    // wiring the peripherals module to it.
     val debug_uart_tx_start = socFire && cpuData.req.bits.write &&
                               (socPeri === socPeriU(PERI_DEBUG_UART))
     val debug_uart_txd = uartTx.io.uart_txd
@@ -425,11 +305,7 @@ trait SoCLogic { self: RawModule =>
     uartTx.io.uart_tx_data := cpuData.req.bits.data(7, 0)
     uartTx.io.baud_divider := debug_baud_divider
 
-    // -------------------------------------------------------------------------
-    // CPU req.ready and resp muxing.
-    // -------------------------------------------------------------------------
-    // Track which target owns the current in-flight response so we route
-    // resp.valid/bits/ready correctly.
+    // Which target owns the in-flight response.
     val activeMem   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     val activeUser  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     val activeSoc   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
@@ -440,8 +316,7 @@ trait SoCLogic { self: RawModule =>
       isMem  -> mem.io.cpuData.req.ready,
       isUser -> peripherals.io.mmio.req.ready,
       isSoc  -> true.B
-      // Address outside any region → drop into "ready=true" so the CPU isn't
-      // stuck; resp returns 0xFFFFFFFF the next cycle via socRespData fallback.
+      // Unmapped: ready, answered with 0xFFFFFFFF as a SoC read.
     ) ++ clintOpt.map(c => isClint -> c.io.mmio.req.ready).toSeq)
 
     withClockAndReset(soc_clk, false.B) {
@@ -449,7 +324,7 @@ trait SoCLogic { self: RawModule =>
         activeMem   := isMem
         activeClint := isClint
         activeUser  := isUser
-        activeSoc   := isSoc || (!isMem && !isClint && !isUser)  // fallback: treat unknown as SoC
+        activeSoc   := isSoc || (!isMem && !isClint && !isUser)
       }
       when(cpuData.resp.fire) {
         activeMem   := false.B
@@ -475,19 +350,13 @@ trait SoCLogic { self: RawModule =>
       activeSoc  -> socRespData
     ) ++ clintOpt.map(c => activeClint -> c.io.mmio.resp.bits).toSeq)
 
-    // GPU port (overridable by ULX3S for scanout mux).
     wireGpuMem()
 
     cpu.io.interrupt := clintOpt.map(_.io.timerIrq).getOrElse(false.B)
 
-    // -------------------------------------------------------------------------
-    // uo_out construction.
-    // -------------------------------------------------------------------------
     val peri_out = peripherals.io.uo_out
-    // Hutt has no debug_rd; just use zero placeholders for the lanes that
-    // Old CPU mapped to its debug register file; Hutt uses zero placeholders.
     val debug_rd_r = 0.U(4.W)
-    val debug_signal = false.B  // no Hutt debug signals exposed yet
+    val debug_signal = false.B
 
     val uo_out_val = Cat(
       Mux(gpio_out_sel(1), peri_out(7), debug_signal),

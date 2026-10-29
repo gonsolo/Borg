@@ -10,17 +10,7 @@ import chisel3.util._
 import hutt.{HuttBus, HuttInstrBus, HuttSize}
 import borg.GpuMemIO
 
-/** IO bundle for the SoC-level memory controller.
-  *
-  * Arbitrates the memory backend bus between four requestors:
-  *   - CPU instruction fetch ([[HuttInstrBus]], single 32-bit word per request)
-  *   - CPU data read/write ([[HuttBus]], byte/halfword/word access)
-  *   - GPU write (autonomous tile flush)
-  *   - GPU read (scanout / texel fetch)
-  *
-  * Physical memory pins are NOT owned here; connect a [[QspiBackend]] or
-  * [[SdramBackend]] to io.backend at the top level.
-  */
+/** Memory controller IO; a [[QspiBackend]] or [[SdramBackend]] connects to `backend`. */
 class MemoryControllerIO extends Bundle {
   val instr   = Flipped(new HuttInstrBus(23))
   val cpuData = Flipped(new HuttBus(25))
@@ -29,111 +19,60 @@ class MemoryControllerIO extends Bundle {
 
   val debug_state = Output(UInt(3.W))
 
-  // Debug (task #15): the two halfword-read capture registers, so a
-  // corrupted 32-bit instr/data word can be split back into which HALF
-  // (backend transaction) actually carried the bad bits vs. the raw dq_in
-  // the backend/controller sampled off the chip.
+  // The two halfword-read captures, to tell which backend transaction carried a bad word.
   val debug_hw0 = Output(UInt(16.W))
   val debug_hw1 = Output(UInt(16.W))
 }
 
-/** SoC-level memory controller — backend-agnostic arbiter.
+/** Arbitrates instruction fetch, CPU data and the GPU port over one [[MemBackendIO]], splitting
+  * each access into one or two halfword transactions.
   *
-  * Each CPU/GPU access is decomposed into one or two halfword transactions on
-  * the [[MemBackendIO]] interface:
-  *   - Byte/halfword: 1 halfword transaction.
-  *   - Word: 2 back-to-back halfword transactions.
-  *
-  * Byte-write granularity uses byteEnIn to mask the inactive lane. (Note: the
-  * current SdramController ignores dqm during normal R/W — byte writes will
-  * clobber the adjacent byte until SdramController gets a dqm input.)
-  */
-/** @param gpuVramRegionBit force VRAM_REGION_BIT (byte-address bit 24) onto
-  *   every io.gpuMem access, so the GPU reaches the same physical bytes the
-  *   CPU does. Whether that is right depends on the CPU's own address path:
-  *   - QspiBackend targets (the default, true): bit 24 is [[QspiCtrl]]'s real
-  *     flash-vs-PSRAM chip select (`spi_flash_select_reg := io.addr_in(24)`),
-  *     and the GPU must always hit PSRAM.
-  *   - ULX3S (SdramBackend, true): the CPU reaches SDRAM through a
-  *     0x1000000-based window (firmware `DRAM_OUT_RAW`), so its addresses carry
-  *     bit 24, which SdramBackend decodes. Without the bit the GPU lands on
-  *     different physical SDRAM than the CPU: shader DMA loaded uninitialised
-  *     memory and every draw hung (found on the board, 10-02).
-  *   - A harness whose CPU path adds no such bit, or whose GPU port is tied
-  *     off (MinimalSoC), passes false.
-  *   Keep the GPU's and the CPU's convention in step; this flag is what ties
-  *   them together. A cleaner map would strip the window base in the SoC
-  *   decode and give QspiBackend a side-band "GPU request" instead.
+  * @param gpuVramRegionBit force byte-address bit 24 onto GPU accesses so they hit the bytes the
+  *   CPU sees: QSPI's PSRAM select, or ULX3S's 0x1000000 SDRAM window. False for harnesses whose
+  *   CPU path adds no such bit.
   */
 class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
   val io = IO(new MemoryControllerIO)
 
-  // ── FSM ────────────────────────────────────────────────────────────────────
-  // sIdle    — accepting new requests
-  // sIssue   — pulse startRead/startWrite for one cycle
-  // sWait    — wait for backend.done; capture read data
-  // sRespond — deliver result to requester; advance to next halfword if
-  //            needTwo and we've only done halfword 0, else back to sIdle.
   val sIdle :: sIssue :: sWait :: sRespond :: Nil = Enum(4)
   val state = RegInit(sIdle)
 
-  // Requester kind
   val rInstr :: rCpuRead :: rCpuWrite :: rGpuRead :: rGpuWrite :: Nil = Enum(5)
   val rKind = RegInit(rInstr)
 
-  // Halfword tracking
-  val hwIdx   = RegInit(0.U(1.W))  // 0 or 1 within current CPU/GPU access
-  val needTwo = RegInit(false.B)   // true when the request needs 2 halfwords
+  val hwIdx   = RegInit(0.U(1.W))
+  val needTwo = RegInit(false.B)
 
-  // GPU write burst (BorgTileFlusher streams a whole tile in one transaction).
-  // burst=true streams `lenReg` consecutive words: the backend auto-increments
-  // the address and pulses `accept` per word; we forward that to gpuMem.waccept
-  // so the flusher presents the next word.  Single-word writers leave wlen===1.
+  // GPU write burst of `lenReg` words; the backend pulses `accept` per word.
   val burst   = RegInit(false.B)
   val lenReg  = RegInit(1.U(7.W))
 
-  // Latched request fields
   val reqByteAddr = RegInit(0.U(25.W))
   val reqData     = RegInit(0.U(32.W))
   val reqSize     = RegInit(HuttSize.Word)
-  val hw0Reg      = RegInit(0.U(16.W))  // first halfword read back
-  val hw1Reg      = RegInit(0.U(16.W))  // second halfword read back
+  val hw0Reg      = RegInit(0.U(16.W))
+  val hw1Reg      = RegInit(0.U(16.W))
 
-  // Byte-write read-modify-write.  dqm-less backends (the real SdramController,
-  // QSPI PSRAM) and the behavioral SdramBackendSim write the full 16-bit lane
-  // regardless of byteEnIn, so a naive byte write clobbers its neighbour byte.
-  // To stay backend-agnostic we turn each byte write into READ-merge-WRITE:
-  // read the existing halfword, splice in the new byte, write the halfword back.
-  val rmwBg          = RegInit(0.U(16.W))  // existing halfword captured for the merge
-  val rmwReadPending = RegInit(false.B)    // byte write still owes its RMW read
+  // Byte writes are read-merge-write: dqm-less backends write the whole 16-bit lane.
+  val rmwBg          = RegInit(0.U(16.W))
+  val rmwReadPending = RegInit(false.B)
 
-  // DRAM-region select: byte-address bit 24 (= QspiController addr_in(24)).
-  // gpuMem (GPU DRAM port) addresses are DRAM SPI-relative and must carry
-  // this bit so they alias the CPU's DRAM_OUT_RAW accesses.
   val VRAM_REGION_BIT = "h1000000".U(25.W)
 
-  // ── Convenience signals ────────────────────────────────────────────────────
-  // Word address (16-bit-word, 24 bits) for the SDRAM transaction.
   val baseWordAddr = reqByteAddr(24, 1)
   val currentWordAddr = baseWordAddr + hwIdx
 
-  // For writes: which halfword of reqData are we sending now.
   val currentWriteHw = Mux(hwIdx === 0.U, reqData(15, 0), reqData(31, 16))
 
-  // Always write the full halfword.  Byte writes now carry a merged value
-  // (see byteWriteHw + the RMW read), so we never rely on backend lane masking.
   val currentByteEn = "b11".U(2.W)
 
-  // Byte write: splice the new byte into the correct lane of the existing
-  // halfword (rmwBg, captured by the RMW read). Even-addressed byte → low lane,
-  // odd-addressed byte → high lane; the other lane preserves memory.
   val byteWriteHw = Mux(
     reqByteAddr(0),
     Cat(reqData(7, 0), rmwBg(7, 0)),
     Cat(rmwBg(15, 8), reqData(7, 0))
   )
   val halfwordWriteHw = reqData(15, 0)
-  val wordWriteHw = currentWriteHw   // depends on hwIdx
+  val wordWriteHw = currentWriteHw
 
   val txWriteHw = MuxLookup(reqSize, wordWriteHw)(Seq(
     HuttSize.Byte -> byteWriteHw,
@@ -143,15 +82,10 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
 
   val isReadReq = (rKind === rInstr) || (rKind === rCpuRead) || (rKind === rGpuRead)
 
-  // A byte write's FIRST backend transaction is the RMW read, even though
-  // rKind is rCpuWrite. txIsRead drives the backend startRead/startWrite.
+  // A byte write's first backend transaction is its RMW read.
   val doingRmwRead = (rKind === rCpuWrite) && rmwReadPending
   val txIsRead     = isReadReq || doingRmwRead
 
-  // ── Backend wiring ─────────────────────────────────────────────────────────
-  // During a GPU write burst, stream the flusher's live word straight through and
-  // tell the backend how many words to expect; otherwise the existing single-word
-  // (and 2-halfword CPU) behaviour is unchanged (lenIn === 1).
   io.backend.addrIn     := currentWordAddr
   io.backend.dataIn     := Mux(burst, io.gpuMem.wdata(15, 0), txWriteHw)
   io.backend.byteEnIn   := currentByteEn
@@ -159,10 +93,7 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
   io.backend.startRead  := (state === sIssue) &&  txIsRead
   io.backend.startWrite := (state === sIssue) && !txIsRead
 
-  // ── Response presentation ──────────────────────────────────────────────────
-  // For lb/lh/lw: assemble the result. For byte/halfword reads, only hw0 is
-  // valid; the top 16 bits of the resp are zero (CPU sign-extends from byte
-  // or halfword fields). For word reads, hw1:hw0.
+  // Zero-extended; the CPU sign-extends.
   val cpuRespBits = MuxLookup(reqSize, Cat(hw1Reg, hw0Reg))(Seq(
     HuttSize.Byte -> Cat(0.U(24.W), Mux(reqByteAddr(0), hw0Reg(15, 8), hw0Reg(7, 0))),
     HuttSize.Half -> Cat(0.U(16.W), hw0Reg),
@@ -172,13 +103,7 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
   val gpuRespBits = Cat(hw1Reg, hw0Reg)
   val instrRespBits = Cat(hw1Reg, hw0Reg)
 
-  // ── Default IO ─────────────────────────────────────────────────────────────
-  // Instruction fetch is the LOWEST-priority requester (see sIdle arbitration).
-  // req.ready must therefore only assert when the controller will actually
-  // accept the fetch this cycle — i.e. no higher-priority requester (CPU data
-  // or GPU) is competing.  Otherwise the CPU's instr.req "fires" while the
-  // controller services the GPU instead, dropping the fetch and wedging the CPU
-  // in sFetchResp forever (manifests once the GPU is active).
+  // Fetch has the lowest priority: ready only when nothing else competes, or the fetch is dropped.
   io.instr.req.ready   := (state === sIdle) &&
                           !io.cpuData.req.valid && !io.gpuMem.wr && !io.gpuMem.req
   io.instr.resp.valid  := (state === sRespond) && (rKind === rInstr)
@@ -190,21 +115,17 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
 
   io.gpuMem.data  := gpuRespBits
   io.gpuMem.ready := (state === sRespond) && (rKind === rGpuRead || rKind === rGpuWrite)
-  // Burst write: forward the backend's per-word pull to the flusher so it presents
-  // the next word.  Never asserts outside a burst (accept stays low there).
   io.gpuMem.waccept := burst && io.backend.accept
 
   io.debug_state := state
   io.debug_hw0   := hw0Reg
   io.debug_hw1   := hw1Reg
 
-  // ── FSM ────────────────────────────────────────────────────────────────────
   switch(state) {
     is(sIdle) {
-      rmwReadPending := false.B  // default; only byte writes (below) set it true
-      burst          := false.B  // default; only GPU burst writes (below) set it true
+      rmwReadPending := false.B
+      burst          := false.B
       // Priority: CPU read > CPU write > GPU write > GPU read > instr fetch.
-      // Each branch latches the request and goes to sIssue.
       when(io.cpuData.req.valid && !io.cpuData.req.bits.write) {
         rKind       := rCpuRead
         reqByteAddr := io.cpuData.req.bits.addr
@@ -218,29 +139,19 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
         reqData     := io.cpuData.req.bits.data
         reqSize     := io.cpuData.req.bits.size
         needTwo     := io.cpuData.req.bits.size === HuttSize.Word
-        // Byte writes need a read-modify-write; read the existing halfword first.
         rmwReadPending := io.cpuData.req.bits.size === HuttSize.Byte
         hwIdx       := 0.U
         state       := sIssue
       }.elsewhen(io.gpuMem.wr) {
         rKind       := rGpuWrite
-        // gpuMem is the GPU's DRAM port: its addresses are DRAM SPI-relative
-        // byte addresses (e.g. flush_fb_base, seq_*_addr). For QspiBackend
-        // targets, force bit 24 (VRAM_REGION_BIT -- see the class doc) so the
-        // GPU lands on PSRAM rather than flash. The GPU's address is 32 bits
-        // (GpuMemIO.AddrBits); this board has 16 MiB of VRAM, so only its low
-        // 24 bits are decoded.
+        // 16 MiB of VRAM: only the low 24 address bits decode.
         reqByteAddr := (if (gpuVramRegionBit) io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
                          else io.gpuMem.addr(23, 0))
         reqData     := io.gpuMem.wdata
-        // GPU writes are always 16-bit (BorgTileFlusher writes R/G/B/Z each as
-        // one FP16 halfword; BorgBinner writes 16-bit triangle indices).
-        // Using HuttSize.Half avoids a wasted second SDRAM transaction per write,
-        // halving the tile-flush SDRAM bandwidth.
+        // GPU writes carry 16 bits per word.
         reqSize     := HuttSize.Half
         needTwo     := false.B
         hwIdx       := 0.U
-        // Burst when the master asks for >1 word (the flusher streams a tile).
         burst       := io.gpuMem.wlen > 1.U
         lenReg      := io.gpuMem.wlen
         state       := sIssue
@@ -254,7 +165,6 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
         state       := sIssue
       }.elsewhen(io.instr.req.valid) {
         rKind       := rInstr
-        // instr.req.bits is a 23-bit word address. Convert to 25-bit byte addr.
         reqByteAddr := Cat(io.instr.req.bits, 0.U(2.W))
         reqSize     := HuttSize.Word
         needTwo     := true.B
@@ -264,15 +174,13 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
     }
 
     is(sIssue) {
-      // startRead/startWrite is pulsed via the wiring above. Move to wait.
       state := sWait
     }
 
     is(sWait) {
       when(io.backend.done) {
         when(doingRmwRead) {
-          // Byte-write RMW read complete: capture the existing halfword and
-          // re-issue the same access as a (now merged) write.
+          // RMW read done: re-issue as the merged write.
           rmwBg          := io.backend.dataOut
           rmwReadPending := false.B
           state          := sIssue
@@ -292,8 +200,7 @@ class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
     }
 
     is(sRespond) {
-      // Wait for the matching ready/fire. For the GPU's `ready` we just pulse
-      // it for one cycle and assume the GPU latches synchronously.
+      // The GPU's `ready` is a one-cycle pulse with no handshake.
       when((rKind === rInstr   && io.instr.resp.fire) ||
            (rKind === rCpuRead && io.cpuData.resp.fire) ||
            (rKind === rCpuWrite && io.cpuData.resp.fire) ||
