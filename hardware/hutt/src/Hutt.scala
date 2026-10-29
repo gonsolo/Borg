@@ -17,18 +17,9 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val data      = new HuttBus(dataAddrWidth, xlen)
   val interrupt = Input(Bool())  // CLINT machine timer (MTIP)
   val dbgPc     = Output(UInt(xlen.W))
-  // Free-running cycle counter, also readable as the `time` CSR -- exposed
-  // directly to check whether it's genuinely advancing during the
-  // real-SDRAM co-sim's misaligned-access-calibration hang (task #15),
-  // where the kernel's own 8ms ktime_get_mono_fast_ns()-bounded busy-wait
-  // never seems to see its timeout, despite this register being an
-  // unconditional per-cycle increment with zero SDRAM/bus dependency.
+  // Free-running cycle counter, also readable as the `time` CSR.
   val dbgCycleCounter = Output(UInt(xlen.W))
-  // Temporary: chasing a mallocng NULL-deref (group->meta reads 0 in free()
-  // despite malloc() having written it) -- trace every TLB fill (VA->PPN,
-  // to see if the same VA ever gets remapped to a different PPN) and every
-  // physical store (to see if the group->meta write actually lands and with
-  // what data/address).
+  // Trace taps: every TLB fill and every physical store.
   val dbgPtwFillSeq  = Output(UInt(32.W))
   val dbgPtwFillVA   = Output(UInt(xlen.W))
   val dbgPtwFillPPN  = Output(UInt(44.W))
@@ -38,17 +29,14 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgStorePhysAddr = Output(UInt(dataAddrWidth.W))
   val dbgStoreVA     = Output(UInt(xlen.W))
   val dbgStoreData   = Output(UInt(xlen.W))
-  // Chasing a child-process crash immediately after fork(): every write to
-  // x1 (ra), plus continuously-observable satp/privLevel, to find the exact
-  // instruction/moment ra becomes the -1 sentinel seen at the crash site.
+  // Every write to x1 (ra) and x18 (s2), plus satp/privLevel.
   val dbgX1WriteSeq  = Output(UInt(32.W))
   val dbgX1WritePc   = Output(UInt(xlen.W))
   val dbgX1WriteVal  = Output(UInt(xlen.W))
-  // Same as above but for x18 (s2) -- task #15's real-SDRAM-cosim hang.
   val dbgX18WriteSeq = Output(UInt(32.W))
   val dbgX18WritePc  = Output(UInt(xlen.W))
   val dbgX18WriteVal = Output(UInt(xlen.W))
-  // Raw continuous regfile write bus (see wiring at bottom of the module).
+  // Raw regfile write bus.
   val dbgRegWen   = Output(Bool())
   val dbgRegWAddr = Output(UInt(5.W))
   val dbgRegWData = Output(UInt(xlen.W))
@@ -58,55 +46,29 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgInstr    = Output(UInt(32.W))
   val dbgSatp        = Output(UInt(xlen.W))
   val dbgPrivLevel   = Output(UInt(2.W))
-  // Every write to sepc, from ANY site (trap-entry auto-save OR the
-  // kernel's own explicit `csrw sepc, ...` on trap exit) -- epc=-2 at the
-  // crash is a CSR value, not a GPR, so the X1-write tracer above can't see
-  // it. Looking for where sepc itself becomes -2.
+  // Every sepc write, from trap entry or an explicit `csrw sepc`.
   val dbgSepcWriteSeq = Output(UInt(32.W))
   val dbgSepcWritePc  = Output(UInt(xlen.W))
   val dbgSepcWriteVal = Output(UInt(xlen.W))
-  // Every load that actually writes a destination register (rd != 0), to
-  // trace what address/value REG_L a2, PT_EPC(sp)-style kernel restores
-  // are reading.
+  // Every load that writes a destination register (rd != 0).
   val dbgLoadSeq      = Output(UInt(32.W))
   val dbgLoadPc       = Output(UInt(xlen.W))
   val dbgLoadVA       = Output(UInt(xlen.W))
-  // Every sfence.vma execution -- chasing whether the kernel actually
-  // flushes the TLB when downgrading a parent's PTE to read-only during
-  // fork()'s COW setup (a stale writable entry surviving that downgrade
-  // would let the parent write straight through a page that should have
-  // triggered its own COW fault).
+  // Every sfence.vma.
   val dbgSfenceSeq    = Output(UInt(32.W))
   val dbgSfencePc     = Output(UInt(xlen.W))
   val dbgLoadPhysAddr = Output(UInt(xlen.W))
   val dbgLoadRd       = Output(UInt(5.W))
   val dbgLoadVal      = Output(UInt(xlen.W))
-  // Chasing task #15's real-SDRAM-cosim hang: originally added to inspect
-  // OpenSBI's nputs() loop GPRs; that theory is superseded (see dbgTrap*
-  // below) but the ports are cheap and harmless to keep wired for now.
+  // Selected GPR taps from HuttRegFile.
   val dbgS1 = Output(UInt(xlen.W))
   val dbgA5 = Output(UInt(xlen.W))
   val dbgS3 = Output(UInt(xlen.W))
   val dbgS5 = Output(UInt(xlen.W))
-  // The observed loop is confined to print()'s tiny console_tbuf flush
-  // loop (fw_payload.elf 0x13f4-0x1404): nputs(buf+s2,s3-s2); s2+=a0;
-  // loop while s2<s3. s3=x19 already reads 1; s2=x18 is the progress
-  // counter -- if it never advances despite nputs() returning normally,
-  // that's the exact mechanism of the infinite loop.
   val dbgS2 = Output(UInt(xlen.W))
-  // nputs()'s actual return value (a0=x10) -- checking whether it's really
-  // 1 (as nputs's own disassembly implies) when print+0x388's `add
-  // s2,s2,a0` runs, to distinguish a data bug from a genuine Hutt
-  // call/return-value correctness bug.
   val dbgA0 = Output(UInt(xlen.W))
-  // ra=x1 -- see HuttRegFile.scala's dbgRa comment (task #15 Bug A
-  // scheduler-stall investigation).
   val dbgRa = Output(UInt(xlen.W))
-  // Chasing task #15's real-SDRAM-cosim hang -- verified NOT a boot/reset
-  // loop (that theory was retracted same day). Kept as reusable, low-risk
-  // infrastructure: latch every trap-taken event (all 6 sites: M/S timer, ecall, ebreak,
-  // illegal-instruction, page-fault) so the exact cause/target driving each
-  // restart can be read directly instead of inferred from a PC census.
+  // Latch of the last trap taken (timer, ecall, ebreak, illegal, page fault).
   val dbgTrapSeq    = Output(UInt(32.W))
   val dbgTrapFromPc = Output(UInt(xlen.W))
   val dbgTrapCause  = Output(UInt(xlen.W))
@@ -130,11 +92,10 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   * Returns: MRET restores from MPP; SRET restores from SPP.
   * Delegation: medeleg/mideleg route exceptions/interrupts to S-mode.
   *
-  * MMU (xlen=64 only): Sv39 — 3-level page table, 16-entry direct-mapped TLB.
+  * MMU (xlen=64 only): Sv39, 3-level page table, 16-entry direct-mapped TLB.
   *   satp.MODE=8 enables translation in S/U mode.  SFENCE.VMA flushes TLB.
-  *   Note: TLB hits skip permission re-check (safe for RWX mappings; X-only
-  *   pages may mis-allow data access — acceptable for Phase 3 / OpenSBI).
-  *   mstatus.MPRV not yet implemented.
+  *   TLB hits skip the permission re-check, so X-only pages may allow data access.
+  *   No mstatus.MPRV.
   *
   * No compressed instructions.
   *
@@ -145,34 +106,16 @@ class Hutt(
     val dataAddrWidth: Int  = 28,
     val resetVector: BigInt = 0,
     val xlen: Int = 32,
-    // Split CSR read/write into two pipeline stages (sExec + a dedicated
-    // sCsrSel cycle) instead of one -- see the "-- CSR read --" comment
-    // below. This is purely an ECP5-25MHz timing workaround; a slower
-    // target (e.g. the 4MHz ASIC/TT clock, 6x the period) doesn't need it
-    // and pays for the extra stage's registers + duplicated select logic
-    // for nothing. Default true preserves the exact, already timing-closed
-    // ULX3S behavior; the ASIC top overrides this to false.
+    // Extra sCsrSel stage for CSR reads; ECP5 timing only, slow ASIC clocks set false.
     val pipelinedCsrRead: Boolean = true,
-    // S-mode privilege level, its CSRs (sstatus/sie/stvec/sscratch/sepc/
-    // scause/stval/sip), and trap delegation (medeleg/mideleg) -- default
-    // true preserves ULX3S/Linux exactly. The ASIC's bare-metal firmware
-    // (software/borg, software/hutt) never leaves M-mode: no ecall/mret/
-    // sret anywhere, mtvec is never set, the only CSR touched is the
-    // read-only `cycle` counter. Every S-mode-specific register and code
-    // path is dead weight there.
+    // S-mode, its CSRs and medeleg/mideleg; bare-metal firmware never leaves M-mode.
     val hasSupervisorMode: Boolean = true,
-    // Debug trace registers accumulated across the ULX3S/Linux boot
-    // investigation (store/load/trap/sfence tracers, x1/x18 write-tracking,
-    // and the register-file forensic taps in HuttRegFile) -- pure hardware
-    // debug state, observed only by simulation harnesses and never read by
-    // any Hutt-internal logic. Default true preserves ULX3S debug
-    // capability; the ASIC has no such harness to observe these pins.
+    // Simulation-only trace registers (here and in HuttRegFile); never read by Hutt.
     val hasDebugPorts: Boolean = true
 ) extends Module {
 
   val io = IO(new HuttIO(instrAddrWidth, dataAddrWidth, xlen))
 
-  // -- Architectural state ---------------------------------------------------
   val pc    = RegInit(resetVector.U(xlen.W))
   val instr = RegInit(0.U(32.W))
 
@@ -182,10 +125,9 @@ class Hutt(
   cycleCounter := cycleCounter + 1.U
   io.dbgCycleCounter := cycleCounter
 
-  // -- Privilege level: 3=M, 1=S, 0=U.  Reset to M-mode. -------------------
+  // Privilege level: 3=M, 1=S, 0=U, reset to M.
   val privLevel = RegInit(3.U(2.W))
 
-  // -- M-mode CSRs -----------------------------------------------------------
   // mstatus: bit 1=SIE, 3=MIE, 5=SPIE, 7=MPIE, 8=SPP, 12:11=MPP.
   val mstatus  = RegInit(0.U(xlen.W))
   val mtvec    = RegInit(0.U(xlen.W))
@@ -194,7 +136,6 @@ class Hutt(
   val mcause   = RegInit(0.U(xlen.W))
   val mtval    = RegInit(0.U(xlen.W))
   val mie      = RegInit(0.U(xlen.W))
-  // Delegation registers -- only meaningful with S-mode to delegate to.
   val medelegOpt: Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
   val midelegOpt: Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
   // mip: bit 7 MTIP is hardware (CLINT); bits 5/1 STIP/SSIP are software-set.
@@ -205,29 +146,24 @@ class Hutt(
   val misa    = Cat(misaMxl, 0.U((xlen - 28).W),
                     ((1 << ('I' - 'A')) | (1 << ('S' - 'A'))).U(26.W))
 
-  // -- S-mode CSRs (Option: None when !hasSupervisorMode) --------------------
+  // S-mode CSRs (Option: None when !hasSupervisorMode).
   def optReg(): Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
   val stvecOpt    = optReg()
   val sscratchOpt = optReg()
   val sepcOpt     = optReg()
   val scauseOpt   = optReg()
   val stvalOpt    = optReg()
-  // Reads as 0 when the register doesn't exist -- used by the few remaining
-  // combinational sites (sTrapPC) that need a value regardless of config.
+  // Reads as 0 when the register doesn't exist.
   def rd(o: Option[UInt]): UInt = o.getOrElse(0.U(xlen.W))
-  // Width-generic version, for the debug registers below (32-bit sequence
-  // counters, 2-bit privilege fields, 5-bit register addresses, etc. --
-  // not all xlen-wide).
   def rdW(o: Option[UInt], w: Int): UInt = o.getOrElse(0.U(w.W))
-  // A debug register: None (and its would-be writes skipped entirely) when
-  // !hasDebugPorts. `w` defaults to xlen for the common case.
+  // A debug register, None when !hasDebugPorts.
   def dbgReg(w: Int = xlen): Option[UInt] =
     if (hasDebugPorts) Some(RegInit(0.U(w.W))) else None
   // satp: Sv39 address-translation CSR (0x180).  Meaningful only for xlen=64.
   //   MODE[63:60]=8 → Sv39; ASID[59:44]; PPN[43:0] of root page table.
   val satp     = RegInit(0.U(xlen.W))
 
-  // -- Sv39 TLB (16-entry direct-mapped; xlen=64 only) ----------------------
+  // Sv39 TLB (16-entry direct-mapped; xlen=64 only).
   val TLB_ENTRIES = 16
   val TLB_BITS    = 4   // log2(TLB_ENTRIES)
   val tlbValid = RegInit(VecInit(Seq.fill(TLB_ENTRIES)(false.B)))
@@ -235,25 +171,22 @@ class Hutt(
   val tlbPPN   = Reg(Vec(TLB_ENTRIES, UInt(44.W)))  // PA page (4KB granularity)
   val tlbFlags = Reg(Vec(TLB_ENTRIES, UInt(8.W)))   // PTE[7:0]
 
-  // -- Page-table walker state (xlen=64 only) --------------------------------
+  // Page-table walker state (xlen=64 only).
   val ptwVA      = Reg(UInt(xlen.W))   // virtual address being translated
   val ptwLevel   = Reg(UInt(2.W))      // PTW level (2=root, 0=leaf)
   val ptwA       = Reg(UInt(xlen.W))   // current page-table base (byte address)
   val ptwIsInstr = RegInit(false.B)    // true = instruction fetch, false = data
   val ptwIsWrite = RegInit(false.B)    // true = store (for fault cause)
   val dataPhysAddr = Reg(UInt(xlen.W)) // physical address for data access
-  val dataVAReg    = Reg(UInt(xlen.W)) // debug: virtual address mirror of dataPhysAddr (plain load/store paths only)
+  val dataVAReg    = Reg(UInt(xlen.W)) // debug: VA mirror of dataPhysAddr (plain load/store only)
 
-  // -- A extension: LR/SC/AMO* (xlen=64 only) --------------------------------
-  // amoPending tells the PTW's data-fault-resolved redirect which state to
-  // continue into once translation completes: 0=plain load/store (sMemReq),
+  // A extension: LR/SC/AMO* (xlen=64 only).
+  // Where the PTW continues after a data translation: 0=plain load/store (sMemReq),
   // 1=AMO/LR read phase (sAmoLoadReq), 2=AMO/SC write phase (sAmoStoreReq).
   val amoPending = RegInit(0.U(2.W))
   val amoOldVal  = Reg(UInt(xlen.W))   // value loaded in the read phase (old value for rd)
   val amoNewVal  = Reg(UInt(xlen.W))   // value to write in the store phase
-  // Single-hart reservation: valid+address set by LR, checked+cleared by SC.
-  // No other bus master can interleave within one hart's own instruction
-  // execution, so this is sufficient for correctness on this SoC.
+  // Single-hart reservation: set by LR, checked and cleared by SC.
   val lrValid = RegInit(false.B)
   val lrAddr  = Reg(UInt(xlen.W))
 
@@ -261,7 +194,6 @@ class Hutt(
   val mmuEnabled: Bool =
     if (xlen == 64) (satp(63, 60) === 8.U && privLevel =/= 3.U) else false.B
 
-  // -- CSR masks -------------------------------------------------------------
   // sstatus: S-mode visible bits of mstatus (MXR=19, SUM=18, SPP=8, SPIE=5, SIE=1).
   val SSTATUS_MASK = 0xC0122L.U(xlen.W)
   // sie/sip: S-mode view of mie/mip (SEIE=9, STIE=5, SSIE=1).
@@ -272,9 +204,7 @@ class Hutt(
   val regFile = Module(new HuttRegFile(xlen, hasDebugPorts = hasDebugPorts))
   val alu     = Module(new HuttAlu(xlen))
 
-  // HuttRegFile itself ties these to 0 internally when !hasDebugPorts (no
-  // read-port mux cost there either), so connecting unconditionally here
-  // is fine either way.
+  // HuttRegFile ties these to 0 when !hasDebugPorts.
   io.dbgS1 := regFile.io.dbgS1
   io.dbgA5 := regFile.io.dbgA5
   io.dbgS3 := regFile.io.dbgS3
@@ -283,11 +213,6 @@ class Hutt(
   io.dbgA0 := regFile.io.dbgA0
   io.dbgRa := regFile.io.dbgRa
 
-  // Debug trace registers below (store/load/trap/sfence/x1/x18 tracers,
-  // accumulated across the ULX3S/Linux boot investigation): pure hardware
-  // debug state, read only by simulation harnesses, never by Hutt itself.
-  // None (and every write site skipped) when !hasDebugPorts -- see dbgReg's
-  // doc above and the constructor's hasDebugPorts doc.
   val dbgTrapSeqReg      = dbgReg(32)
   val dbgTrapFromPcReg   = dbgReg()
   val dbgTrapCauseReg    = dbgReg()
@@ -351,15 +276,10 @@ class Hutt(
   io.dbgStoreVA        := rd(dbgStoreVAReg2)
   io.dbgStoreData      := rd(dbgStoreDataReg)
 
-  // -- FSM -------------------------------------------------------------------
-  // sCsrSel: second cycle of a CSR read, see the "-- CSR read --" comment
-  // below for why this needs its own pipeline stage.
-  // sDivExec: multi-cycle DIV/DIVU/REM/REMU (+ *W forms), see HuttAlu/
-  // HuttDivider — waits for the shared shift-subtract divider to finish.
+  // sCsrSel: second CSR read cycle. sDivExec: waits for the multi-cycle divider.
   val sFetchReq :: sFetchResp :: sExec :: sCsrSel :: sDivExec :: sMemReq :: sMemResp :: sPtwReq :: sPtwResp :: sAmoLoadReq :: sAmoLoadResp :: sAmoStoreReq :: sAmoStoreResp :: Nil = Enum(13)
   val state = RegInit(sFetchReq)
 
-  // -- Decode (combinational over current `instr` register) ------------------
   val d = HuttDecode(instr, xlen)
 
   regFile.io.rs1Addr := d.rs1
@@ -393,40 +313,10 @@ class Hutt(
   when(d.isJal)                   { pcNext := jalTgt }
   when(d.isJalr)                  { pcNext := jalrTgt }
 
-  // -- CSR read --------------------------------------------------------------
   val csrAddr = instr(31, 20)
-  // A flat ~20-way select over the full 64-bit CSR set doesn't map cleanly
-  // to ECP5: MuxLookup/MuxCase (cascaded Mux chain) and chisel3.util.Mux1H
-  // (SeqUtils.oneHotMux's `masked.reduceLeft(_ | _)`, a left fold despite
-  // independent compares) both measured ~180ns of pure logic delay in
-  // nextpnr (max ~2.25 MHz vs. the 25 MHz ULX3S clock) — confirmed
-  // MuxLookup->Mux1H changed the critical path by under 1ns, i.e. no real
-  // improvement, since both reduce sequentially. Rewriting as a genuine
-  // balanced-tree OR-reduce (Vec.reduceTree) *also* didn't move the number
-  // (179ns), because firtool's canonicalizer flattens any associative `|`
-  // tree back into one flat expression before Verilog is even emitted —
-  // the Chisel-level structure is invisible to yosys/abc9 either way.
-  // yosys's own `ltp` (longest topological path, register-bounded) on this
-  // flat expression showed ~8000 logic levels, almost entirely a serial
-  // CCU2C carry chain that scales with (term count x value width), not a
-  // width-independent decode. `-cmp2softlogic`/`-noccu2` synth flags cut
-  // that by 30%/44% respectively but neither gets remotely close to the
-  // ~5x reduction needed.
-  //
-  // The real fix, mirroring how real CPUs (Rocket/BOOM's CSRFile, ibex,
-  // CVA6) handle this: split the wide select into independent narrow
-  // groups with a genuine register boundary in between, so neither half's
-  // combinational depth needs the full budget alone. Stage 1 (here, cycle
-  // N, alongside sExec's other combinational work): 4 small ~6-term OR
-  // groups computed in parallel, plus a narrow (2-bit) group-select decode
-  // — a 2-bit-wide result over the same ~22 compares is far cheaper than a
-  // 64-bit-wide one, since the carry-chain cost scales with output width.
-  // Stage 2 (cycle N+1, state sCsrSel below): a trivial 4-way pick among
-  // the now-REGISTERED group values. Each stage only needs to close timing
-  // on its own (much shallower) logic, not the original monolithic select.
-  // S-mode entries (sstatus/sie/stvec/sscratch/sepc/scause/stval/sip) exist
-  // only when hasSupervisorMode -- see the constructor doc. satp stays
-  // unconditional (cheap, and tied to xlen/MMU rather than privilege).
+  // A flat ~20-way 64-bit select is far too slow on ECP5 (a serial carry chain that
+  // firtool flattens back however it is written), so CSR reads are two stages:
+  // narrow 6-term OR groups plus a 2-bit group select here, a 4-way pick in sCsrSel.
   val sModeCsrEntries: Seq[(String, UInt)] = if (hasSupervisorMode) Seq(
     "h100" -> (mstatus & SSTATUS_MASK),  // sstatus = mstatus masked
     "h104" -> (mie     & SIE_SIP_MASK),  // sie
@@ -441,7 +331,6 @@ class Hutt(
   ) else Seq.empty
   val csrEntries: Seq[(String, UInt)] = sModeCsrEntries ++ Seq(
     "h180" -> satp,
-    // M-mode CSRs
     "h300" -> mstatus,
     "h301" -> misa,
     "h304" -> mie,
@@ -453,24 +342,14 @@ class Hutt(
     "h344" -> mip,
     "hC00" -> cycleCounter,   // cycle
     "hB00" -> cycleCounter,   // mcycle
-    // time (unprivileged read-only view of the mtimer, mandated by the
-    // privileged spec to be readable from S/U mode without an M-mode trap).
-    // cycleCounter free-runs every cycle from reset in the same clock domain
-    // as CLINT's mtime, so it's numerically identical — no new wiring needed.
-    // Without this, `rdtime`/get_cycles64() silently read 0 (unimplemented
-    // CSRs default to 0 here), so Linux's timer clockevent computed
-    // next_event = 0 + delta instead of real_mtime + delta: an
-    // already-expired mtimecmp that fired the M-mode timer trap on every
-    // single cycle forever, starving S-mode of any forward progress.
+    // time: readable from S/U mode per the privileged spec; same clock as CLINT's mtime.
+    // Linux's clockevent needs it, or mtimecmp is armed already expired.
     "hC01" -> cycleCounter   // time
-    // mvendorid/marchid/mimpid/mhartid/cycleh/mcycleh and everything else
-    // deliberately fall through to the implicit all-zero default (all
-    // compares false → all terms masked to 0 → OR-reduce yields 0).
+    // Every other CSR reads 0.
   )
   val csrGroups: Seq[Seq[(String, UInt)]] = csrEntries.grouped(6).toSeq
 
-  // Stage 1 (combinational, computed during sExec): narrow per-group ORs
-  // and a narrow (2-bit) group-select — cheap regardless of term count.
+  // Stage 1 (combinational, during sExec).
   val csrGroupValComb = VecInit(csrGroups.map { terms =>
     terms.map { case (addrHex, value) => Mux(csrAddr === addrHex.U, value, 0.U(xlen.W)) }
          .reduce(_ | _)
@@ -479,11 +358,7 @@ class Hutt(
     terms.map { case (addrHex, _) => (csrAddr === addrHex.U) -> gi.U(2.W) }
   })
 
-  // Stage 2 (registered at the sExec -> sCsrSel transition below): a
-  // trivial 4-way pick among the now-latched group values. Skipped
-  // entirely when !pipelinedCsrRead (see the constructor param doc) --
-  // csrReadData then reads Stage 1's combinational groups directly, in
-  // the same cycle, with no extra registers or FSM state.
+  // Stage 2, registered on sExec -> sCsrSel; without pipelinedCsrRead, read stage 1 directly.
   val csrPipeRegs: Option[(Vec[UInt], UInt)] =
     if (pipelinedCsrRead) Some((Reg(Vec(csrGroups.size, UInt(xlen.W))), Reg(UInt(2.W)))) else None
   val csrReadData: UInt = csrPipeRegs match {
@@ -491,30 +366,14 @@ class Hutt(
     case None                   => csrGroupValComb(csrGroupSelComb)
   }
 
-  // A handful of specific unimplemented CSRs must raise an illegal-instruction
-  // exception rather than silently no-op like other unimplemented CSRs, because
-  // OpenSBI's hart-feature probing (sbi_hart.c's __check_ext_csr) treats "did
-  // reading this CSR trap?" as "is the extension present?" — a non-trapping
-  // phantom register makes OpenSBI wrongly believe real hardware exists:
-  //   - stimecmp/stimecmph (Sstc, 0x14D/0x15D): sbi_timer_event_start() writes
-  //     this believed-real CSR instead of arming CLINT's mtimecmp MMIO
-  //     register, so the timer interrupt never fires.
-  //   - mtopi/stopi (Smaia/Ssaia, 0xFB0/0xDB0): sbi_trap_handler() dispatches
-  //     M-mode interrupts via `while (csr_read(CSR_MTOPI)) {...}` instead of
-  //     checking mip/mie directly; since mtopi always reads 0, the loop body
-  //     (which calls sbi_timer_process()/sbi_ipi_process(), the code that
-  //     actually clears MIE.MTIP or asserts mip.STIP) never runs at all — the
-  //     M-mode timer trap then re-fires every single cycle forever, since
-  //     mtimecmp is level-triggered and nothing ever rearms or masks it.
-  // Both combined previously hung Linux forever waiting for jiffies to
-  // advance. Other unimplemented CSRs (mcounteren, menvcfg, mstateen0, ...)
-  // stay silently accepted: OpenSBI/Linux tolerate those false-detected
-  // extensions fine, and blanket-trapping every unrecognized address (tried
-  // first) broke priv-version detection itself.
+  // These unimplemented CSRs must trap: OpenSBI probes extensions by whether a read traps.
+  //   - stimecmp/stimecmph (Sstc): else OpenSBI arms them instead of CLINT's mtimecmp.
+  //   - mtopi/stopi (Smaia/Ssaia): else its trap handler loops on mtopi, which reads 0,
+  //     and never services the M-mode timer.
+  // Trapping on every unknown CSR breaks OpenSBI's priv-version detection.
   val csrForcesIllegal = Seq("h14D", "h15D", "hFB0", "hDB0")
     .map(_.U(12.W)).map(_ === csrAddr).reduce(_ || _)
 
-  // -- CSR write value -------------------------------------------------------
   val csrZimm   = Cat(0.U((xlen - 5).W), d.rs1)
   val csrSrc    = Mux(d.funct3(2), csrZimm, rs1Val)
   val csrNewVal = MuxCase(csrSrc, Seq(
@@ -522,15 +381,7 @@ class Hutt(
     (d.funct3(1, 0) === "b11".U) -> (csrReadData & ~csrSrc)
   ))
 
-  // Write actions, keyed by CSR address, for every WRITABLE CSR (misa and
-  // the cycle/mcycle/time trio are read-only -- no entry). Generated (not
-  // hand-grouped) from the exact same csrGroups the read side uses, so the
-  // group-select value csrWriteDecode receives always means the same thing
-  // it meant on the read side -- previously this was two hand-maintained
-  // parallel structures (a literal is(0.U)/is(1.U)/is(2.U)/is(3.U) block
-  // here, csrEntries.grouped(6) there) that had to be kept in sync by hand;
-  // reordering csrEntries (as hasSupervisorMode's read-side gating does)
-  // silently desyncs a hand-written copy without any compile-time signal.
+  // Write actions for every writable CSR, grouped by the same csrGroups as the read side.
   val csrWriters: Map[String, () => Unit] = (
     (if (hasSupervisorMode) Seq[(String, () => Unit)](
       "h100" -> (() => { mstatus := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }),
@@ -562,16 +413,7 @@ class Hutt(
     Seq[(String, () => Unit)](
       "h180" -> (() => {
         satp := csrNewVal
-        // The TLB has no ASID field (tlbVPN/tlbPPN/tlbFlags match on VA
-        // bits only) -- but Linux relies on the Sv39 spec's ASID semantics
-        // to safely SKIP an explicit sfence.vma on most context switches,
-        // trusting hardware to keep different address spaces isolated in
-        // the TLB. Without this flush, a VA cached from one process's
-        // mapping gets silently served to a completely different process
-        // after satp changes, corrupting memory (root-caused via a child
-        // process crashing immediately after fork() with garbage ra/pc --
-        // the child's own stack writes were being satisfied by a stale
-        // TLB entry still pointing at a DIFFERENT process's physical page).
+        // The TLB has no ASID, and Linux skips sfence.vma on context switches.
         if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
       }),
       "h300" -> (() => { mstatus  := csrNewVal }),
@@ -592,12 +434,7 @@ class Hutt(
     )
   ).toMap
 
-  // Plain when()-chains, not switch/is: chisel3's switch macro requires its
-  // block's direct children to be literal is() calls, which a generated
-  // (for/foreach-produced) sequence of cases can't satisfy -- confirmed by
-  // trying it ("Cannot include blocks that do not begin with is() in
-  // switch"). when() has no such restriction; since csrAddr/groupSel values
-  // are mutually exclusive across entries, this is semantically identical.
+  // when() chains: chisel3's switch only accepts literal is() children, not generated ones.
   def csrWriteDecode(groupSel: UInt): Unit = {
     csrGroups.zipWithIndex.foreach { case (group, idx) =>
       when(groupSel === idx.U) {
@@ -610,7 +447,6 @@ class Hutt(
     }
   }
 
-  // -- mstatus update helpers ------------------------------------------------
   // M-mode trap entry: MPP←privLevel, MPIE←MIE, MIE←0; S-mode bits unchanged.
   val mstatusTrap = Cat(
     mstatus(xlen - 1, 13),
@@ -662,16 +498,13 @@ class Hutt(
     3.U -> 11.U(xlen.W)
   ))
 
-  // Shared M-mode trap-entry body (ecall/ebreak/illegal-CSR all fall back to
-  // this when not delegated to S-mode -- or unconditionally, when
-  // !hasSupervisorMode, since there's nowhere else to go).
+  // M-mode trap entry; also the only target when !hasSupervisorMode.
   def trapToM(cause: UInt, tval: UInt): Unit = {
     mepc := pc; mcause := cause; mtval := tval
     mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
     dbgTrapLatch(pc, cause, 3.U, mTrapPC)
   }
-  // Shared S-mode trap-entry body -- only ever called from within an
-  // `if (hasSupervisorMode)` guard (references sepcOpt.get etc.).
+  // S-mode trap entry; call only under `if (hasSupervisorMode)`.
   def trapToS(cause: UInt, tval: UInt): Unit = {
     sepcOpt.get := pc; scauseOpt.get := cause; stvalOpt.get := tval
     if (hasDebugPorts) {
@@ -683,7 +516,6 @@ class Hutt(
     dbgTrapLatch(pc, cause, 1.U, sTrapPC)
   }
 
-  // -- Writeback logic -------------------------------------------------------
   val wbAlu    = alu.io.out
   val wbLink   = pcPlus4
   val wbUpper  = d.uImm
@@ -706,7 +538,6 @@ class Hutt(
 
   def extendLoad(funct3: UInt, raw: UInt): UInt = riscv.Rv.loadExtend(funct3, raw, xlen)
 
-  // -- IO defaults -----------------------------------------------------------
   io.instr.req.valid  := false.B
   io.instr.req.bits   := pc(instrAddrWidth + 1, 2)
   io.instr.resp.ready := false.B
@@ -722,7 +553,6 @@ class Hutt(
   regFile.io.wAddr := d.rd
   regFile.io.wData := wbExec
 
-  // -- FSM transitions -------------------------------------------------------
   switch(state) {
 
     is(sFetchReq) {
@@ -732,12 +562,7 @@ class Hutt(
       val sTimerPend = mie(5) && mip(5) && (privLevel =/= 3.U) &&
         Mux(privLevel === 1.U, mstatus(1), true.B)
 
-      // Chisel's when/elsewhen/otherwise are chainable method calls, not a
-      // macro that needs literal syntax like switch/is -- so the S-mode
-      // timer branch (references sepcOpt.get etc., which would throw at
-      // elaboration if !hasSupervisorMode) can be conditionally omitted
-      // from the chain at the Scala level while still building one real
-      // when/otherwise chain for the hardware.
+      // Built as a Scala-level chain so the S-mode branch can be omitted when !hasSupervisorMode.
       val timerAfterM = when(mTimerPend) {
         if (HuttDebug.timerTrace) printf("[HUTT-TIMER] M-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
           pc, privLevel, mie, mip)
@@ -773,10 +598,7 @@ class Hutt(
         if (xlen == 64) {
           when(mmuEnabled) {
             val tlbIdx = pc(TLB_BITS + 11, 12)
-            // TLB hit requires BOTH a VPN match AND the cached PTE's X bit
-            // (tlbFlags(3)) -- a page cached read-only/non-executable by an
-            // earlier access must still fault on fetch here, not silently
-            // reuse whatever permission the ORIGINAL caching access had.
+            // A hit also needs the cached PTE's X bit, or the fetch must fault.
             when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === pc(38, 12)) && tlbFlags(tlbIdx)(3)) {
               // TLB hit: issue fetch using physical address.
               val physFetch = Cat(tlbPPN(tlbIdx), pc(11, 0))
@@ -825,14 +647,8 @@ class Hutt(
         if (xlen == 64) {
           when(mmuEnabled) {
             val tlbIdx = memAddr(TLB_BITS + 11, 12)
-            // TLB hit requires the cached PTE's permission bits to actually
-            // allow this access: R (tlbFlags(1)) for a load, W&&R
-            // (tlbFlags(2,1)) for a store -- mirrors the PTW's own permOk
-            // check (`Mux(ptwIsWrite, pteW && pteR, pteR)`). Without this, a
-            // page cached read-only by an earlier LOAD (e.g. right after a
-            // COW-triggering sfence.vma flush) would let a later STORE
-            // write straight through on the TLB-hit fast path, silently
-            // bypassing copy-on-write protection entirely.
+            // A hit also needs the PTE to allow the access (R for loads, W&&R for stores),
+            // as the PTW's permOk does; else a store bypasses copy-on-write.
             val tlbPermOk = Mux(d.isStore, tlbFlags(tlbIdx)(2) && tlbFlags(tlbIdx)(1), tlbFlags(tlbIdx)(1))
             when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === memAddr(38, 12)) && tlbPermOk) {
               // TLB hit: form physical address and proceed directly to sMemReq.
@@ -869,9 +685,7 @@ class Hutt(
               amoNewVal  := rs2Val
               when(mmuEnabled) {
                 val tlbIdx = amoAddr(TLB_BITS + 11, 12)
-                // SC is a write -- same permission requirement as a plain
-                // store TLB hit above (W&&R), matching this site's own
-                // miss-path ptwIsWrite=true.
+                // SC is a write: W&&R, as for a store.
                 when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12)) &&
                      tlbFlags(tlbIdx)(2) && tlbFlags(tlbIdx)(1)) {
                   dataPhysAddr := Cat(tlbPPN(tlbIdx), amoAddr(11, 0))
@@ -901,11 +715,7 @@ class Hutt(
             amoPending := 1.U
             when(mmuEnabled) {
               val tlbIdx = amoAddr(TLB_BITS + 11, 12)
-              // LR/AMO's initial read phase -- R only, matching this site's
-              // own miss-path ptwIsWrite=false. (The write-back half of a
-              // true AMO reuses dataPhysAddr from this read without its own
-              // permission recheck in either the hit or miss path -- a
-              // pre-existing gap, not introduced by this fix, left as-is.)
+              // R only. The AMO write-back reuses dataPhysAddr without a W recheck.
               when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12)) && tlbFlags(tlbIdx)(1)) {
                 dataPhysAddr := Cat(tlbPPN(tlbIdx), amoAddr(11, 0))
                 state        := sAmoLoadReq
@@ -931,8 +741,7 @@ class Hutt(
       }.elsewhen(d.isEcall) {
         if (HuttDebug.timerTrace) {
           // SBI calling convention: a7=x17=extension ID, a6=x16=function ID.
-          // ecall itself decodes rs1=rs2=0, so temporarily steal the regfile's
-          // read ports (unused elsewhere in this branch) to observe them.
+          // ecall decodes rs1=rs2=0, so borrow the read ports to observe them.
           regFile.io.rs1Addr := 17.U
           regFile.io.rs2Addr := 16.U
           when(privLevel === 1.U) {
@@ -941,7 +750,6 @@ class Hutt(
           }
         }
         // Delegation: S-mode ECALL (cause 9) → medeleg[9]; U-mode → medeleg[8].
-        // Only meaningful with S-mode to delegate to; straight to M otherwise.
         if (hasSupervisorMode) {
           val ecallDeleg = Mux(privLevel === 1.U, medelegOpt.get(9),
                             Mux(privLevel === 0.U, medelegOpt.get(8), false.B))
@@ -970,11 +778,7 @@ class Hutt(
         state     := sFetchReq
 
       }.elsewhen(d.isSret) {
-        // d.isSret itself isn't gated by hasSupervisorMode (SRET decode is
-        // real regardless) -- only the body is, since it's what references
-        // sepcOpt.get and would fail to elaborate if None. ASIC firmware
-        // never emits SRET; if !hasSupervisorMode, treat a stray one as a
-        // safe no-op rather than an undefined/hung state.
+        // Without S-mode, treat a stray SRET as a no-op.
         if (hasSupervisorMode) {
           mstatus   := mstatusSret
           pc        := sepcOpt.get
@@ -994,9 +798,7 @@ class Hutt(
         val csrIllegal = d.isCsr && csrForcesIllegal
         when(csrIllegal) {
           if (HuttDebug.timerTrace) printf("[HUTT-TIMER] illegal CSR (stimecmp) trap pc=0x%x priv=%d\n", pc, privLevel)
-          // Illegal instruction (cause 2): delegate to S-mode per medeleg[2],
-          // same pattern as isEcall/isEbreak above. Only meaningful with
-          // S-mode to delegate to; straight to M otherwise.
+          // Illegal instruction (cause 2), delegated per medeleg[2].
           if (hasSupervisorMode) {
             when((privLevel =/= 3.U) && medelegOpt.get(2)) { trapToS(2.U(xlen.W), instr) }
               .otherwise                                    { trapToM(2.U(xlen.W), instr) }
@@ -1007,30 +809,20 @@ class Hutt(
           state := sFetchReq
         }.elsewhen(d.isCsr) {
           if (pipelinedCsrRead) {
-            // Stage 1 -> stage 2 handoff (see "-- CSR read --" above): latch
-            // the narrow per-group values + narrow group-select computed
-            // combinationally alongside everything else this cycle, then
-            // finish the write + regfile commit in sCsrSel next cycle.
+            // Latch the stage 1 groups; sCsrSel finishes the write and commit.
             val (valReg, selReg) = csrPipeRegs.get
             valReg := csrGroupValComb
             selReg := csrGroupSelComb
             state := sCsrSel
           } else {
-            // Single-cycle CSR read+write (see the constructor's
-            // pipelinedCsrRead doc) -- same csrWriteDecode as the pipelined
-            // path's sCsrSel state, just reading the combinational
-            // group-select directly instead of a registered one, and
-            // completing in this same cycle like any other instruction.
+            // Single-cycle CSR read and write.
             csrWriteDecode(csrGroupSelComb)
             regFile.io.wen := wbExecEn
             pc    := pcNext
             state := sFetchReq
           }
         }.elsewhen(isDivOp) {
-          // DIV/DIVU/REM/REMU (+ *W forms): hand off to the shared
-          // multi-cycle divider (see HuttAlu/HuttDivider) instead of
-          // completing this cycle. alu.io.a/b/op stay stable (driven from
-          // the still-held `instr`) for the whole wait.
+          // alu.io.a/b/op stay stable from the held `instr` while the divider runs.
           alu.io.divStart := true.B
           state := sDivExec
         }.otherwise {
@@ -1050,24 +842,9 @@ class Hutt(
     }
 
     is(sCsrSel) {
-      // Unreachable (dead state) when !pipelinedCsrRead -- the sExec ->
-      // sCsrSel transition above only happens in the pipelined case, CSR
-      // ops complete entirely within sExec otherwise. Body stays inside
-      // this `if`, not around the `is()` call itself: chisel3's switch
-      // macro requires every direct child of a switch{} block to be a
-      // literal is() application, not a Scala-conditional one.
+      // Guard inside is(): switch only accepts literal is() children.
       if (pipelinedCsrRead) {
-        // Same disease as the read side (see "-- CSR read --" above), same
-        // fix: a flat 19-case switch(csrAddr){...} write decode measured as
-        // the dominant ~185ns bottleneck even AFTER the read-side and
-        // regFile fixes closed their own (verified via critical-path hop
-        // counts: read select down to 31 hops, regFile down to 6, yet
-        // overall frequency stayed at ~2.27 MHz — this switch was the
-        // untouched third culprit). Gating on the already-registered,
-        // already-cheap group-select first (same grouping as the read
-        // side) turns one 19-way decode into a 4-way outer pick + a ~5-way
-        // inner switch, instead of yosys/abc9 building one shared decoder
-        // across all 19 targets. See csrWriteDecode above.
+        // Gating on the registered group select keeps the write decode small.
         csrWriteDecode(csrPipeRegs.get._2)
         regFile.io.wen := wbExecEn
         pc    := pcNext
@@ -1101,10 +878,6 @@ class Hutt(
         io.data.resp.valid, io.data.resp.fire, io.data.resp.bits)
       when(io.data.resp.fire) {
         when(isLoadOp && (loadRd =/= 0.U)) {
-          // Computed once and reused for both the real writeback and the
-          // debug tap -- extendLoad is a plain Scala function (not a
-          // Module), so calling it twice previously re-elaborated its
-          // whole 7-term MuxLookup a second time for nothing.
           val loadExtended = extendLoad(loadFunct3, io.data.resp.bits)
           regFile.io.wAddr := loadRd
           regFile.io.wData := loadExtended
@@ -1126,7 +899,7 @@ class Hutt(
       }
     }
 
-    // -- Sv39 page-table walker (xlen=64 only) --------------------------------
+    // Sv39 page-table walker (xlen=64 only).
     is(sPtwReq) {
       if (xlen == 64) {
         val vpn2   = ptwVA(38, 30)
@@ -1169,14 +942,7 @@ class Hutt(
           // Page-fault cause and delegation bit.
           val faultCause = Mux(ptwIsInstr, 12.U(xlen.W),
                            Mux(ptwIsWrite, 15.U(xlen.W), 13.U(xlen.W)))
-          // Sv39 MMU inherently implies S-mode (translation is meaningless
-          // without S/U privilege levels to translate for) -- this whole PTW
-          // block already only exists when xlen==64, and every xlen==64
-          // config in this codebase (the MinimalSoC Linux harnesses) also
-          // has hasSupervisorMode=true,
-          // so .get here is safe in every real configuration. A hypothetical
-          // xlen=64+!hasSupervisorMode build (not used anywhere today) would
-          // fail loudly at elaboration rather than silently misbehave.
+          // Every xlen=64 config has hasSupervisorMode; otherwise .get fails at elaboration.
           val faultDeleg = Mux(ptwIsInstr, medelegOpt.get(12),
                            Mux(ptwIsWrite, medelegOpt.get(15), medelegOpt.get(13)))
 
@@ -1238,12 +1004,7 @@ class Hutt(
       }
     }
 
-    // -- A extension: LR/SC/AMO* read-modify-write (xlen=64 only) -------------
-    // LR uses only the read phase (sAmoLoadReq/sAmoLoadResp); SC uses only the
-    // write phase (sAmoStoreReq/sAmoStoreResp, gated on a live reservation in
-    // sExec before ever reaching here); true AMO* ops use both phases in
-    // sequence. Single-hart, non-pipelined execution makes the read-modify-
-    // write inherently atomic from this hart's own perspective.
+    // A extension (xlen=64 only): LR uses the read phase, SC the write phase, AMO* both.
     is(sAmoLoadReq) {
       if (xlen == 64) {
         io.data.req.valid      := true.B
@@ -1312,11 +1073,7 @@ class Hutt(
     }
   }
 
-  // Debug: trace every write to x1 (ra) -- placed after the switch so it
-  // observes the FINAL resolved regFile.io.{wen,wAddr,wData} for this cycle,
-  // regardless of which FSM state produced it. Task #15-era investigation
-  // tooling (see project memory); kept for future debugging, gated off the
-  // ASIC build like every other debug register.
+  // Placed after the switch to see the final regFile write of the cycle.
   val dbgX1WriteSeqReg = dbgReg(32)
   val dbgX1WritePcReg  = dbgReg()
   val dbgX1WriteValReg = dbgReg()
@@ -1331,10 +1088,6 @@ class Hutt(
   io.dbgX1WritePc  := rd(dbgX1WritePcReg)
   io.dbgX1WriteVal := rd(dbgX1WriteValReg)
 
-  // Debug: same as the x1 tracer above, but for x18 (s2) -- chasing task #15's
-  // real-SDRAM-cosim hang, where s2 reads back 0 inside nputs() despite no
-  // instruction in its disassembly ever writing it. Catches the exact PC/value
-  // of whichever write actually reaches the regfile for x18.
   val dbgX18WriteSeqReg = dbgReg(32)
   val dbgX18WritePcReg  = dbgReg()
   val dbgX18WriteValReg = dbgReg()
@@ -1349,19 +1102,10 @@ class Hutt(
   io.dbgX18WritePc  := rd(dbgX18WritePcReg)
   io.dbgX18WriteVal := rd(dbgX18WriteValReg)
 
-  // Debug: raw, continuous (not latched) regfile write bus -- to see, cycle
-  // by cycle, whether `mv s2,a1` at nputs+0x2c ever asserts wen with
-  // wAddr=18 at all (decode/FSM never issuing the writeback) versus issuing
-  // it with the wrong wAddr (a decode bug) versus issuing it correctly but
-  // the regfile storage itself not retaining it (a HuttRegFile bug).
   io.dbgRegWen   := regFile.io.wen
   io.dbgRegWAddr := regFile.io.wAddr
   io.dbgRegWData := regFile.io.wData
 
-  // Debug: raw FSM state + wbExecEn + rd, to pinpoint exactly which term of
-  // `wbExecEn` (or which FSM branch) is suppressing the writeback for one
-  // specific instruction (nputs+0x2c, `mv s2,a1`) while an adjacent,
-  // structurally-identical ADDI (nputs+0x28, `mv s1,a0`) writes back fine.
   io.dbgState     := state.asUInt
   io.dbgWbExecEn  := wbExecEn
   io.dbgDRd       := d.rd

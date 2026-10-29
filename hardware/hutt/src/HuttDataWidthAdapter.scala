@@ -6,21 +6,10 @@ package hutt
 import chisel3._
 import chisel3.util._
 
-/** Bridges a 64-bit (RV64) Hutt data bus to a 32-bit memory/peripheral fabric.
+/** Bridges a 64-bit (RV64) Hutt data bus to the 32-bit SoC fabric.
   *
-  * The Borg SoC fabric — MemoryController, SDRAM backend, Borg MMIO, SoC inline
-  * registers — is natively 32-bit and stays that way.  This adapter lets an
-  * RV64 Hutt drive it: byte/half/word accesses (size 0..2) pass straight through
-  * on the low 32 bits; a doubleword access (size 3, from LD/SD) is split into two
-  * 32-bit transactions — low word at `addr`, high word at `addr+4`.
-  *
-  * Load contract is preserved: the 32-bit fabric returns the addressed bytes in
-  * the low bits, and the CPU's `extendLoad` sign/zero-extends.  For a doubleword
-  * load the adapter concatenates {high, low} into the 64-bit response; for ≤word
-  * loads the high half is zero (the CPU ignores it).
-  *
-  * RV32 builds do not instantiate this — the 32-bit core wires straight to the
-  * fabric — so the existing SoC/demo path is unaffected.
+  * Byte to word accesses pass through on the low 32 bits; a doubleword is split into two word
+  * transactions (`addr`, then `addr+4`) and the load response is {high, low}.
   */
 class HuttDataWidthAdapterIO(val addrWidth: Int) extends Bundle {
   val cpu = Flipped(new HuttBus(addrWidth, 64))  // 64-bit CPU side
@@ -42,7 +31,6 @@ class HuttDataWidthAdapter(val addrWidth: Int) extends Module {
 
   val isDouble = reqSize === HuttSize.Double   // size 3 = LD/SD
 
-  // -- defaults --
   io.cpu.req.ready  := state === sIdle
   io.cpu.resp.valid := state === sDone
   io.cpu.resp.bits  := Mux(isDouble, Cat(loadHi, loadLo), Cat(0.U(32.W), loadLo))

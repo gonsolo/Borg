@@ -16,26 +16,8 @@ class HuttDividerIO(val bits: Int) extends Bundle {
   val remainder = Output(UInt(bits.W))
 }
 
-/** Unsigned shift-subtract restoring divider, `bits` cycles latency.
-  *
-  * Operates on magnitudes only — sign handling and RISC-V's divide-by-zero /
-  * signed-overflow special cases are the caller's responsibility (see
-  * HuttAlu, which wraps this for DIV/DIVU/REM/REMU and the RV64 *W forms).
-  *
-  * Standard restoring-division algorithm: shift the {remainder, quotient}
-  * pair left by one bit each cycle, trial-subtract the divisor from the
-  * shifted remainder, and keep the subtraction (quotient bit 1) unless it
-  * would go negative, in which case restore the pre-subtraction remainder
-  * (quotient bit 0). The remainder register is one bit wider than `bits`
-  * so the trial subtraction's sign is unambiguous even when the shifted
-  * remainder's value is within one divisor of overflowing a `bits`-wide
-  * register.
-  *
-  * `done` is itself registered (not asserted combinationally off the final
-  * iteration's trigger condition) so it lands on the same cycle the
-  * `quotient`/`remainder` registers actually hold their final value —
-  * those are registers too, so a combinational `done` would pulse one
-  * cycle before the results it's supposed to announce are visible.
+/** Unsigned restoring divider, `bits` cycles. Signs and RISC-V's divide-by-zero and overflow
+  * cases are HuttAlu's. The remainder is one bit wider so the trial subtraction's sign is exact.
   */
 class HuttDivider(val bits: Int) extends Module {
   val io = IO(new HuttDividerIO(bits))

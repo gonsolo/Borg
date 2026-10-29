@@ -6,9 +6,7 @@ package hutt
 import chisel3._
 import chisel3.util._
 
-/** Access size encoding shared by data and peripheral buses.
-  *  0 = byte, 1 = halfword, 2 = word, 3 = doubleword (RV64 LD/SD).
-  */
+/** Access size of the data and peripheral buses. */
 object HuttSize {
   val Byte   = 0.U(2.W)
   val Half   = 1.U(2.W)
@@ -16,11 +14,7 @@ object HuttSize {
   val Double = 3.U(2.W)
 }
 
-/** Read/write request payload.
-  *
-  * @param addrWidth byte-address width (24 for memory, 28 for peripherals).
-  * @param dataWidth data width (XLEN: 32 for RV32, 64 for RV64).
-  */
+/** @param addrWidth byte-address width (24 for memory, 28 for peripherals). */
 class HuttBusReq(val addrWidth: Int, val dataWidth: Int = 32) extends Bundle {
   val addr  = UInt(addrWidth.W)
   val write = Bool()
@@ -28,28 +22,14 @@ class HuttBusReq(val addrWidth: Int, val dataWidth: Int = 32) extends Bundle {
   val data  = UInt(dataWidth.W)
 }
 
-/** Single-outstanding Decoupled req/resp bus.
-  *
-  * Producer drives `req` (Decoupled out).  Consumer drives `resp` (Decoupled in
-  * from this side, out from the consumer).  Reads complete when `resp.fire`;
-  * writes complete the same way (data field on resp is don't-care).
-  *
-  * @param dataWidth data width (XLEN: 32 for RV32, 64 for RV64).
-  */
+/** Single-outstanding req/resp bus; writes also complete on `resp.fire`. */
 class HuttBus(val addrWidth: Int, val dataWidth: Int = 32) extends Bundle {
   val req  = Decoupled(new HuttBusReq(addrWidth, dataWidth))
   val resp = Flipped(Decoupled(UInt(dataWidth.W)))
 }
 
-/** Instruction fetch bus — read-only, word-aligned.
-  *
-  * `req` carries a word address (`addrWidth` bits, units of 4 bytes).  `resp`
-  * returns the 32-bit instruction word.  Branch redirect is expressed by the
-  * CPU dropping the in-flight response (asserting a new `req` with a different
-  * address); the memory controller must accept the new request even if the
-  * previous response has not been consumed.
-  *
-  * @param addrWidth word-address width.  ULX3S SDRAM uses 23 (32 MB / 4 B).
+/** Instruction fetch bus on word addresses. A branch drops the in-flight response by
+  * sending a new `req`, which the memory side must accept even then.
   */
 class HuttInstrBus(val addrWidth: Int) extends Bundle {
   val req  = Decoupled(UInt(addrWidth.W))

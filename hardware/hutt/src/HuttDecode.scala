@@ -32,11 +32,7 @@ object AmoFunct5 {
   val Sc   = FUNCT5_SC_W.U(5.W)
 }
 
-/** ALU operation selector.  The `*W` variants are RV64 word ops (32-bit result
-  * sign-extended to 64); never selected on RV32.  The Mul/Div/Rem family (M
-  * extension) and their `*W` forms are only implemented in hardware for
-  * xlen=64 builds (see HuttAlu) — required for OpenSBI/Linux, whose own
-  * source unconditionally uses integer divide. */
+/** ALU operation selector. `*W` are RV64 word ops; the M family exists only for xlen=64. */
 object AluOp extends ChiselEnum {
   val Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And,
       AddW, SubW, SllW, SrlW, SraW,
@@ -44,11 +40,7 @@ object AluOp extends ChiselEnum {
       MulW, DivW, DivuW, RemW, RemuW = Value
 }
 
-/** Decoded instruction fields and control signals.
-  *
-  * Combinationally derived from the 32-bit instruction word — held by the EXEC
-  * state of the Hutt FSM via Mux/wire reads, no explicit pipeline registers.
-  */
+/** Decoded instruction fields and control signals, combinational from the instruction word. */
 class HuttDecoded(val xlen: Int = 32) extends Bundle {
   val opcode = UInt(7.W)
   val rd     = UInt(5.W)
@@ -57,14 +49,13 @@ class HuttDecoded(val xlen: Int = 32) extends Bundle {
   val funct3 = UInt(3.W)
   val funct7 = UInt(7.W)
 
-  // Pre-computed immediates (sign-extended to XLEN bits)
+  // Sign-extended to XLEN.
   val iImm = UInt(xlen.W)
   val sImm = UInt(xlen.W)
   val bImm = UInt(xlen.W)
   val uImm = UInt(xlen.W)
   val jImm = UInt(xlen.W)
 
-  // Convenience flags
   val isLui    = Bool()
   val isAuipc  = Bool()
   val isJal    = Bool()
@@ -102,7 +93,6 @@ object HuttDecode {
     d.rs2    := instr(24, 20)
     d.funct7 := instr(31, 25)
 
-    // Sign-extended immediates per the RISC-V base encoding (to XLEN bits).
     d.iImm := riscv.Rv.immI(instr, xlen)
     d.sImm := riscv.Rv.immS(instr, xlen)
     d.bImm := riscv.Rv.immB(instr, xlen)
@@ -120,8 +110,7 @@ object HuttDecode {
     d.isOp     := d.opcode === Opcode.Op
     d.isOpImm32 := d.opcode === Opcode.OpImm32
     d.isOp32    := d.opcode === Opcode.Op32
-    // CSR ops: SYSTEM + funct3 != 0.  ECALL/EBREAK/MRET use funct3=0 and are
-    // distinguished by funct12 (instr[31:20]).
+    // ECALL/EBREAK/xRET use funct3=0 and differ in funct12.
     d.isCsr    := (d.opcode === Opcode.System) && (d.funct3 =/= 0.U)
     val funct12 = instr(31, 20)
     val isSystem0 = (d.opcode === Opcode.System) && (d.funct3 === 0.U)
@@ -134,15 +123,7 @@ object HuttDecode {
     d.isNop    := (d.opcode === Opcode.MiscMem) ||
                   (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret && !d.isSret && !d.isSfenceVma)
 
-    // A extension: opcode 0101111, funct3 010=word/011=doubleword, funct5=instr[31:27].
-    // xlen=64 only (RV32/ASIC never emits these -- GCC needs -march=...a to
-    // even encode them). Hardwiring isAmo/isLr/isSc to Chisel-level false.B
-    // for xlen=32 (rather than just relying on the opcode never appearing
-    // in practice) lets yosys's constant-propagation prove Hutt's entire
-    // AMO/LR/SC FSM (sAmoLoadReq/sAmoLoadResp/sAmoStoreReq/sAmoStoreResp,
-    // the reservation registers, the 9-term amoNewVal ALU) unreachable and
-    // eliminate it -- a runtime-only "instructions never appear" guarantee
-    // is data-dependent and can't be constant-folded by synthesis at all.
+    // A extension, xlen=64 only: a constant false.B on RV32 lets synthesis drop the AMO FSM.
     d.amoFunct5 := instr(31, 27)
     d.isAmo := (if (xlen == 64) d.opcode === Opcode.Amo else false.B)
     d.isLr  := d.isAmo && (d.amoFunct5 === AmoFunct5.Lr)
