@@ -80,6 +80,7 @@ $(FIRMWARE_DIR)/kernel.bin:
 $(FIRMWARE_DIR)/textest.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 textest
 
+# Run through these targets: a bare ./arcilator_sim with a missing or stale .bin never finishes a frame.
 kernel: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
 	./arcilator_sim $(FIRMWARE_DIR)/kernel.bin kernel
 
