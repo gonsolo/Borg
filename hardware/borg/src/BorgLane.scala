@@ -15,6 +15,7 @@ class LaneIdsIO(val cfg: BorgConfig) extends Bundle {
 class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // Broadcast to every lane.
   val regs        = Input(new RegIndices())
+  val slot        = Input(UInt(cfg.slotBits.W))   // the issuing quad's
   val opFlags     = Input(new FpuOpFlags())
   // The lane's bit of the execution mask: low, it executes but none of its writes land.
   val execActive  = Input(Bool())
@@ -47,7 +48,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
 
   val bus         = Flipped(new BorgBusIO())
 
-  val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))   // the units' writes
+  val memWrite    = Flipped(new MemWritePort(5 + cfg.slotBits, cfg.totalBits))   // the units' writes, slot and register
 
   val csrWrite    = new CsrWriteIO(cfg.totalBits)
   val regReadData = Output(UInt(cfg.totalBits.W))  // MMIO GPR read (lane 0 consumed)
@@ -71,8 +72,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val config = cfg.fp
 
   // Three copies written together, so decode reads rs1, rs2 and rs3 at once. regFile serves MMIO.
-  val regFile = Module(new RegFileCopy(config.totalBits, "regFile"))
-  private val regFilesBC = Seq("regFileB", "regFileC").map(n => Module(new RegFileCopy(config.totalBits, n)))
+  val regFile = Module(new RegFileCopy(config.totalBits, "regFile", cfg.quadSlots))
+  private val regFilesBC = Seq("regFileB", "regFileC").map(n => Module(new RegFileCopy(config.totalBits, n, cfg.quadSlots)))
+  private def addr(slot: UInt, reg: UInt): UInt = RegFileCopy.addr(cfg, slot, reg)
 
 
   private def at(k: Int): Bool = io.stages(k - 1)
@@ -85,7 +87,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val flagsR = RegEnable(opFlags, 0.U.asTypeOf(opFlags), io.fmaStart)
   private val flagsX = later(flagsR, cfg.cBusyLoad - cfg.cOperands)
   private val flagsW = later(flagsR, cfg.cBusyLoad - 1)
-  private val rdW    = later(RegEnable(regs.rd, 0.U, io.fmaStart), cfg.cBusyLoad - 1)
+  private val rdW    = later(RegEnable(addr(io.slot, regs.rd), 0.U, io.fmaStart), cfg.cBusyLoad - 1)
   // The execution mask as the instruction saw it at its operands.
   private val activeW = later(io.execActive, cfg.cOperands - 1)
   private val anyW    = later(io.execAny, cfg.cOperands - 1)
@@ -155,9 +157,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mmioAddr = ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)
 
     val atDecode = io.decode
-    regFile.io.rd.addr := Mux(mmioEn, mmioAddr, regs.rs1)
+    // MMIO reads and writes slot 0.
+    val (rs1, rs2, rs3) = (addr(io.slot, regs.rs1), addr(io.slot, regs.rs2), addr(io.slot, regs.rs3))
+    regFile.io.rd.addr := Mux(mmioEn, addr(0.U(cfg.slotBits.W), mmioAddr), rs1)
     regFile.io.rd.en   := mmioEn || atDecode
-    regFilesBC.zip(Seq(regs.rs2, regs.rs3)).foreach { case (f, r) => f.io.rd.addr := r; f.io.rd.en := atDecode }
+    regFilesBC.zip(Seq(rs2, rs3)).foreach { case (f, r) => f.io.rd.addr := r; f.io.rd.en := atDecode }
     val (dataB, dataC) = (regFilesBC(0).io.rd.data, regFilesBC(1).io.rd.data)
 
     val mmioEnDel   = RegNext(mmioEn && io.bus.is_reading, false.B)
@@ -173,9 +177,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       Mux(RegEnable(wr.en && wr.addr === rs, false.B, atDecode), wrDataDel, data)
     def hold(data: UInt, rs: UInt, rsDel: UInt): UInt =
       RegEnable(resolveCoordReg(bypass(data, rs), rsDel), 0.U(config.totalBits.W), io.advance)
-    val holdA = hold(regFile.io.rd.data, regs.rs1, rs1IdxDel)
-    val holdB = hold(dataB, regs.rs2, rs2IdxDel)
-    val holdC = hold(dataC, regs.rs3, rs3IdxDel)
+    val holdA = hold(regFile.io.rd.data, rs1, rs1IdxDel)
+    val holdB = hold(dataB, rs2, rs2IdxDel)
+    val holdC = hold(dataC, rs3, rs3IdxDel)
     val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
 
     (holdA, holdB, holdC, mmioD)
@@ -219,7 +223,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val wbWrites = !flagsW.branch && !flagsW.execOp && !flagsW.rvNoWrite
     val pipe_write = running && at(1) && wbWrites && (flagsW.exany || activeW)
     val w_en = mmio_write || pipe_write
-    val w_addr = Mux(pipe_write, rdW, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
+    val w_addr = Mux(pipe_write, rdW, addr(0.U(cfg.slotBits.W), ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)))
     val is_special_reg = flagsW.frcp || flagsW.frsq
     val w_data = Mux(pipe_write,
       Mux(is_int_reg, int_result,

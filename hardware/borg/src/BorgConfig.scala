@@ -15,6 +15,7 @@ package borg
   * @param hasBlend        Colour blending, RAW formats and the tile's extension plane.
   * @param hasStencil      Stencil plane and test.
   * @param hasCompute      Compute dispatch and its invocation IDs in r30/r31.
+  * @param quadSlots       Quads the core keeps in flight (docs/B9_pipeline.md, step 2).
   * The fixed-function features are gated at run time by their enable bits too,
   * so a build with them behaves like one without until the driver turns them on.
   */
@@ -27,9 +28,12 @@ case class BorgConfig(
     hasDepthFlush: Boolean = true,
     hasBlend: Boolean = true,
     hasStencil: Boolean = true,
-    hasCompute: Boolean = true
+    hasCompute: Boolean = true,
+    quadSlots: Int = 1
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
+  require(Integer.bitCount(quadSlots) == 1, s"quadSlots must be a power of two, got $quadSlots")
+  def slotBits: Int = chisel3.util.log2Ceil(quadSlots)
   def fifoDepth: Int = 2
   def fattrCacheLog2: Int = 8           // FATTR's varying cache, 2^n words
   def texDescCacheLog2: Int = 2

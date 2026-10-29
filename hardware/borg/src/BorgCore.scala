@@ -204,9 +204,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val (uniformData, funct3Del) = wireUniformRead()
   val ovs = wireRvOperands()
 
+  // The quad slot that issues; units write their result to the slot that issued them.
+  val issueSlot = WireDefault(0.U(cfg.slotBits.W))
   val lanes = Seq.fill(cfg.fragLanes)(Module(new BorgLane(cfg)))
   lanes.zipWithIndex.foreach { case (lane, i) =>
     lane.io.regs        := regs
+    lane.io.slot        := issueSlot
     lane.io.opFlags     := opFlags
     lane.io.stages      := stages
     lane.io.running     := running
@@ -414,8 +417,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       programCounter := programCounter + 1.U
       resumeDelay := true.B
     }
+    val unitSlot = RegEnable(issueSlot, issuing)
     lanes.zip(u.wb).foreach { case (l, w) =>
-      when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := w.addr; l.io.memWrite.data := w.data }
+      when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := RegFileCopy.addr(cfg, unitSlot, w.addr); l.io.memWrite.data := w.data }
     }
   }
 
