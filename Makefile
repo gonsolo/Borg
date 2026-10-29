@@ -174,7 +174,7 @@ rust-project:
 
 # A fresh checkout (CI) has no mesa build.
 mesa/build-borg/build.ninja:
-	meson setup mesa/build-borg -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
+	meson setup mesa/build-borg mesa -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
 	  -Dcpp_rtti=false -Dtools=drm-shim -Dbuild-tests=false
 
 test-borgvk: mesa/build-borg/build.ninja
