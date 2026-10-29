@@ -46,7 +46,7 @@ Control word:
 | 17:16 | operation: 0 sample, 1 fetch (`texelFetch`: integer u, v, TEXA layer and level), 2 gather, 3 size (`textureSize`) |
 | 19:18 | gather component                                                    |
 | 20    | depth compare against TEXA's reference                             |
-| 22:21 | LOD: 0 implicit (quad derivatives), 1 implicit + TEXA bias, 2 TEXA LOD |
+| 22:21 | LOD: 0 implicit (quad derivatives), 1 implicit + TEXA bias, 2 TEXA LOD, 3 query (`textureQueryLod`, with operation 0) |
 | 26:23 | texel offset u (signed, -8..7)                                      |
 | 30:27 | texel offset v                                                      |
 | 31, 20:18 | 3D images only: texel offset w (sign in 31), in the gather and compare bits a 3D image cannot use |
@@ -77,6 +77,12 @@ Sampler descriptor, 4 words at `SAMPLER_DESC_BASE + 16*index`:
 The image view's **component swizzle** applies to the result (and, for
 gather, to the component gathered). A **depth compare** against a UNORM
 format clamps the reference to [0, 1] first.
+
+**LOD query** (operation 0, LOD mode 3) answers `textureQueryLod`: the quad's
+implicit LOD as for a sample, then, as floats in the result block's first two
+words, the level the min filter would use (lambda clamped to the sampler's
+min/max LOD and the levels, rounded for nearest mipmapping) and lambda itself
+with the sampler's bias, unclamped. No texel is read.
 
 **Size** (operation 3) answers `textureSize` and `textureQueryLevels`: with the
 integer level in TEXA's LOD it returns width and height (each `max(1, n >> level)`),

@@ -141,6 +141,17 @@ object BorgSamplerTests extends TestSuite {
   }
   case class Lane(u: Float, v: Float = 0, w: Float = 0, lod: Float = 0, dref: Float = 0, fetch: (Int, Int, Int, Int) = (0, 0, 0, 0))
 
+  def quadLodRef(t: Tex, lanes: Seq[Lane]): Int = {
+    def fma(a: Float, b: Float, c: Float) = Math.fma(a, b, c)
+    val (dux, dvx, dwx) = (lanes(1).u - lanes(0).u, lanes(1).v - lanes(0).v, lanes(1).w - lanes(0).w)
+    val (duy, dvy, dwy) = (lanes(2).u - lanes(0).u, lanes(2).v - lanes(0).v, lanes(2).w - lanes(0).w)
+    val (dz, dd) = if (t.ttype == T3D) (1f, t.d.toFloat) else (0f, 0f)
+    val dy = if (t.ttype == T1D) 0f else 1f                     // 1D: the layer rides in v
+    val rx = fma(math.abs(dwx) * dz, dd, fma(math.abs(dvx) * dy, t.h.toFloat, math.abs(dux) * t.w.toFloat))
+    val ry = fma(math.abs(dwy) * dz, dd, fma(math.abs(dvy) * dy, t.h.toFloat, math.abs(duy) * t.w.toFloat))
+    log2q(math.max(rx, ry))
+  }
+
   def reference(t: Tex, s: Samp, texel: (Int, Int, Int, Int, Int) => BigInt, ctl: Long, lanes: Seq[Lane]): Seq[Seq[Either[Long, Double]]] = {
     val opc = ((ctl >> 16) & 3).toInt; val isFetch = opc == OpFetch; val isGather = opc == OpGather
     val lodMode = ((ctl >> 21) & 3).toInt
@@ -148,16 +159,7 @@ object BorgSamplerTests extends TestSuite {
     val offs = Seq(sx4(ctl >> 23), sx4(ctl >> 27),
                    if (t.ttype == T3D) sx4(((ctl >> 31) << 3) | ((ctl >> 18) & 7)) else 0)
     val dims = t.ttype match { case T1D => 1; case T3D => 3; case _ => 2 }
-    val quadLod = if (isFetch || isGather || lodMode == LodExplicit || s.unnorm) 0 else {
-      def fma(a: Float, b: Float, c: Float) = Math.fma(a, b, c)
-      val (dux, dvx, dwx) = (lanes(1).u - lanes(0).u, lanes(1).v - lanes(0).v, lanes(1).w - lanes(0).w)
-      val (duy, dvy, dwy) = (lanes(2).u - lanes(0).u, lanes(2).v - lanes(0).v, lanes(2).w - lanes(0).w)
-      val (dz, dd) = if (t.ttype == T3D) (1f, t.d.toFloat) else (0f, 0f)
-      val dy = if (t.ttype == T1D) 0f else 1f                     // 1D: the layer rides in v
-      val rx = fma(math.abs(dwx) * dz, dd, fma(math.abs(dvx) * dy, t.h.toFloat, math.abs(dux) * t.w.toFloat))
-      val ry = fma(math.abs(dwy) * dz, dd, fma(math.abs(dvy) * dy, t.h.toFloat, math.abs(duy) * t.w.toFloat))
-      log2q(math.max(rx, ry))
-    }
+    val quadLod = if (isFetch || isGather || lodMode == LodExplicit || s.unnorm) 0 else quadLodRef(t, lanes)
     lanes.map { ln =>
       val q = (t.levels - 1) << 8
       val base0 = if (lodMode == LodExplicit) fixed(ln.lod, 8, 24).toInt else quadLod
@@ -437,6 +439,29 @@ object BorgSamplerTests extends TestSuite {
           }
         }
         println("  textureSize: width, height, depth or layers and levels at a level")
+      }
+    }
+
+    utest.test("lod_query") {
+      withSampler { d =>
+        val t = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 16, 8, levels = 5)
+        val (u0, v0) = (0.3f, 0.6f)
+        for ((du, dv) <- Seq((3.0f / 16, 0f), (0f, 5.0f / 8), (1.0f / 64, 1.0f / 64), (0f, 0f), (2f, 0f));
+             mipLin <- Seq(false, true); (minLod, maxLod) <- Seq((0f, 1000f), (1.25f, 2.5f))) {
+          val s = Samp(magLin = true, minLin = true, mipLin = mipLin, mode = (Repeat, Repeat, Repeat), minLod = minLod, maxLod = maxLod)
+          val lanes = Seq(Lane(u0, v0), Lane(u0 + du, v0 + dv), Lane(u0 + dv, v0 + du), Lane(u0 + du + dv, v0 + du + dv))
+          val mem = new Mem
+          setup(mem, Seq(t), Seq(s))
+          d.io.invalidate.poke(true.B); d.clock.step(1); d.io.invalidate.poke(false.B)
+          val got = run(d, mem, LodQuery.toLong << 21, lanes)
+          val lam = quadLodRef(t, lanes)
+          val lc = lam.max(fixed(minLod, 8, 24).toInt).min(fixed(maxLod, 8, 24).toInt).max(0).min((t.levels - 1) << 8)
+          val lvl = if (mipLin) lc else ((lc + 127) >> 8) << 8
+          val want = Seq(fbits(lvl / 256f), fbits(lam / 256f))
+          for (g <- got) if (g.take(2) != want)
+            throw new Exception(s"lod query du $du dv $dv mipLin $mipLin min $minLod: got ${g.take(2).map(bitsf)}, want ${want.map(bitsf)}")
+        }
+        println("  textureQueryLod: the level and lambda, nearest and linear, min/max LOD clamps")
       }
     }
 

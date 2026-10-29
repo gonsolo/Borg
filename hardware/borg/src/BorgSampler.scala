@@ -17,14 +17,14 @@ object SamplerCtl {
   def op(c: UInt)      = c(17, 16)   // 0 sample, 1 fetch (texelFetch), 2 gather, 3 size (textureSize)
   def comp(c: UInt)    = c(19, 18)   // gather component
   def compare(c: UInt) = c(20)       // depth compare against TEXA's dref
-  def lodMode(c: UInt) = c(22, 21)   // 0 implicit, 1 implicit + TEXA bias, 2 TEXA lod
+  def lodMode(c: UInt) = c(22, 21)   // 0 implicit, 1 implicit + TEXA bias, 2 TEXA lod, 3 query
   def offU(c: UInt)    = c(26, 23).asSInt
   def offV(c: UInt)    = c(30, 27).asSInt
   // A 3D image's w offset in the bits gather and compare use, which a 3D
   // image cannot: sign in 31, low bits in 20:18.
   def offW(c: UInt)    = Cat(c(31), c(20, 18)).asSInt
   val OpSample = 0; val OpFetch = 1; val OpGather = 2; val OpSize = 3
-  val LodImplicit = 0; val LodBias = 1; val LodExplicit = 2
+  val LodImplicit = 0; val LodBias = 1; val LodExplicit = 2; val LodQuery = 3
 
   // Texture descriptor: 16 words at TEX_DESC_BASE + 64*index.
   //   0  base (byte address)
@@ -168,6 +168,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     Mux(v === 0.U, 0.U(32.W), Cat(0.U(1.W), exp.asUInt(7, 0), (norm << 1)(w - 1, w - 23)))
   }
 
+  private def q8ToFp32(x: SInt): UInt = {
+    val neg = x < 0.S
+    uintToFp32(Mux(neg, (0.S - x).asUInt, x.asUInt), -8.S) | Cat(neg, 0.U(31.W))
+  }
+
   /** Signed ordered compare key for floats. */
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
@@ -216,6 +221,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val isFetch  = op(ctl) === OpFetch.U
   private val isGather = op(ctl) === OpGather.U
   private val isSize   = op(ctl) === OpSize.U
+  private val isQuery  = op(ctl) === OpSample.U && lodMode(ctl) === LodQuery.U
   private val doCmp    = compare(ctl) && !isFetch && ttype =/= T3D.U     // bit 20 is w's offset on 3D
   private val isInt    = fmt.kind === TexFormat.UINT.U || fmt.kind === TexFormat.SINT.U
   /** Filtered dimensions: 1D 1, 2D and cube 2 (a cube face is 2D), 3D 3. */
@@ -281,7 +287,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // The image view's component swizzle (VkComponentMapping), on the result
   // (gather applied it to its component instead).
   private def oneOf: UInt = Mux(isInt, 1.U(32.W), "h3F800000".U(32.W))
-  io.resp.bits.data := Mux(isGather || isSize, acc, VecInit((0 until 4).map { i =>
+  io.resp.bits.data := Mux(isGather || isSize || isQuery, acc, VecInit((0 until 4).map { i =>
     MuxLookup(swz(i), acc(i))(Seq(1.U -> 0.U, 2.U -> oneOf, 3.U -> acc(0), 4.U -> acc(1), 5.U -> acc(2), 6.U -> acc(3)))
   }))
   io.gpuMem.req := false.B; io.gpuMem.addr := 0.U; io.gpuMem.wr := false.B
@@ -348,7 +354,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && (N >= 3).B && !unnorm
       // One level and one filter: the LOD changes nothing.
       val matters = levels =/= 1.U || magLin =/= minLin
-      when(!needQuad || !matters) {
+      when(!needQuad || (!matters && !isQuery)) {
         quadLod := 0.S; lane := 0.U; state := sLane
       }.otherwise {
         val a = args
@@ -453,6 +459,13 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       acc.foreach(_ := 0.U)
       lvIdx := 0.U
       state := sLevel
+      // textureQueryLod: the level the min filter would use and lambda, as floats.
+      when(isQuery) {
+        val lamC = Mux(lam < 0.S, 0.S, Mux(lam > q, q, lam))
+        val lvlQ = Mux(mipLin, lamC, (((lamC + 127.S) >> 8) << 8).asSInt)
+        acc(0) := q8ToFp32(lvlQ); acc(1) := q8ToFp32(biased)
+        state := sResp
+      }
     }
 
     is(sLevel) {
