@@ -6,142 +6,73 @@ package borg
 import chisel3.*
 import chisel3.util.*
 
-/** BorgCore — shared shader-core control: instruction memory, program counter,
-  * the multi-cycle pipeline FSM, instruction decode, the (shared) uniform RAM,
-  * and MMIO/DMA write routing.
-  *
-  * The per-lane datapath (register files, coordinate expansion, FP16 ALU,
-  * write-back) lives in [[BorgLane]], instantiated `cfg.fragLanes` times.
-  *
-  * Pipeline (docs/B9_pipeline.md): an instruction issues at decode, reading rs1/rs2/rs3 from the
-  * lane's three register-file copies, then moves through stages cfg.cBusyLoad→1 (5→1):
-  * operands held at cHoldC, valid at cOperands, the FMA until 2, write-back at 1.
-  * The next instruction issues every cycle unless it reads a register an instruction in flight
-  * writes (the lane bypasses the one in write-back), follows a branch, or waits for a stall FSM.
-  */
-
-/** One instruction-cache line's state when it lives in a RAM (BorgCore.icacheLinesRam). */
-class ICacheLine(tagBits: Int) extends Bundle {
-  val valid = Bool()
-  val epoch = UInt(ICacheLine.EpochBits.W)
-  val far   = Bool()
-  val tag   = UInt(tagBits.W)
-}
-object ICacheLine { val EpochBits = 8 }
-
 class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
-  // MMIO bus
+  private val N = cfg.fragLanes
   val bus = Flipped(new BorgBusIO())
 
-  // Rasterizer interface — per-lane pixel coordinates (2×2 quad at fragLanes=4)
-  val iter               = Input(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))
-  // The render window's origin in pixels: pixel centres (r30/r31,
-  // FragCoord) are the framebuffer's, not the window's.
-  val pixelOrigin        = Input(new Coord(14))
-  // The colour attachment the current tile pass renders (ATTIDX).
-  val attIndex           = Input(UInt(3.W))   // attachment + 4 * slice
-  // Per lane, the colour attachment's word at its pixel (TLD).
-  val laneDst            = Input(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
-  val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
-  val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
+  // The quad the dispatcher shades: pixel coordinates, the framebuffer origin of the render window
+  // (r30/r31 are framebuffer coordinates), the attachment (ATTIDX), each lane's destination word
+  // (TLD), its covered samples (SMASK), and whether it must have no side effects (a helper lane,
+  // discarded, or failed ZTEST: its stores are dropped).
+  val iter         = Input(Vec(N, new Coord(cfg.coordWidth)))
+  val pixelOrigin  = Input(new Coord(14))
+  val attIndex     = Input(UInt(3.W))   // attachment + 4 * slice
+  val laneDst      = Input(Vec(N, Vec(2, UInt(32.W))))
+  val laneCoverage = Input(Vec(N, UInt(cfg.samples.W)))
+  val laneHelper   = Input(Vec(N, Bool()))
 
-  // Control signals from SystemRDL register block
-  val control = Input(new CoreControlIO)
+  val coreTrigger = Flipped(new CoreTriggerIO)
+  val uniformPage = Input(UInt(1.W))    // the 32-word uniform page triggered programs read
+  val control     = Input(new CoreControlIO)
 
-  // DMA write ports (Step 22.1): DMA takes priority over MMIO writes
-  val dmaImemWrite    = Flipped(new MemWritePort(7, 32)) // 7-bit: IMEM up to 72 entries
+  // DMA loads of programs and uniforms; they take priority over MMIO.
+  val dmaImemWrite    = Flipped(new MemWritePort(7, 32))
   val dmaUniformWrite = Flipped(new MemWritePort(6, cfg.totalBits))
 
-  // Pipeline write-back snoop, per lane (exposed to rasterizer + sequencer)
-  val csrWrite  = Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits))
+  val csrWrite    = Vec(N, new CsrWriteIO(cfg.totalBits))   // fragment outputs, rast_*, setup_*
+  val status      = new CoreStatusIO
+  val regReadData = Output(UInt(cfg.totalBits.W))           // MMIO register read
 
-  // Status outputs (exposed to rasterizer and top-level read mux)
-  val status = new CoreStatusIO
+  val seqBusy = Input(Bool())           // a sequencer's program: r30/r31 read 0 unless ids supply them
+  val ids     = Input(new InvocationIdsIO(cfg))   // compute's or the vertex stage's r30/r31 and lanes
 
-  // MMIO register read data (for top-level read mux)
-  val regReadData = Output(UInt(cfg.totalBits.W))
-
-  // Step 30.1d: when sequencer is running vertex/setup shaders, r30/r31 must
-  // return 0 (not coordX/coordY) because those shaders use r31 as zero.
-  val seqBusy = Input(Bool())
-
-  // LOAD/STORE: the core's own DRAM port, given directly to the core rather
-  // than threaded through the dispatcher -- Borg.scala already arbitrates
-  // memory masters with a priority mux, so adding one more is a smaller
-  // change than routing a second memory protocol through BorgRasterizer and
-  // BorgShaderDispatcher.
   val gpuMem  = new GpuMemIO
-  val memBusy = Output(Bool())       // high while a LOAD/STORE owns the bus
-  // Sticky: a branch condition differed between quad lanes. Deliberately NOT
-  // a CoreStatusIO field -- that bundle is pipeline feedback consumed by the
-  // rasterizer, the dispatcher and both sequencers, none of which care about
-  // this. It is a top-level status bit for the MMIO register and nothing
-  // else, so it lives here rather than making three unrelated modules thread
-  // a field they ignore. See wireBranch for what it means.
-  val branchDivergent = Output(Bool())
-  // Sticky: the execution-mask stack over- or underflowed, i.e. the shader's
-  // EXPUSH/EXPOP pairs are unbalanced or nested deeper than 8. Any such
-  // program produces wrong results; this makes that detectable rather than
-  // silent, same reasoning as branchDivergent.
-  val execFault = Output(Bool())
-  val root    = Input(UInt(32.W))                          // CSR root (ISA v2)
+  val memBusy = Output(Bool())
 
-  // Raw invocation IDs for r30/r31 and the lanes a trigger starts with:
-  // compute's (BorgComputeSequencer), or a vertex shader's VertexIndex and
-  // InstanceIndex (the draw walker).
-  val ids = Input(new InvocationIdsIO(cfg))
-  // Compute mode, the other direction: did the invocation that just stopped
-  // (coreStatus.running -> false) stop at a BARRIER, and if so, where should
-  // it resume. Valid from the same cycle running drops until the next
-  // invocation starts; BorgComputeSequencer reads it off coreStatus's own
-  // running-drop detection, so there is no separate handshake.
+  // Sticky: a branch condition differed between the active lanes, or the mask stack over- or
+  // underflowed. Either program gives wrong results; these make that visible.
+  val branchDivergent = Output(Bool())
+  val execFault       = Output(Bool())
+
+  val root = Input(UInt(32.W))          // CSR root
+  // Valid from the cycle a compute invocation stops until the next starts: it stopped at a
+  // BARRIER, and where it resumes.
   val barrier = if (cfg.hasCompute) Some(Output(new ComputeBarrierIO)) else None
 
-  // ZTEST (early per-fragment tests): the core stalls on zTestReq until the
-  // dispatcher has run the quad's depth/stencil test and pulses zTestDone.
-  val zTestReq  = Output(Bool())
+  val zTestReq  = Output(Bool())        // held until the dispatcher has tested the quad
   val zTestDone = Input(Bool())
-  // Per lane: this invocation must have no side effects -- a helper lane
-  // (no covered sample, outside the scissor), a discarded fragment, or one
-  // that failed ZTEST. Suppresses STORE, the only side effect a shader has.
-  val laneHelper = Input(Vec(cfg.fragLanes, Bool()))
 
-  // Instruction cache: the running program's
-  // image in DRAM -- word `pc` lives at codeBase + 4*pc -- and a pulse that
-  // forgets every word fetched from it, raised whenever the program changes.
+  // The running program's image in DRAM (word pc at codeBase + 4 pc), and a pulse when it changes.
   val codeBase    = Input(UInt(GpuMemIO.AddrBits.W))
   val icacheFlush = Input(Bool())
 
-  // Draw front end: where SOUT and FATTR go (see Opcodes.MATCH_SOUT_V2).
-  val record = Input(new CoreRecordIO)
-  // DRAW_CFG's mode: the raster ROM runs the draw front end's program.
-  val drawMode = Input(Bool())
-  // One sample: the raster ROM stops before the per-sample depths.
-  val drawSingle = Input(Bool())
-  val setupShort = Input(Bool())   // single sample, no depth bias
-  // A pulse that forgets the texture unit's cached descriptors (DESC_FLUSH).
-  val descWritten  = Input(Bool())
-  // Per lane, the samples the current fragment covers (SMASK).
-  val laneCoverage = Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
-  val issueStats   = Output(new IssueStatsIO)
+  val record      = Input(new CoreRecordIO)
+  val drawMode    = Input(Bool())       // the raster ROM runs the draw front end's program
+  val drawSingle  = Input(Bool())       // one sample: it stops before the per-sample depths
+  val setupShort  = Input(Bool())       // one sample, no depth bias
+  val descWritten = Input(Bool())       // the texture unit forgets its descriptors
+  val issueStats  = Output(new IssueStatsIO)
 }
 
-/** The triangle record the running shader writes (SOUT) or reads (FATTR),
-  * driven by the sequencers. See docs/B1_geometry_front_end.md. */
+/** The triangle record the running shader writes (SOUT) or reads (FATTR), from the sequencers
+  * (docs/B1_geometry_front_end.md). */
 class CoreRecordIO extends Bundle {
-  /** Byte address output component 0 goes to. */
-  val outBase       = UInt(GpuMemIO.AddrBits.W)
-  /** Vertex stage: component c of corner k at outBase + 4*(3c + k). Otherwise
-    * (the setup ROM) at outBase + 4c. */
+  val outBase       = UInt(GpuMemIO.AddrBits.W)   // output component 0
+  // Vertex stage: component c of corner k at outBase + 4 (3c + k); the setup ROM: at outBase + 4c.
   val outInterleave = Bool()
-  /** Corner of lane 0; lane i is corner outCorner + i. A single-lane build
-    * runs the vertex shader once per corner and steps this instead. */
-  val outCorner     = UInt(2.W)
-  /** Byte address of component 0's three per-vertex values, for FATTR. */
-  val attrBase      = UInt(GpuMemIO.AddrBits.W)
-  /** One-cycle pulse when a draw's Pass 2 starts: every record has just been
-    * (re)written by Pass 1, so FATTR's varying cache forgets what it holds. */
-  val attrFlush     = Bool()
+  val outCorner     = UInt(2.W)                   // lane 0's corner; lane i is corner + i
+  val attrBase      = UInt(GpuMemIO.AddrBits.W)   // component 0's three per-vertex values
+  val attrFlush     = Bool()                      // Pass 2 starts: FATTR's cache forgets
 }
 
 /** One cycle's issue outcome, for the perf counters. */
@@ -155,69 +86,56 @@ class IssueStatsIO extends Bundle {
   val drains     = Bool()
 }
 
-/** What the issue logic needs to know about an instruction in flight. */
+/** What the issue logic knows about an instruction in flight. */
 class StageInfo extends Bundle {
   val writes = Bool()
   val rd     = UInt(5.W)
   val branch = Bool()
-  val drain  = Bool()   // a stall FSM runs it: issues into empty stages, nothing issues behind it
+  val drain  = Bool()   // a unit runs it: it issues into empty stages, nothing issues behind it
 }
 
+/** The shader core: one quad of [[BorgLane]]s behind a shared fetch, decode and issue, and the
+  * multi-cycle units ([[MemUnit]], [[TexUnit]], [[ExpLogUnit]], [[ZTestUnit]]).
+  *
+  * Pipeline (docs/B9_pipeline.md): an instruction issues at decode, reading rs1, rs2 and rs3 from
+  * the lanes' three register-file copies, then moves through stages cBusyLoad to 1: operands held
+  * at cHoldC, valid at cOperands, the FMA until 2, write-back at 1. The next instruction issues
+  * every cycle unless it reads a register an instruction in flight writes (the lanes bypass the one
+  * in write-back), follows a branch, or waits for a unit. */
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgCoreIO(cfg))
-
-  private val config = cfg.fp  // shorthand for FP config used in arithmetic
+  private val config = cfg.fp
+  private val allLanes = ((1 << cfg.fragLanes) - 1).U(cfg.fragLanes.W)
 
   // @doc:storage
-  // --- Shared storage ---
   val programCounter = RegInit(0.U(cfg.pcBits.W))
   val running = RegInit(false.B)
-  val auto_run_pending = RegInit(false.B)
-  val running_by_rasterizer = RegInit(false.B)
-
+  val startPending = RegInit(false.B)    // triggered: running from the next cycle
+  val byRasterizer = RegInit(false.B)    // triggered, not started by MMIO: reads uniformPage
   // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
   val fetchRast  = RegInit(false.B)
   val fetchSetup = RegInit(false.B)
-
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
   // @doc:end
 
-  // --- Pipeline Control ---
-  // Bit k - 1: an instruction in stage k, counting down from cfg.cBusyLoad (operands read) to 1
-  // (write-back). The stall FSMs hold or squash it.
+  // Bit k - 1: an instruction in stage k. The units hold or squash them.
   val stages = RegInit(0.U(cfg.cBusyLoad.W))
   def at(k: Int): Bool = stages(k - 1)
-  val is_busy = stages.orR
+  val busy = stages.orR
   val holdPipe = WireDefault(false.B); val squashPipe = WireDefault(false.B)
 
-  // --- Branch decision (declared before the fetch that consumes it) ---
-  //
-  // Registered, not combinational, and that is required rather than tidy:
-  // nextPC feeds the instruction-memory read, whose output is decoded to
-  // produce the branch condition. Deriving `taken` combinationally from the
-  // instruction currently being fetched would close a loop through the
-  // memory read. Latching the decision mid-execution breaks it -- by the
-  // time the PC is redirected the branch has long since been decoded.
+  // A branch's decision, registered: nextPC feeds the fetch whose word decodes the branch.
   val brTakenReg  = RegInit(false.B)
   val brTargetReg = RegInit(0.U(cfg.pcBits.W))
-  // Sticky: set by a non-uniform branch condition, cleared only by a core
-  // reset. See wireBranch's doc for why this exists rather than a choice of
-  // which lane to believe.
   val branchDivergent = RegInit(false.B)
 
-  // The execution mask: one bit per lane, all ones unless control flow diverged.
   private val exec = Module(new ExecMask(cfg.fragLanes))
   val execMask = exec.io.mask
 
-  // --- Compute: BARRIER stop point (BorgConfig.hasCompute) -----------
-  //
-  // Not sticky across invocations: written on every stop (either branch of
-  // runPipeline's BARRIER/HALT check below), so a stale true from a PRIOR
-  // invocation can never survive into the next one's read.
+  // Where a compute invocation stopped; written on every stop, so never stale.
   val atBarrierReg = RegInit(false.B)
   val barrierPCReg = RegInit(0.U(cfg.pcBits.W))
 
-  // --- Instruction Fetch ---
   // The PC advances at issue, a branch's one stage after its operands.
   private val redirect = cfg.cOperands - 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
@@ -234,18 +152,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val fetchedInstruction = fetch.io.word
   val fetchReady = fetch.io.ready
 
-  // Resume delay: after a stall FSM's writeback completes, the IMEM still
-  // holds the stale opcode (1-cycle SyncReadMem latency); suppress restart
-  // for 1 cycle. Shared by every multi-cycle FSM below (LOAD/STORE, ZTEST,
-  // TEX/TEXA).
-  val texResumeDelay = RegInit(false.B)
-  when(texResumeDelay) { texResumeDelay := false.B }
-  fetch.io.missOk := running && !is_busy && !texResumeDelay
+  // After a unit finishes, IMEM still holds its word for a cycle: nothing issues then.
+  val resumeDelay = RegInit(false.B)
+  when(resumeDelay) { resumeDelay := false.B }
+  fetch.io.missOk := running && !busy && !resumeDelay
 
-  // --- Decode + FSM ---
-  val (regs, opFlags) = decode(fetchedInstruction)
-  // A BARRIER with every lane masked off is one the workgroup skipped (barriers are in uniform
-  // control flow): it steps over, since a resume would restart those lanes unmasked.
+  val (regs, opFlags) = Decode(fetchedInstruction, cfg)
+  // A BARRIER with every lane masked is one the workgroup skipped (barriers are in uniform control
+  // flow): it steps over, since a resume would restart those lanes unmasked.
   val barrierStop = opFlags.barrier && execMask =/= 0.U
   val next = RvInt(fetchedInstruction)
   val issued = Wire(new StageInfo)
@@ -256,12 +170,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     opFlags.texa || opFlags.texs || opFlags.ztest || next.fexp2 || next.flog2
   val canIssue = Wire(Bool())
   val decoding = running && canIssue
-  val fma_start = decoding && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
+  val issuing = decoding && !resumeDelay && fetchReady && fetchedInstruction =/= 0.U
   val redirecting = Wire(Bool())   // the PC goes to pcAfterThis
-  io.issueStats.issued := fma_start && !opFlags.barrier
+  io.issueStats.issued := issuing && !opFlags.barrier
   locally {
     // info(k): the instruction in stage k, valid while at(k).
-    val infos = Seq.iterate(RegEnable(issued, fma_start), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
+    val infos = Seq.iterate(RegEnable(issued, issuing), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
     def info(k: Int): StageInfo = infos(cfg.cBusyLoad - k)
     def any(ks: Seq[Int])(p: StageInfo => Bool): Bool = ks.map(k => at(k) && p(info(k))).reduce(_ || _)
     val reads = Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
@@ -272,73 +186,56 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val behindBranch = any(redirect to cfg.cBusyLoad)(_.branch)
     canIssue := !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain) &&
       (!stops || !stages(cfg.cBusyLoad - 1, 1).orR)
-    val waiting = running && !texResumeDelay && fetchReady && !canIssue
+    val waiting = running && !resumeDelay && fetchReady && !canIssue
     io.issueStats.waitReg    := waiting && hazard
     io.issueStats.waitBranch := waiting && !hazard && behindBranch
     io.issueStats.waitDrain  := waiting && !hazard && !behindBranch
     io.issueStats.waitEmpty  := waiting && !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain)
     io.issueStats.waitUnit   := waiting && !hazard && !behindBranch && holdPipe
-    io.issueStats.drains     := fma_start && issued.drain
-    val step = fma_start && !opFlags.branch && !issued.drain && !barrierStop
+    io.issueStats.drains     := issuing && issued.drain
+    val step = issuing && !opFlags.branch && !issued.drain && !barrierStop
     redirecting := at(redirect) && info(redirect).branch
     nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
   }
-  runPipeline(fma_start)
+  runPipeline()
   // The flags of the instruction at its operands (stage cOperands).
-  val flagsX = BorgLane.later(!holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), fma_start), cfg.cBusyLoad - cfg.cOperands)
+  val flagsX = BorgLane.later(!holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), issuing), cfg.cBusyLoad - cfg.cOperands)
 
-  // --- Shared uniform-RAM read (broadcast to every lane) ---
-  val (uniform_data, funct3_del) = wireUniformRead()
-  val rv_ov = wireRvOperands()
+  val (uniformData, funct3Del) = wireUniformRead()
+  val ovs = wireRvOperands()
 
-  // --- Per-lane datapath ---
   val lanes = Seq.fill(cfg.fragLanes)(Module(new BorgLane(cfg)))
-  lanes.foreach { lane =>
+  lanes.zipWithIndex.foreach { case (lane, i) =>
     lane.io.regs        := regs
     lane.io.opFlags     := opFlags
     lane.io.stages      := stages
     lane.io.running     := running
-    lane.io.fmaStart    := fma_start
+    lane.io.fmaStart    := issuing
     lane.io.decode      := decoding
     lane.io.advance     := !holdPipe
     lane.io.seqBusy     := io.seqBusy
-    lane.io.uniformData := uniform_data
-    lane.io.funct3Del   := funct3_del
-    lane.io.ovA         := rv_ov._1
-    lane.io.ovB         := rv_ov._2
-    // MMIO bus is broadcast (all lanes are slaves seeing the same transaction).
+    lane.io.uniformData := uniformData
+    lane.io.funct3Del   := funct3Del
+    lane.io.ovA         := ovs._1
+    lane.io.ovB         := ovs._2
     lane.io.bus.address    := io.bus.address
     lane.io.bus.data_in    := io.bus.data_in
     lane.io.bus.is_writing := io.bus.is_writing
     lane.io.bus.is_reading := io.bus.is_reading
-  }
-  // Per-lane execution mask bit.
-  lanes.zipWithIndex.foreach { case (lane, i) => lane.io.execActive := execMask(i) }
-  // Broadcast (one shared reduction, not per-lane): EXANY's "is any lane in
-  // the current mask still active" result. Read live at write-back time, not
-  // latched -- execMask only changes via another EXPUSH/EXELSE/EXPOP, which
-  // cannot execute concurrently with this instruction, so it is stable for
-  // EXANY's whole multi-cycle execution window.
-  lanes.foreach(_.io.execAny := execMask.orR)
-  lanes.zipWithIndex.foreach { case (lane, i) =>
-    lane.io.covMask := io.laneCoverage(i)
-    lane.io.dstWord := io.laneDst(i)
-    lane.io.ids.mode := io.ids.mode
-    lane.io.ids.r30  := io.ids.r30(i)
-    lane.io.ids.r31  := io.ids.r31(i)
-  }
-
-  // Per-lane pixel coordinate (2×2 quad fanned out by the iterator).
-  lanes.zipWithIndex.foreach { case (lane, i) =>
-    lane.io.iter := io.iter(i)
+    lane.io.execActive  := execMask(i)
+    lane.io.execAny     := execMask.orR   // EXANY's answer: stable while it executes
+    lane.io.covMask     := io.laneCoverage(i)
+    lane.io.dstWord     := io.laneDst(i)
+    lane.io.ids.mode    := io.ids.mode
+    lane.io.ids.r30     := io.ids.r30(i)
+    lane.io.ids.r31     := io.ids.r31(i)
+    lane.io.iter        := io.iter(i)
     lane.io.pixelOrigin := io.pixelOrigin
+    io.csrWrite(i)      := lane.io.csrWrite
   }
-
-  // Each lane exposes its own CSR writes; lane 0 drives the MMIO read.
-  lanes.zipWithIndex.foreach { case (lane, i) => io.csrWrite(i) := lane.io.csrWrite }
   io.regReadData := lanes(0).io.regReadData
   io.status.running := running
-  io.status.autoRunPending := auto_run_pending
+  io.status.autoRunPending := startPending
   io.branchDivergent := branchDivergent
   io.execFault       := exec.io.fault
   io.barrier.foreach { b =>
@@ -346,10 +243,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     b.resumePC := barrierPCReg
   }
 
-  // Default write-back port: every FSM below (LOAD/STORE, TEX/TEXA) shares
-  // this Vec and drives it only inside its own `when`, one at a time (they
-  // stall the whole core, so at most one is ever active) -- last-connect-wins
-  // over this default for every cycle none of them is.
+  // The units' register writes; at most one unit runs at a time.
   lanes.map(_.io.memWrite).foreach { mw => mw.en := false.B; mw.addr := 0.U; mw.data := 0.U }
 
   private val zTest = Module(new ZTestUnit(cfg))
@@ -362,23 +256,18 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   memUnit.io.record     := io.record
   memUnit.io.laneHelper := io.laneHelper
   memUnit.io.seqBusy    := io.seqBusy
-  memUnit.io.mem.data    := io.gpuMem.data
-  memUnit.io.mem.ready   := io.gpuMem.ready
-  memUnit.io.mem.waccept := io.gpuMem.waccept
+
   private val texUnit = Module(new TexUnit(cfg))
   attach(texUnit.io)
   texUnit.io.descWritten := io.descWritten
-  texUnit.io.mem.data    := io.gpuMem.data
-  texUnit.io.mem.ready   := io.gpuMem.ready
-  texUnit.io.mem.waccept := io.gpuMem.waccept
-  fetch.io.mem.data    := io.gpuMem.data
-  fetch.io.mem.ready   := io.gpuMem.ready
-  fetch.io.mem.waccept := io.gpuMem.waccept
+
+  attach(Module(new ExpLogUnit(cfg)).io)
 
   // The memory port: the sampler's while it runs, the instruction cache's while it fills, else
   // the memory unit's. They never overlap: each runs only while the pipeline waits for it.
   locally {
     val users = Seq(texUnit.io.busy -> texUnit.io.mem, fetch.io.filling -> fetch.io.mem, true.B -> memUnit.io.mem)
+    users.foreach { case (_, m) => m.data := io.gpuMem.data; m.ready := io.gpuMem.ready; m.waccept := io.gpuMem.waccept }
     def pick[T <: Data](f: GpuMemIO => T): T = PriorityMux(users.map(_._1), users.map(u => f(u._2)))
     io.gpuMem.req   := pick(_.req)
     io.gpuMem.addr  := pick(_.addr)
@@ -388,127 +277,44 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.memBusy := texUnit.io.busy || fetch.io.filling || memUnit.io.busy
   }
 
-  attach(Module(new ExpLogUnit(cfg)).io)
-
-  // --- Branch evaluation and execution mask ---
-  wireBranch(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw))
+  wireBranch()
   locally {
     val ex = at(cfg.cOperands) && flagsX.execOp
     exec.io.push := ex && flagsX.expush; exec.io.els := ex && flagsX.exelse; exec.io.pop := ex && flagsX.expop
     exec.io.cond := VecInit(lanes.map(_.io.recARaw))
     // A compute quad starts with only its real invocations: a workgroup may not fill the quad.
     exec.io.start.valid := io.control.start || io.coreTrigger.valid
-    exec.io.start.bits  := Mux(io.ids.mode && io.coreTrigger.valid, io.ids.laneMask, ((1 << cfg.fragLanes) - 1).U)
+    exec.io.start.bits  := Mux(io.ids.mode && io.coreTrigger.valid, io.ids.laneMask, allLanes)
   }
 
-  // --- Quad derivatives (DDX/DDY): broadcast cross-lane operands to every lane.
-  //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
-  //   lane0=TL, lane1=TR, lane2=BL, lane3=BR — see BorgIterator).  Each lane's FMA
-  //   computes crossA + crossC where crossC = -lane0 (fp16-negated), so the result
-  //   is the neighbour difference. */
-  {
-    val recAvec = VecInit(lanes.map(_.io.recARaw))
-    def pick(i: Int): UInt = recAvec(i)
+  // DDX/DDY: lane 1 - lane 0 and lane 2 - lane 0 of rs1 (TL, TR, BL, BR, see BorgIterator); fine
+  // (rs2 = 1) takes each lane's own row for x (1-0 or 3-2) and column for y (2-0 or 3-1). The
+  // lane's FMA adds crossA and crossC = -lo.
+  locally {
+    val a = VecInit(lanes.map(_.io.recARaw))
     def neg(x: UInt): UInt = Cat(~x(cfg.totalBits - 1), x(cfg.totalBits - 2, 0))
-    // Coarse: the quad's top row / left column for every lane. Fine (rs2 = 1,
-    // SPIR-V DPdxFine/DPdyFine, core with DerivativeControl): each lane's own
-    // row for x (lanes 1-0 or 3-2) and own column for y (2-0 or 3-1).
     lanes.zipWithIndex.foreach { case (lane, i) =>
       val (xHi, xLo) = if ((i & 2) != 0) (3, 2) else (1, 0)
       val (yHi, yLo) = if ((i & 1) != 0) (3, 1) else (2, 0)
-      val hi = Mux(flagsX.fine, Mux(flagsX.ddy, pick(yHi), pick(xHi)), Mux(flagsX.ddy, pick(2), pick(1)))
-      val lo = Mux(flagsX.fine, Mux(flagsX.ddy, pick(yLo), pick(xLo)), pick(0))
+      val hi = Mux(flagsX.fine, Mux(flagsX.ddy, a(yHi), a(xHi)), Mux(flagsX.ddy, a(2), a(1)))
+      val lo = Mux(flagsX.fine, Mux(flagsX.ddy, a(yLo), a(xLo)), a(0))
       lane.io.crossA := hi
       lane.io.crossC := neg(lo)
     }
   }
 
-  // =========================================================================
-  // Helper functions
-  // =========================================================================
-
-  // @doc:instruction-format
-  /** Decode a 32-bit RISC-V instruction into register indices and op flags. */
-  private def decode(instr: UInt) = {
-    val regs = Wire(new RegIndices())
-    val sys = RvInt(instr)
-    regs.rs1 := Mux(sys.csrReg, sys.sysReg, Mux(sys.csrWin, sys.sysWin, Instructions.BF_RS1(instr)))
-    regs.rs2 := Instructions.BF_RS2(instr)
-    regs.rs3 := Mux(sys.amocas, Instructions.BF_RD(instr), Instructions.BF_RS3(instr))
-    regs.rd  := Instructions.BF_RD(instr)
-
-    val flags = Wire(new FpuOpFlags())
-    val rv = RvInt(instr)
-    flags.mul   := rv.fmul
-    flags.fma   := rv.r4
-    flags.negC  := rv.fsub || rv.fmsub || rv.fnmadd
-    flags.negProd := rv.fnmadd || rv.fnmsub
-    flags.frcp  := rv.frcp
-    flags.iadd  := rv.add
-    flags.ishl  := rv.sll
-    flags.ishr  := rv.sra
-    flags.imul  := rv.mul
-    flags.isub  := rv.sub
-    flags.iand  := rv.and
-    flags.ior   := rv.or
-    flags.ixor  := rv.xor
-    flags.islt  := rv.slt
-    flags.f2h   := rv.fcvtHS
-    flags.h2f   := rv.fcvtSH
-    flags.frsq  := rv.frsq
-    flags.ddx   := rv.ddx
-    flags.ddy   := rv.ddy
-    flags.fine  := Instructions.BF_RS2(instr) === 1.U     // DDX/DDY: fine (per row/column)
-    // A gated-out opcode decodes as false everywhere rather than falling
-    // through to some other op's flag: an absent instruction must be inert,
-    // not accidentally an ADD.
-    flags.load  := rv.load || rv.amo
-    flags.store := rv.store
-    flags.branch := rv.br || rv.jal
-    flags.expush := rv.expush
-    flags.exelse := rv.exelse
-    flags.expop  := rv.expop
-    flags.execOp := flags.expush || flags.exelse || flags.expop
-    flags.barrier := (if (cfg.hasCompute) rv.barrier else false.B)
-    // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
-    // divergent loop needs it as much as a compute shader's.
-    flags.exany  := rv.exany
-    flags.isrl   := rv.srl
-    flags.isltu  := rv.sltu
-    flags.ztest  := rv.ztest
-    flags.sout   := rv.sout
-    flags.fattr  := rv.fattr
-    flags.tex    := rv.texd
-    flags.texs   := rv.texs
-    flags.smask  := rv.csrMask
-    flags.tld    := rv.tld
-    flags.texa   := rv.texad
-    flags.funct3 := Mux(rv.csrWin, 1.U, Mux(rv.tld, Instructions.BF_RS2(instr)(0), 0.U))
-    flags.rvNoWrite := rv.any && regs.rd === 0.U || rv.csrrw
-    flags.csrw := rv.csrrw
-    flags.rvx  := rv.rvx
-    flags.rvxOp := rv.rvxOp
-    flags.csr  := rv.csr
-
-    (regs, flags)
-  }
-  // @doc:end
-
-  /** Fetch/execute FSM: issue into the stages, advance them, advance the PC. */
-  private def runPipeline(fma_start: Bool): Unit = {
+  /** Issue into the stages, advance them and the PC; start, stop and trigger programs; the DMA
+    * and MMIO writes of IMEM and the uniforms. */
+  private def runPipeline(): Unit = {
     // @doc:fetch-execute
-    stages := Cat(fma_start && !opFlags.barrier, stages(cfg.cBusyLoad - 1, 1))
+    stages := Cat(issuing && !opFlags.barrier, stages(cfg.cBusyLoad - 1, 1))
     programCounter := nextPC
-    when(decoding && !texResumeDelay && fetchReady) {
+    when(decoding && !resumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
         running      := false.B
         atBarrierReg := false.B
       }.elsewhen(barrierStop) {
-        // Zero-latency stop, same as HALT above -- the difference is only in
-        // what BorgComputeSequencer does with it (resume this same invocation
-        // one word past BARRIER next segment, rather than treating it as
-        // finished). BARRIER is never a branch, so the resume address is
-        // simply the next word -- no need for pcAfterThis's brTakenReg mux.
+        // The compute sequencer resumes the invocation one word past the BARRIER.
         running      := false.B
         atBarrierReg := true.B
         barrierPCReg := (programCounter + 1.U)(cfg.pcBits - 1, 0)
@@ -517,8 +323,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     when(io.control.start) {
       running := true.B
-      running_by_rasterizer := false.B
-      fetchRast := false.B  // CPU/MMIO-driven runs always fetch from writable IMEM
+      byRasterizer := false.B
+      fetchRast := false.B
       fetchSetup := false.B
     }
     when(io.control.reset) {
@@ -532,52 +338,45 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     when(io.coreTrigger.valid) {
       programCounter := io.coreTrigger.pc(cfg.pcBits - 1, 0)
-      auto_run_pending := true.B
-      running_by_rasterizer := true.B
+      startPending := true.B
+      byRasterizer := true.B
       fetchRast := io.coreTrigger.isRast
       fetchSetup := io.coreTrigger.isSetup
       if (BorgDebug.trace) printf("[CORE] coreTrigger pc=%d isRast=%d\n",
         io.coreTrigger.pc, io.coreTrigger.isRast)
     }
-
-    when(auto_run_pending) {
+    when(startPending) {
       running := true.B
-      auto_run_pending := false.B
+      startPending := false.B
     }
 
-    // IMEM write: DMA has priority over MMIO.
     val mmioImemWrite =
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 416.U // 128 + 72*4
     fetch.io.load.valid := io.dmaImemWrite.en || mmioImemWrite
     fetch.io.load.bits.addr := Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr, (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
     fetch.io.load.bits.data := Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
 
-    // Uniform write: same single-port pattern.
     val mmioUnifWrite =
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 560.U // 432 + 128
     val unifIdx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
     val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
     val unifAddr = if (cfg.maxUniforms > 32)
-      Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
-          Cat(io.control.uniformWritePage, unifIdx(4, 0)))
+      Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr, Cat(io.control.uniformWritePage, unifIdx(4, 0)))
     else
       Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr(4, 0), unifIdx(4, 0))
-    val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
-                       io.bus.data_in(config.totalBits - 1, 0))
-    when(unifWen) {
-      uniformMem.write(unifAddr, unifData)
-    }
+    val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data, io.bus.data_in(config.totalBits - 1, 0))
+    when(unifWen) { uniformMem.write(unifAddr, unifData) }
   }
 
-  /** ISA v2 operands that are no register: x0, LUI's zero, AUIPC's address, immediates. Latched
+  /** Operands that are no register: x0, LUI's zero, AUIPC's address, immediates, CSRs. Latched
     * with the uniform read. */
   private def wireRvOperands(): (Valid[UInt], Valid[UInt]) = {
-    val op_en = decoding || stages(cfg.cBusyLoad - 1, 1).orR
+    val opEn = decoding || stages(cfg.cBusyLoad - 1, 1).orR
     val rv = RvInt(fetchedInstruction)
     val w = cfg.totalBits
     def latch(valid: Bool, bits: UInt) = {
       val v = Wire(Valid(UInt(w.W)))
-      v.valid := RegEnable(valid, false.B, op_en); v.bits := RegEnable(bits(w - 1, 0), op_en)
+      v.valid := RegEnable(valid, false.B, opEn); v.bits := RegEnable(bits(w - 1, 0), opEn)
       v
     }
     val csrValue = MuxLookup(rv.csr, 0.U(w.W))(Seq(Csr.Root.U -> io.root,
@@ -587,30 +386,23 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
      latch(rv.bZero || rv.bImm || rv.csrrs, Mux(rv.bImm, rv.imm, 0.U(32.W))))
   }
 
-  /** Shared uniform-RAM read.  Returns (gated read data, delayed funct3) for the
-    * lanes' operand mux.  The address is instruction-derived (shared), so one
-    * read serves every lane. */
+  /** The uniform window's word at rs1, one read for every lane, and funct3 to pick it. */
   private def wireUniformRead(): (UInt, UInt) = {
-    val op_en = decoding || stages(cfg.cBusyLoad - 1, 1).orR
-    val op_en_del = RegNext(op_en, false.B)
-    val funct3_del = RegEnable(opFlags.funct3, op_en)
-
-    val uniform_addr = regs.rs1
-    val unifReadAddr = if (cfg.maxUniforms > 32) {
-      val read_page = Mux(running_by_rasterizer, io.uniformPage, io.control.uniformWritePage)
-      Cat(read_page, uniform_addr(4, 0))
+    val opEn = decoding || stages(cfg.cBusyLoad - 1, 1).orR
+    val funct3 = RegEnable(opFlags.funct3, opEn)
+    val addr = if (cfg.maxUniforms > 32) {
+      Cat(Mux(byRasterizer, io.uniformPage, io.control.uniformWritePage), regs.rs1(4, 0))
     } else {
-      uniform_addr(4, 0)
+      regs.rs1(4, 0)
     }
-    val read_data = uniformMem.read(unifReadAddr, op_en)
-    val uniform_data = Mux(op_en_del, read_data, 0.U)
-    (uniform_data, funct3_del)
+    val data = uniformMem.read(addr, opEn)
+    (Mux(RegNext(opEn, false.B), data, 0.U), funct3)
   }
 
   /** Connects a multi-cycle unit: it holds the pipeline while it works; when it finishes, the
     * stages are squashed and the PC steps past its instruction. */
   private def attach(u: CoreUnitIO): Unit = {
-    u.issue.valid := fma_start
+    u.issue.valid := issuing
     u.issue.bits.word := fetchedInstruction
     u.issue.bits.regs := regs
     u.atOps := at(cfg.cOperands)
@@ -620,65 +412,33 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(u.finish) {
       squashPipe := true.B
       programCounter := programCounter + 1.U
-      texResumeDelay := true.B
+      resumeDelay := true.B
     }
     lanes.zip(u.wb).foreach { case (l, w) =>
       when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := w.addr; l.io.memWrite.data := w.data }
     }
   }
 
-  // @doc:branch
-  /** Conditional branch: `BRZ`/`BRNZ rs1, target`.
-    *
-    * Evaluated at stage cOperands -- the same point wireSampler and
-    * wireMemStall take their operands, for the same reason (the register read
-    * ports are settled) -- and consumed at 1, where the PC advances. The
-    * one-cycle-early `nextPC` already reads the target, so a taken branch
-    * costs exactly the same as a fall-through: no bubble, no flush.
-    *
-    * == Divergence ==
-    *
-    * The condition is taken from lane 0. The quad shares one program counter, so a branch whose condition differs between lanes
-    * cannot be executed correctly by ANY choice here -- taking it runs the
-    * body for lanes that should have skipped it, not taking it skips the body
-    * for lanes that should have run it. Correct divergent control flow needs a
-    * per-lane execution mask and a reconvergence stack, which is a separate
-    * piece of work.
-    *
-    * So the contract is that the condition must be quad-uniform, and the
-    * hardware makes a violation OBSERVABLE rather than silent: `divergent`
-    * is a sticky status bit set whenever any lane's condition disagrees with
-    * lane 0's. A compiler emitting a non-uniform branch gets a flag it can
-    * be tested against instead of a subtly wrong image.
-    */
-  private def wireBranch(condOperands: Seq[UInt], condOperandsB: Seq[UInt]): Unit = {
-    // ISA v2: BEQ..BGEU decide on the lowest active lane, JAL always jumps. The word as it issued:
-    // the fetch may hold another by the time the branch reaches its operands.
-    val rv = RvInt(RegEnable(fetchedInstruction, fma_start && opFlags.branch))
-    val rvConds = condOperands.zip(condOperandsB).map { case (a, b) => rv.cond(a, b) }
-    val rvLead  = PriorityMux(execMask.asBools, rvConds)
-    val takeIt = (rv.br && rvLead) || rv.jal
+  /** BEQ..BGEU decide on the lowest active lane at the operands, JAL always jumps; the PC
+    * redirects a stage later. A condition that differs between active lanes sets the sticky
+    * branchDivergent: the quad has one PC, so such a branch cannot be right for every lane. */
+  private def wireBranch(): Unit = {
+    val rv = RvInt(RegEnable(fetchedInstruction, issuing && opFlags.branch))
+    val conds = lanes.map(l => rv.cond(l.io.recARaw, l.io.recBRaw))
+    val lead  = PriorityMux(execMask.asBools, conds)
+    val taken = (rv.br && lead) || rv.jal
     val offset = Mux(rv.jal, rv.jalOff, rv.brOff)
-
     when(at(cfg.cOperands)) {
-      brTakenReg  := flagsX.branch && takeIt
+      brTakenReg  := flagsX.branch && taken
       brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
-      val rvSplit = rvConds.zip(execMask.asBools).map { case (c, on) => on && c =/= rvLead }.reduce(_ || _)
-      when(flagsX.branch && rv.br && rvSplit) {
+      val split = conds.zip(execMask.asBools).map { case (c, on) => on && c =/= lead }.reduce(_ || _)
+      when(flagsX.branch && rv.br && split) {
         branchDivergent := true.B
         if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
       }
-      if (BorgDebug.trace) {
-        when(flagsX.branch) {
-          printf("[BR] pc=%d taken=%d target=%d\n", programCounter, takeIt,
-                 offset)
-        }
-      }
+      if (BorgDebug.trace) when(flagsX.branch) { printf("[BR] pc=%d taken=%d target=%d\n", programCounter, taken, offset) }
     }
-    // Consumed by the PC advance this cycle; must not survive into the next
-    // instruction or every op after a taken branch would branch too.
+    // Consumed by this cycle's PC advance; it must not carry into the next instruction.
     when(redirecting) { brTakenReg := false.B }
   }
-  // @doc:end
-
 }

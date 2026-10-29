@@ -40,7 +40,7 @@ defined in one file, described under
 
 Here is how the decoder extracts these fields from the fetched instruction:
 
-{{snippet:hardware/borg/src/BorgCore.scala:instruction-format}}
+{{snippet:hardware/borg/src/Decode.scala:instruction-format}}
 
 ## Fetch and Execute
 

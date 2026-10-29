@@ -6,6 +6,15 @@ package borg
 import chisel3._
 import chisel3.util._
 
+/** An instruction-cache line's state, when it lives in a RAM. */
+class ICacheLine(tagBits: Int) extends Bundle {
+  val valid = Bool()
+  val epoch = UInt(ICacheLine.EpochBits.W)
+  val far   = Bool()
+  val tag   = UInt(tagBits.W)
+}
+object ICacheLine { val EpochBits = 8 }
+
 class ImemLoad extends Bundle {
   val addr = UInt(16.W)
   val data = UInt(32.W)
