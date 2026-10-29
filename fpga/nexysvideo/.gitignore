@@ -1,0 +1,3 @@
+build/
+.verilog_stamp_*
+local.mk
