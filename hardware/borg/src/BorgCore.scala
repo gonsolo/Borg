@@ -512,7 +512,5 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
       if (BorgDebug.trace) when(flagsX.branch) { printf("[BR] pc=%d taken=%d target=%d\n", slots(slotX).pc, taken, offset) }
     }
-    // Consumed by this cycle's PC advance; it must not carry into the next instruction.
-    when(redirecting) { brTakenReg := false.B }
   }
 }
