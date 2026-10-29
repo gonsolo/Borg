@@ -109,7 +109,8 @@ class QuadSlot(cfg: BorgConfig) extends Bundle {
 }
 
 /** What the issue logic knows about an instruction in flight. */
-class StageInfo extends Bundle {
+class StageInfo(slotBits: Int) extends Bundle {
+  val slot   = UInt(slotBits.W)
   val writes = Bool()
   val rd     = UInt(5.W)
   val branch = Bool()
@@ -131,8 +132,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // @doc:storage
   val slots = RegInit(VecInit(Seq.fill(cfg.quadSlots)(0.U.asTypeOf(new QuadSlot(cfg)))))
-  // The slot that issues; units write their result to the slot that issued them.
-  val issueSlot = WireDefault(0.U(cfg.slotBits.W))
+  // The slot that issues, chosen a cycle ahead for the fetch; units write their result to the
+  // slot that issued them.
+  val issueSlot = RegInit(0.U(cfg.slotBits.W))
+  val nextSlot  = Wire(UInt(cfg.slotBits.W))
   private val startSlot = slots(0)   // MMIO's
   private val trigSlot  = slots(io.triggerSlot)
   private val slot = slots(issueSlot)
@@ -147,19 +150,20 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val busy = stages.orR
   val holdPipe = WireDefault(false.B); val squashPipe = WireDefault(false.B)
 
-  // A branch's decision, registered: nextPC feeds the fetch whose word decodes the branch.
+  // A branch's decision, registered: newPC feeds the fetch whose word decodes the branch.
   val brTakenReg  = RegInit(false.B)
   val brTargetReg = RegInit(0.U(cfg.pcBits.W))
   val branchDivergent = RegInit(false.B)
 
   private val exec = Module(new ExecMask(cfg.fragLanes, cfg.quadSlots))
 
-  // The PC advances at issue, a branch's one stage after its operands.
+  // The PC advances at issue, a branch's one stage after its operands, in the branch's slot.
   private val redirect = cfg.cOperands - 1
-  val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
-  val nextPC = Wire(UInt(cfg.pcBits.W))
+  val redirSlot = Wire(UInt(cfg.slotBits.W))
+  val pcAfterThis = Mux(brTakenReg, brTargetReg, slots(redirSlot).pc + 1.U)
+  val newPC = Wire(Vec(cfg.quadSlots, UInt(cfg.pcBits.W)))
   private val fetch = Module(new Fetch(cfg))
-  fetch.io.pc         := nextPC
+  fetch.io.pc         := newPC(nextSlot)
   fetch.io.fromRast   := slot.fetchRast
   fetch.io.fromSetup  := slot.fetchSetup
   fetch.io.drawMode   := io.drawMode
@@ -184,7 +188,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // flow): it steps over, since a resume would restart those lanes unmasked.
   val barrierStop = opFlags.barrier && exec.io.mask(issueSlot) =/= 0.U
   val next = RvInt(fetchedInstruction)
-  val issued = Wire(new StageInfo)
+  val issued = Wire(new StageInfo(cfg.slotBits))
+  issued.slot   := issueSlot
   issued.writes := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite && !opFlags.unit
   issued.rd     := regs.rd
   issued.branch := opFlags.branch
@@ -200,16 +205,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val infos = Seq.iterate(RegEnable(issued, issuing), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
     def info(k: Int): StageInfo = infos(cfg.cBusyLoad - k)
     def any(ks: Seq[Int])(p: StageInfo => Bool): Bool = ks.map(k => at(k) && p(info(k))).reduce(_ || _)
+    def mine(ks: Seq[Int])(p: StageInfo => Bool): Bool = any(ks)(i => i.slot === issueSlot && p(i))
     wbBusy := at(1) && info(1).writes
     val reads = Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
     // A source waits until its writer is in write-back; the lane's bypass gives it that word.
-    val hazard = any(2 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
+    val hazard = mine(2 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
       reads.map { case (used, rs) => used && rs === i.rd }.reduce(_ || _))
     val stops = fetchedInstruction === 0.U || opFlags.barrier || issued.drain
-    val behindBranch = any(redirect to cfg.cBusyLoad)(_.branch)
+    val behindBranch = mine(redirect to cfg.cBusyLoad)(_.branch)
     val unitWait = pending(issueSlot) =/= 0.U
     canIssue := !hazard && !behindBranch && !unitWait && !any(1 to cfg.cBusyLoad)(_.drain) &&
-      (!stops || !stages(cfg.cBusyLoad - 1, 1).orR)
+      (!stops || !mine(2 to cfg.cBusyLoad)(_ => true.B))
     val waiting = running && !resumeDelay && fetchReady && !canIssue
     io.issueStats.waitReg    := waiting && hazard
     io.issueStats.waitBranch := waiting && !hazard && behindBranch
@@ -219,8 +225,20 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.issueStats.drains     := issuing && (issued.drain || opFlags.unit)
     val step = issuing && !opFlags.branch && !issued.drain && !barrierStop
     redirecting := at(redirect) && info(redirect).branch
-    nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
+    redirSlot   := info(redirect).slot
+    newPC.zip(slots).zipWithIndex.foreach { case ((n, q), s) =>
+      n := Mux(redirecting && redirSlot === s.U, pcAfterThis, Mux(step && issueSlot === s.U, q.pc + 1.U, q.pc))
+    }
   }
+  // Round robin over the slots with a program and no unit instruction in flight, the one after
+  // this cycle's first; the instruction itself is checked when it issues.
+  if (cfg.quadSlots == 1) nextSlot := 0.U
+  else {
+    val order = (1 to cfg.quadSlots).map(k => (issueSlot + k.U)(cfg.slotBits - 1, 0))
+    val ready = VecInit(slots.zip(pending).map { case (q, p) => (q.running || q.startPending) && p === 0.U })
+    nextSlot := PriorityMux(order.map(ready(_)) :+ true.B, order :+ issueSlot)
+  }
+  issueSlot := nextSlot
   runPipeline()
   // The flags and slot of the instruction at its operands (stage cOperands), and its exec mask.
   val flagsX = BorgLane.later(!holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), issuing), cfg.cBusyLoad - cfg.cOperands)
@@ -237,7 +255,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.slot        := issueSlot
     lane.io.opFlags     := opFlags
     lane.io.stages      := stages
-    lane.io.running     := running
+    lane.io.running     := io.status.running
     lane.io.fmaStart    := issuing
     lane.io.decode      := decoding
     lane.io.advance     := !holdPipe
@@ -347,7 +365,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def runPipeline(): Unit = {
     // @doc:fetch-execute
     stages := Cat(issuing && !opFlags.barrier, stages(cfg.cBusyLoad - 1, 1))
-    programCounter := nextPC
+    slots.zip(newPC).foreach { case (q, n) => q.pc := n }
     when(decoding && !resumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
         running        := false.B
@@ -457,7 +475,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(u.hold) { holdPipe := true.B }
       when(u.finish) {
         squashPipe := true.B
-        programCounter := programCounter + 1.U
+        slots(unitSlot).pc := slots(unitSlot).pc + 1.U
         resumeDelay := true.B
       }
     } else unitDone += (u.finish -> unitSlot)
@@ -478,13 +496,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val offset = Mux(rv.jal, rv.jalOff, rv.brOff)
     when(at(cfg.cOperands)) {
       brTakenReg  := flagsX.branch && taken
-      brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
+      brTargetReg := (slots(slotX).pc.zext + offset).asUInt(cfg.pcBits - 1, 0)
       val split = conds.zip(execMask.asBools).map { case (c, on) => on && c =/= lead }.reduce(_ || _)
       when(flagsX.branch && rv.br && split) {
         branchDivergent := true.B
-        if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
+        if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", slots(slotX).pc)
       }
-      if (BorgDebug.trace) when(flagsX.branch) { printf("[BR] pc=%d taken=%d target=%d\n", programCounter, taken, offset) }
+      if (BorgDebug.trace) when(flagsX.branch) { printf("[BR] pc=%d taken=%d target=%d\n", slots(slotX).pc, taken, offset) }
     }
     // Consumed by this cycle's PC advance; it must not carry into the next instruction.
     when(redirecting) { brTakenReg := false.B }
