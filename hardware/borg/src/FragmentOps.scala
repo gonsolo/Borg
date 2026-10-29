@@ -11,7 +11,7 @@ import chisel3.util._
   * written on its own cycle, so it sees that sample's stored value; otherwise one colour goes to
   * every covered sample. Under ZTEST (`early`) only depth and stencil change, colour is rewritten
   * as read, and earlyPass keeps each sample's result for the late pass. */
-class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs, cov: QuadCoverage,
+class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs#View, cov: QuadCoverage#View,
                   scissorPass: Vec[Bool], tileIndex: Vec[UInt]) {
   val perSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 

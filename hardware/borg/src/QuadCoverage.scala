@@ -14,77 +14,87 @@ import chisel3.util._
   * edge belongs to the triangle only if that edge is a top or left one. At MSAA, sample s's edge
   * value is e + d_s with per-triangle deltas (covDelta, two per plane: the standard positions are
   * symmetric, d_2 = -d_1 and d_3 = -d_0); the test e >= -d_s compares the bit patterns in float
-  * order, exactly. Zf = 1 - Zn moves the other way at every sample: its deltas are Zn's negated. */
+  * order, exactly. Zf = 1 - Zn moves the other way at every sample: its deltas are Zn's negated.
+  * Each quad slot keeps its own values; [[at]] gives one slot's coverage. */
 class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeft: Vec[Bool],
                    covDelta: Option[Vec[Vec[UInt]]], sampleCfg: SampleMaskConfig) {
   private val N = cfg.fragLanes
   private val w = cfg.totalBits
   private val nPlanes = 5
+  private def perSlot[T <: Data](x: => T): Vec[T] = VecInit(Seq.fill(cfg.quadSlots)(x))
 
-  val e0_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
-  val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
-  val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
-  val z_outside  = RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B))))
+  val e0_outside = RegInit(perSlot(VecInit(Seq.fill(N)(false.B))))
+  val e1_outside = RegInit(perSlot(VecInit(Seq.fill(N)(false.B))))
+  val e2_outside = RegInit(perSlot(VecInit(Seq.fill(N)(false.B))))
+  val z_outside  = RegInit(perSlot(VecInit(Seq.fill(N)(VecInit(false.B, false.B)))))
   // Raw values for the per-sample tests; the ROM writes them all before any read, so no reset.
-  val e_val = Option.when(cfg.samples > 1)(Reg(Vec(N, Vec(nPlanes, UInt(w.W)))))
+  val e_val = Option.when(cfg.samples > 1)(Reg(Vec(cfg.quadSlots, Vec(N, Vec(nPlanes, UInt(w.W))))))
 
   def ordered(x: UInt): UInt = Mux(x(w - 1), ~x, x | (1.U << (w - 1)))
   def fnegBits(x: UInt): UInt = x ^ (1.U << (w - 1))
   def isOutside(data: UInt): Bool = data(w - 1).asBool && data(w - 2, 0) =/= 0.U
 
-  /** Per lane, per sample: inside the triangle. */
-  val geom: Vec[Vec[Bool]] = cfg.samples match {
-    case 1 =>
-      VecInit((0 until N).map(i =>
-        VecInit(Seq(!e0_outside(i) && !e1_outside(i) && !e2_outside(i) &&
-                    (!drawMode || (!z_outside(i)(0) && !z_outside(i)(1)))))))
-    case _ =>
-      val deltas = (0 until cfg.coveragePlanesStored).map(e => (covDelta.get(e)(0), covDelta.get(e)(1)))
-      val planeDeltas = deltas :+ ((fnegBits(deltas(3)._1), fnegBits(deltas(3)._2)))
-      val threshRaw = VecInit(planeDeltas.map { case (d0, d1) => VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0)) })
-      val thresh = VecInit(threshRaw.map(t => VecInit(t.map(ordered))))
-      def zeroMag(x: UInt) = x(w - 2, 0) === 0.U
-      VecInit((0 until N).map { i =>
-        VecInit((0 until cfg.samples).map { s =>
-          def test(e: Int) = ordered(e_val.get(i)(e)) >= thresh(e)(s)
-          def edge(e: Int) = {
-            val v = e_val.get(i)(e); val th = threshRaw(e)(s)
-            val tie = v === th || (zeroMag(v) && zeroMag(th))
-            Mux(drawMode, (ordered(v) > thresh(e)(s) && !tie) || (tie && topLeft(e)), test(e))
-          }
-          (0 until 3).map(edge).reduce(_ && _) && (!drawMode || (test(3) && test(4)))
+  // The triangle's per-sample thresholds, shared by the slots.
+  private val (threshRaw, thresh) = covDelta.map { cd =>
+    val deltas = (0 until cfg.coveragePlanesStored).map(e => (cd(e)(0), cd(e)(1)))
+    val planeDeltas = deltas :+ ((fnegBits(deltas(3)._1), fnegBits(deltas(3)._2)))
+    val raw = VecInit(planeDeltas.map { case (d0, d1) => VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0)) })
+    (raw, VecInit(raw.map(t => VecInit(t.map(ordered)))))
+  }.unzip
+
+  /** Slot q's coverage. */
+  class View(q: UInt) {
+    /** Per lane, per sample: inside the triangle. */
+    val geom: Vec[Vec[Bool]] = cfg.samples match {
+      case 1 =>
+        VecInit((0 until N).map(i =>
+          VecInit(Seq(!e0_outside(q)(i) && !e1_outside(q)(i) && !e2_outside(q)(i) &&
+                      (!drawMode || (!z_outside(q)(i)(0) && !z_outside(q)(i)(1)))))))
+      case _ =>
+        def zeroMag(x: UInt) = x(w - 2, 0) === 0.U
+        VecInit((0 until N).map { i =>
+          VecInit((0 until cfg.samples).map { s =>
+            def test(e: Int) = ordered(e_val.get(q)(i)(e)) >= thresh.get(e)(s)
+            def edge(e: Int) = {
+              val v = e_val.get(q)(i)(e); val th = threshRaw.get(e)(s)
+              val tie = v === th || (zeroMag(v) && zeroMag(th))
+              Mux(drawMode, (ordered(v) > thresh.get(e)(s) && !tie) || (tie && topLeft(e)), test(e))
+            }
+            (0 until 3).map(edge).reduce(_ && _) && (!drawMode || (test(3) && test(4)))
+          })
         })
-      })
+    }
+
+    /** Per lane, per sample: covered, after the static sample mask. */
+    val coverage: Vec[Vec[Bool]] = VecInit((0 until N).map(i =>
+      VecInit((0 until cfg.samples).map { s =>
+        val k = Mux(sampleCfg.single, 0.U, s.U)
+        geom(i)(k) && sampleCfg.mask(k)
+      })))
+    /** gl_SampleMaskIn: one bit per rasterization sample. */
+    val laneMask: Vec[UInt] = VecInit(coverage.map(c => Mux(sampleCfg.single, c(0).asUInt, Cat(c.reverse))))
+    val inside: Vec[Bool] = VecInit((0 until N).map(i => coverage(i).reduce(_ || _)))
+    val anyInside: Bool = inside.reduce(_ || _)
+  }
+  def at(q: UInt): View = new View(q)
+
+  /** A new quad in slot q. */
+  def clear(q: UInt): Unit = for (i <- 0 until N) {
+    e0_outside(q)(i) := false.B; e1_outside(q)(i) := false.B; e2_outside(q)(i) := false.B
+    z_outside(q)(i).foreach(_ := false.B)
   }
 
-  /** Per lane, per sample: covered, after the static sample mask. */
-  val coverage: Vec[Vec[Bool]] = VecInit((0 until N).map(i =>
-    VecInit((0 until cfg.samples).map { s =>
-      val k = Mux(sampleCfg.single, 0.U, s.U)
-      geom(i)(k) && sampleCfg.mask(k)
-    })))
-  /** gl_SampleMaskIn: one bit per rasterization sample. */
-  val laneMask: Vec[UInt] = VecInit(coverage.map(c => Mux(sampleCfg.single, c(0).asUInt, Cat(c.reverse))))
-  val inside: Vec[Bool] = VecInit((0 until N).map(i => coverage(i).reduce(_ || _)))
-  val anyInside: Bool = inside.reduce(_ || _)
-
-  /** A new quad. */
-  def clear(): Unit = for (i <- 0 until N) {
-    e0_outside(i) := false.B; e1_outside(i) := false.B; e2_outside(i) := false.B
-    z_outside(i).foreach(_ := false.B)
-  }
-
-  /** The raster ROM's writes, while it runs. */
-  def capture(csr: Vec[CsrWriteIO], rast: Bool): Unit = for (i <- 0 until N) {
+  /** The raster ROM's writes for slot q, while it runs. */
+  def capture(csr: Vec[CsrWriteIO], rast: Bool, q: UInt): Unit = for (i <- 0 until N) {
     val c = csr(i)
     def at(n: Int) = c.en && rast && c.addr === n.U
     def out(e: Int): Bool = isOutside(c.data) || (drawMode && c.data(w - 2, 0) === 0.U && !topLeft(e))
-    when(at(Csr.RastE0))     { e0_outside(i) := out(0) }
-    when(at(Csr.RastE0 + 1)) { e1_outside(i) := out(1) }
-    when(at(Csr.RastE0 + 2)) { e2_outside(i) := out(2) }
-    when(at(Csr.RastZn)) { z_outside(i)(0) := isOutside(c.data) }
-    when(at(Csr.RastZf)) { z_outside(i)(1) := isOutside(c.data) }
+    when(at(Csr.RastE0))     { e0_outside(q)(i) := out(0) }
+    when(at(Csr.RastE0 + 1)) { e1_outside(q)(i) := out(1) }
+    when(at(Csr.RastE0 + 2)) { e2_outside(q)(i) := out(2) }
+    when(at(Csr.RastZn)) { z_outside(q)(i)(0) := isOutside(c.data) }
+    when(at(Csr.RastZf)) { z_outside(q)(i)(1) := isOutside(c.data) }
     val planeCsr = Seq(Csr.RastE0, Csr.RastE0 + 1, Csr.RastE0 + 2, Csr.RastZn, Csr.RastZf)
-    e_val.foreach { ev => for (e <- 0 until nPlanes) when(at(planeCsr(e))) { ev(i)(e) := c.data(w - 1, 0) } }
+    e_val.foreach { ev => for (e <- 0 until nPlanes) when(at(planeCsr(e))) { ev(q)(i)(e) := c.data(w - 1, 0) } }
   }
 }

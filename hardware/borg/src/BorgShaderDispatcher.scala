@@ -105,15 +105,19 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val scissorPass = held(io.scissorPass)
   io.quadIter := held(io.shaderIter)
 
+  // The quad slot; one until the dispatcher keeps several.
+  val slot = 0.U(cfg.slotBits.W)
+  private def perSlot[T <: Data](x: => T): Vec[T] = VecInit(Seq.fill(cfg.quadSlots)(x))
   val cov  = new QuadCoverage(cfg, io.drawMode, io.topLeft, io.covDelta, io.sampleCfg)
   val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.sampleCfg)
-  val ops  = new FragmentOps(cfg, io, outs, cov, scissorPass, tileIndex)
-  io.laneCoverage := cov.laneMask
+  private val (covQ, outsQ) = (cov.at(slot), outs.at(slot))
+  val ops  = new FragmentOps(cfg, io, outsQ, covQ, scissorPass, tileIndex)
+  io.laneCoverage := covQ.laneMask
 
   val auto_run_stall = RegInit(false.B)
 
-  val dstWord = RegInit(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W))))))
-  io.laneDst := dstWord
+  val dstWord = RegInit(perSlot(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W)))))))
+  io.laneDst := dstWord(slot)
   io.extWrite.foreach(_ := 0.U)
   private val dstActive = (io.rawColor || io.srgbColor) && outs.rawSupported.B
 
@@ -121,8 +125,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // completes at once and the tests stay late.
   val earlySupported = cfg.samples == 1 || ops.perSample
   val earlyActive = RegInit(false.B)   // in the ZTEST sub-phase
-  val earlyDone   = RegInit(false.B)   // this quad's tests already ran
-  val earlyPass   = Reg(Vec(N, Vec(cfg.samples, Bool())))
+  val earlyDone   = RegInit(perSlot(false.B))   // this quad's tests already ran
+  val earlyPass   = Reg(Vec(cfg.quadSlots, Vec(N, Vec(cfg.samples, Bool()))))
 
   // log2Up: a wider counter is a wider index into the lanes' Vecs, which ABC9 handles badly.
   val laneCtr = RegInit(0.U(log2Up(N).W))
@@ -149,7 +153,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.zTestDone := false.B
   when(io.zTestReq && !earlyActive) {
     if (earlySupported) {
-      when(phase === sFrag && !earlyDone) {
+      when(phase === sFrag && !earlyDone(slot)) {
         earlyActive := true.B
         laneCtr     := 0.U
         sampleCtr.foreach(_ := 0.U)
@@ -167,12 +171,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.tileRead.idx := tileIndex(0)
 
   when(io.pixelReady) {
-    cov.clear()
-    outs.clear()
+    cov.clear(slot)
+    outs.clear(slot)
     laneCtr := 0.U
     sampleCtr.foreach(_ := 0.U)
     earlyActive := false.B
-    earlyDone   := false.B
+    earlyDone(slot) := false.B
     auto_run_stall := true.B
     phase := sRast
     io.coreTrigger.valid  := true.B
@@ -185,7 +189,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
   when(phase === sRast && core_just_finished) {
-    when(cov.anyInside && io.fragPcReg =/= 0.U) {
+    when(covQ.anyInside && io.fragPcReg =/= 0.U) {
       when(dstActive) {
         laneCtr := 0.U
         phase   := sDstRead
@@ -194,7 +198,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         io.coreTrigger.valid := true.B
         io.coreTrigger.pc    := io.fragPcReg
       }
-      if (BorgDebug.trace) printf("[DISP] -> sFrag pc=%d any_inside=%d\n", io.fragPcReg, cov.anyInside)
+      if (BorgDebug.trace) printf("[DISP] -> sFrag pc=%d any_inside=%d\n", io.fragPcReg, covQ.anyInside)
     }.otherwise {
       phase := sIdle
       auto_run_stall := false.B
@@ -220,9 +224,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   when(phase === sDstCap) {
     if (outs.rawSupported) {
       val d = io.tileRead.data(0)
-      dstWord(laneIdx)(0) := Mux(io.srgbColor, Cat(d.g, d.r), Cat(io.alphaRead.get(0), ColorQuantize.quantize8(d.b),
+      dstWord(slot)(laneIdx)(0) := Mux(io.srgbColor, Cat(d.g, d.r), Cat(io.alphaRead.get(0), ColorQuantize.quantize8(d.b),
                                  ColorQuantize.quantize8(d.g), ColorQuantize.quantize8(d.r)))
-      dstWord(laneIdx)(1) := Mux(io.srgbColor, Cat(ColorQuantize.dequantize8(io.alphaRead.get(0)), d.b), io.extRead.get(0))
+      dstWord(slot)(laneIdx)(1) := Mux(io.srgbColor, Cat(ColorQuantize.dequantize8(io.alphaRead.get(0)), d.b), io.extRead.get(0))
     }
     when(laneCtr === (N - 1).U) {
       laneCtr := 0.U
@@ -245,7 +249,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   when(phase === sTileWrite) {
     io.tileWrite.idx := tileIndex(laneIdx)
-    ops.write(laneIdx, sampleCtr.map(_.asUInt).getOrElse(0.U), earlyActive, earlyDone, earlyPass)
+    ops.write(laneIdx, sampleCtr.map(_.asUInt).getOrElse(0.U), earlyActive, earlyDone(slot), earlyPass(slot))
 
     // The next lane once this one's samples are written; the tile read holds across them.
     def advanceLane(): Unit = {
@@ -254,7 +258,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         when(earlyActive) {
           // Early tests done: back to the shader, stalled on ZTEST.
           earlyActive  := false.B
-          earlyDone    := true.B
+          earlyDone(slot) := true.B
           phase        := sFrag
           io.zTestDone := true.B
         }.otherwise {
@@ -273,12 +277,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     }
   }
 
-  cov.capture(io.csrWrite, phase === sRast)
-  outs.captureRast(io.csrWrite, phase === sRast)
-  outs.captureFrag(io.csrWrite, phase === sFrag)
+  cov.capture(io.csrWrite, phase === sRast, slot)
+  outs.captureRast(io.csrWrite, phase === sRast, slot)
+  outs.captureFrag(io.csrWrite, phase === sFrag, slot)
 
   io.autoRunStall := auto_run_stall
-  io.insideFlag   := cov.anyInside
+  io.insideFlag   := covQ.anyInside
   io.phase        := phase
   io.idle         := phase === sIdle
   require(phase.getWidth <= io.phase.getWidth, "the phase port must hold every state")
@@ -286,8 +290,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // A helper lane: no covered sample, outside the scissor, discarded, or after ZTEST none of its
   // samples passed.
   for (i <- 0 until N) {
-    val failedEarly = earlyDone && !earlyPass(i).reduce(_ || _)
+    val failedEarly = earlyDone(slot) && !earlyPass(slot)(i).reduce(_ || _)
     io.laneHelper(i) := phase === sFrag &&
-      (!cov.inside(i) || !scissorPass(i) || outs.killed(i) || failedEarly)
+      (!covQ.inside(i) || !scissorPass(i) || outsQ.killed(i) || failedEarly)
   }
 }
