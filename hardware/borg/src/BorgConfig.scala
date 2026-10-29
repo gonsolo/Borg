@@ -35,7 +35,7 @@ case class BorgConfig(
   require(Integer.bitCount(quadSlots) == 1, s"quadSlots must be a power of two, got $quadSlots")
   def slotBits: Int = chisel3.util.log2Ceil(quadSlots)
   def fifoDepth: Int = 2
-  def fattrCacheLog2: Int = 8           // FATTR's varying cache, 2^n words
+  def fattrCacheLog2: Int = 7           // FATTR's varying cache, 2^n components
   def texDescCacheLog2: Int = 2
   def maxTrianglesPerTile: Int = 256    // at least SEQ_MAX_TRI in software/borg/borg_layout.h
   // The three edges and Zn; the far plane's sample deltas are Zn's, negated.

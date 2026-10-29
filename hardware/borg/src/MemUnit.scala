@@ -68,13 +68,14 @@ class MemUnit(cfg: BorgConfig) extends Module {
   private val rec = io.record
   private val soutLaneOk =
     !(isSout && rec.outInterleave && soutSel =/= 0.U && (rec.outCorner +& lane) =/= soutSel - 1.U)
+  // FATTR: the component's first word.
+  private val attrHead = (rec.attrBase +& (((compIdx << 1) +& compIdx) << 2))(GpuMemIO.AddrBits - 1, 0)
   private val byteAddr = {
-    val times3 = (compIdx << 1) +& compIdx
     val comp   = compIdx(7, 0)
     val corner = rec.outCorner +& lane
     val word   = Mux(rec.outInterleave, ((comp << 1) +& comp) +& corner, compIdx)
     val soutAddr = (rec.outBase +& (word << 2))(GpuMemIO.AddrBits - 1, 0)
-    val attrAddr = (rec.attrBase +& ((times3 +& attrK) << 2))(GpuMemIO.AddrBits - 1, 0)
+    val attrAddr = (attrHead +& (attrK << 2))(GpuMemIO.AddrBits - 1, 0)
     Mux(isFattr, attrAddr, Mux(isSout, soutAddr, lsAddr))
   }
 
@@ -148,18 +149,20 @@ class MemUnit(cfg: BorgConfig) extends Module {
     when(io.wbReady) { finishLane() }
   }
 
-  // FATTR: word k to rd+k of every active lane, three times, through a direct-mapped varying cache.
+  // FATTR: word k to rd+k of every active lane, three times, through a direct-mapped cache of
+  // whole components: one lookup, three write-backs.
   // Nothing writes records during Pass 2, so instead of snooping writes each Pass 2 start moves to
   // a new epoch and an entry hits only in its own. Epoch 0 is never current; on wrap and out of
   // reset a sweep zeroes every entry's epoch, and nothing hits until it ends.
   private val fcLog2    = cfg.fattrCacheLog2
   private val fcTagBits = GpuMemIO.AddrBits - 2
-  private val fcWidth   = fcTagBits + 8 + W                  // tag, epoch, data
+  private val fcWidth   = fcTagBits + 8 + 3 * W              // tag, epoch, words 2..0
   private val fcMem     = SyncReadMem(1 << fcLog2, UInt(fcWidth.W))
   private val fcEpoch    = RegInit(1.U(8.W))
   private val fcSweeping = RegInit(true.B)
   private val fcSweepIdx = RegInit(0.U(math.max(fcLog2, 1).W))
   private val fcAddr     = RegInit(0.U(fcTagBits.W))
+  private val attrWords  = Reg(Vec(3, UInt(W.W)))
   /** The entry of a byte address: the word address XOR-folded, so records a power of two apart
     * do not all collide. */
   private def fcIndex(addr: UInt): UInt = {
@@ -168,9 +171,9 @@ class MemUnit(cfg: BorgConfig) extends Module {
       .map(i => w(math.min((i + 1) * fcLog2, fcTagBits) - 1, i * fcLog2).pad(fcLog2))
       .reduce(_ ^ _)
   }
-  private val fcRead    = fcMem.read(fcIndex(byteAddr), state === sAttrReq)
+  private val fcRead    = fcMem.read(fcIndex(attrHead), state === sAttrReq)
   private val fcFill    = WireDefault(false.B)
-  private val fcFromMem = RegNext(state === sAttrMem, false.B)   // sAttrWB's word came from DRAM
+  private val memWord   = io.mem.data(W - 1, 0)
   when(fcSweeping) {
     fcSweepIdx := fcSweepIdx + 1.U
     when(fcSweepIdx === ((1 << fcLog2) - 1).U) { fcSweeping := false.B }
@@ -181,30 +184,33 @@ class MemUnit(cfg: BorgConfig) extends Module {
   }
   // One write port: the sweep wins over a fill, which only costs a hit.
   when(fcSweeping) { fcMem.write(fcSweepIdx, 0.U(fcWidth.W)) }
-    .elsewhen(fcFill) { fcMem.write(fcIndex(byteAddr), Cat(fcAddr, fcEpoch, data)) }
+    .elsewhen(fcFill) { fcMem.write(fcIndex(attrHead), Cat(fcAddr, fcEpoch, memWord, attrWords(1), attrWords(0))) }
 
   when(state === sAttrReq) {
-    fcAddr := byteAddr(GpuMemIO.AddrBits - 1, 2)
+    fcAddr := attrHead(GpuMemIO.AddrBits - 1, 2)
     state  := sAttrLook
   }
   when(state === sAttrLook) {
-    val eTag   = fcRead(fcWidth - 1, 8 + W)
-    val eEpoch = fcRead(8 + W - 1, W)
+    val eTag   = fcRead(fcWidth - 1, 8 + 3 * W)
+    val eEpoch = fcRead(8 + 3 * W - 1, 3 * W)
     when(!fcSweeping && eEpoch === fcEpoch && eTag === fcAddr) {
-      data := fcRead(W - 1, 0); state := sAttrWB
+      attrWords := VecInit.tabulate(3)(k => fcRead((k + 1) * W - 1, k * W)); state := sAttrWB
     }.otherwise { state := sAttrMem }
   }
   when(state === sAttrMem) {
     io.mem.addr := byteAddr
     io.mem.req  := true.B
-    when(io.mem.ready) { data := io.mem.data(W - 1, 0); state := sAttrWB }
+    when(io.mem.ready) {
+      attrWords(attrK) := memWord
+      when(attrK === 2.U) { fcFill := true.B; attrK := 0.U; state := sAttrWB }.otherwise { attrK := attrK + 1.U }
+    }
   }
   when(state === sAttrWB) {
-    fcFill  := fcFromMem
-    io.wb.zipWithIndex.foreach { case (w, i) => w.en := io.wbReady && mask(i); w.addr := rd + attrK; w.data := data }
+    io.wb.zipWithIndex.foreach { case (w, i) =>
+      w.en := io.wbReady && mask(i); w.addr := rd + attrK; w.data := attrWords(attrK)
+    }
     when(io.wbReady) {
-      when(attrK === 2.U) { finishInstr() }
-        .otherwise { attrK := attrK + 1.U; state := sAttrReq }
+      when(attrK === 2.U) { finishInstr() }.otherwise { attrK := attrK + 1.U }
     }
   }
 }
