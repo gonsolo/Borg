@@ -29,7 +29,7 @@ case class BorgConfig(
     hasBlend: Boolean = true,
     hasStencil: Boolean = true,
     hasCompute: Boolean = true,
-    quadSlots: Int = 1
+    quadSlots: Int = 2
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   require(Integer.bitCount(quadSlots) == 1, s"quadSlots must be a power of two, got $quadSlots")
@@ -75,7 +75,8 @@ object BorgConfig {
     coordWidth       = 7,
     maxBinTiles      = 16,
     maxInstructions  = 64,
-    maxUniforms      = 32
+    maxUniforms      = 32,
+    quadSlots        = 1    // its register files are flops
   )
 
   // Unit tests: the tile dirty bits dominate elaboration time.
