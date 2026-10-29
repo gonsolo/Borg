@@ -6,23 +6,9 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** The descriptor-based texture unit (docs/B2_texture_unit.md).
-  *
-  * TEX rd, u, v, ctl samples the texture and sampler that `ctl` names, out of
-  * descriptor tables in memory, for every lane of the quad at once, and
-  * writes RGBA to rd..rd+3 (TEXA supplies a lane's layer/w, LOD or bias, and
-  * depth-compare reference first). What a Vulkan 1.0 sampled image needs, in
-  * hardware: any size up to 4096 in each dimension, not just square powers
-  * of two; mip chains with nearest or linear level selection and the LOD
-  * from the quad's derivatives, bias and clamps; per-axis address modes and
-  * the six border colours; nearest, bilinear and trilinear filtering (and 3D);
-  * depth compare; gather; texelFetch; texel offsets; and every format in
-  * [[TexFormat]].
-  *
-  * Deliberately sequential: one multiplier, one FP32 FMA (the lanes' own
-  * BorgFma) and one field extractor serve every step. A sample costs tens
-  * to hundreds of cycles; conformance, not throughput, is the goal, and the
-  * area stays that of a small state machine plus two datapath units.
+/** The descriptor-based texture unit (docs/B2_texture_unit.md): TEX rd, u, v, ctl samples
+  * the texture and sampler `ctl` names for every lane of the quad and writes RGBA to rd..rd+3.
+  * Deliberately sequential (one multiplier, one FMA, one field extractor): conformance over speed.
   */
 object SamplerCtl {
   // TEX's ctl operand (the lowest active lane's value of rs3).
@@ -58,11 +44,10 @@ object SamplerCtl {
   val Tiled = 0; val Linear = 1
   val T1D = 0; val T2D = 1; val T3D = 2; val TCube = 3
   val Repeat = 0; val Mirror = 1; val ClampEdge = 2; val ClampBorder = 3; val MirrorClampEdge = 4
-  /** maxSamplerLodBias: the shader's and the sampler's bias together are
-    * clamped to +-this before they reach the LOD. */
+  // maxSamplerLodBias: the shader's and sampler's bias together clamp to +-this.
   val MaxLodBias = 15
 
-  /** A texture descriptor's words 0-3 (the driver's layout, for tests). */
+  /** A texture descriptor's words 0-3, for tests. */
   def descHeader(base: Long, w: Int, h: Int, d: Int, levels: Int, format: Int, layout: Int, ttype: Int,
                  stride: Long, swizzle: Seq[Int] = Seq(0, 0, 0, 0)): Seq[Long] = Seq(
     base & 0xFFFFFFFFL,
@@ -100,11 +85,8 @@ class BorgSamplerIO(val cfg: BorgConfig) extends Bundle {
   val gpuMem     = new GpuMemIO
 }
 
-/** Seamless cube filtering: where a tap that falls off face f across edge e
-  * (0: i = -1, 1: i = n, 2: j = -1, 3: j = n) lands on the neighbouring face.
-  * Derived from the face definitions (Vulkan's major-axis table), not
-  * written out by hand: the along-edge coordinate k maps to k or n-1-k, the
-  * other to 0 or n-1. */
+/** Seamless cube filtering: where a tap off face f across edge e (0: i = -1, 1: i = n,
+  * 2: j = -1, 3: j = n) lands on the neighbour, derived from Vulkan's major-axis table. */
 private[borg] object CubeEdges {
   // Major axis M, and the axes s (U) and t (V) run along, per face +X -X +Y -Y +Z -Z.
   private val M = Seq((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
@@ -140,12 +122,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   val io = IO(new BorgSamplerIO(cfg))
   private val N = cfg.fragLanes
 
-  // ===================================================================
-  // Fixed-point and float helpers (combinational)
-  // ===================================================================
-
-  /** FP32 -> signed fixed point with `frac` fraction bits, saturating to
-    * `width` bits. Denormals read as zero. */
+  /** FP32 -> signed fixed point, `frac` fraction bits, saturating to `width`; denormals are 0. */
   private def fpToFixed(x: UInt, frac: Int, width: Int): SInt = {
     val e = x(30, 23); val sig = Cat(e =/= 0.U, x(22, 0))
     val sh = e.zext - (150 - frac).S                   // value * 2^frac = sig * 2^sh
@@ -159,9 +136,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     Mux(x(31), -(m.zext), m.zext)(width - 1, 0).asSInt
   }
 
-  /** FP32 mod 2^intBits as unsigned fixed point with 24 fraction bits: the
-    * wrap of REPEAT (intBits 0) and MIRRORED_REPEAT (1), done exactly on the
-    * float before any scaling, so a coordinate of 1000.25 is as good as 0.25. */
+  /** FP32 mod 2^intBits, unsigned Q.24: REPEAT (0) and MIRRORED_REPEAT (1) wrapped exactly
+    * on the float before scaling, so 1000.25 is as precise as 0.25. */
   private def fpToFixedMod(x: UInt, intBits: Int): UInt = {
     val width = intBits + 24
     val e = x(30, 23); val sig = Cat(e =/= 0.U, x(22, 0))
@@ -172,14 +148,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     Mux(x(31), (0.U - mag)(width - 1, 0), mag)
   }
 
-  /** A positive float's log2 in signed fixed point, 8 fraction bits: a
-    * 65-entry table of log2(1 + i/64), interpolated linearly on the next 8
-    * mantissa bits. Without the interpolation it was ~5 bits (up to 0.023
-    * low), where Vulkan asks mipmapPrecisionBits of the LOD and the CTS
-    * mipmap tests assume 8. */
-  // Four extra fraction bits through the interpolation, rounded once at the
-  // end: worst error 0.54/256 (the rounding itself), against 1.5/256 at 8
-  // bits and 5.9/256 for the bare table.
+  /** A positive float's log2, Q.8: log2(1 + i/64) interpolated on the next 8 mantissa bits,
+    * with 4 extra fraction bits rounded once. The CTS mipmap tests assume 8 LOD bits. */
   private val log2Rom = VecInit((0 to 64).map(i => math.round(math.log(1 + i / 64.0) / math.log(2) * 4096).U(13.W)))
   private def fpLog2(x: UInt): SInt = {
     val i = x(22, 17); val f = x(16, 9)
@@ -200,10 +170,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
   /** Signed ordered compare key for floats. */
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
-
-  // ===================================================================
-  // State
-  // ===================================================================
 
   private val states = Enum(28)                            // (three patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
@@ -239,9 +205,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmtCode = td(2)(19, 14)
   private def swz(i: Int): UInt = td(2)(22 + 3 * i, 20 + 3 * i)
   private val stride  = td(3)
-  // Not registered: as a function of the 6-bit code, its uses (sDecode's
-  // field extraction above all) collapse to a few constant cases. Registered, the ECP5 build grew by ~3,100 LUTs of general
-  // shifters.
+  // Not registered: as a function of the 6-bit code its uses collapse to constant cases.
   private val fmt     = TexFormat.info(fmtCode)
   private val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
   private val magLin  = sd(0)(0); private val minLin = sd(0)(1); private val mipLin = sd(0)(2)
@@ -259,7 +223,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
   private val srgbRom = VecInit(TexFormat.srgbToLinear.map(_.U(32.W)))
 
-  // --- The one FMA: implicit LOD and the filter's weighted sum ---------
+  // The one FMA: implicit LOD and the filter's weighted sum.
   private val fma = Module(new BorgFma(cfg))
   private val fmaA = RegInit(0.U(32.W)); private val fmaB = RegInit(0.U(32.W)); private val fmaC = RegInit(0.U(32.W))
   fma.io.a := fmaA; fma.io.b := fmaB; fma.io.c := fmaC
@@ -267,21 +231,16 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmaWait = RegInit(0.U(3.W))
   private val fmaLatency = 4
 
-  // --- The one multiplier ------------------------------------------------
-  // Registered on both sides: a state issues the operands with `mul`, sMul
-  // multiplies, and the state it returns to reads `product`. Neither the
-  // operands' muxes nor the consumers' logic share a cycle with it.
+  // The one multiplier, registered on both sides: issue with `mul`, read `product` on return.
   private val mulA = WireDefault(0.S(30.W)); private val mulB = WireDefault(0.U(GpuMemIO.AddrBits.W))
   private val mulAR = RegNext(mulA); private val mulBR = RegNext(mulB)
   private val product = Reg(chiselTypeOf(mulAR * mulBR.zext))
   private val mulRet = Reg(chiselTypeOf(sIdle))
 
-  // --- LOD --------------------------------------------------------------
   private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
   private val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y
   private val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8
 
-  // --- Per lane ---------------------------------------------------------
   private val lane   = RegInit(0.U(log2Up(N).W))
   private val nLev   = RegInit(1.U(2.W)); private val lvIdx = RegInit(0.U(1.W))
   private val lvl    = Reg(Vec(2, UInt(4.W)))
@@ -346,9 +305,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private def rowMul(): Unit =
     mul(Mux(layout === Linear.U, ty, ty >> 2), Mux(layout === Linear.U, stride, tpr), sTapSlice)
 
-  // ===================================================================
-  // FSM
-  // ===================================================================
   switch(state) {
     is(sIdle) {
       when(io.req.valid) {
@@ -359,7 +315,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       }
     }
 
-    // --- Descriptors ---------------------------------------------------
     is(sTexDesc) {
       val tag = tAddr >> 6
       val slot = if (nTd > 1) tag(cfg.texDescCacheLog2 - 1, 0) else 0.U
@@ -386,10 +341,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         }
     }
 
-    // --- Implicit LOD: the quad's derivatives, in texels -------------------
-    // lane 1 - lane 0 is d/dx, lane 2 - lane 0 d/dy (the DDX/DDY convention).
-    // rho = max(|du/dx|*W + |dv/dx|*H + |dw/dx|*D, the same in y), the sum
-    // form of the approximation Vulkan allows (w only for 3D); LOD = log2(rho).
+    // Implicit LOD: lane 1 - lane 0 is d/dx, lane 2 - lane 0 d/dy. rho = max over x and y of
+    // |du|*W + |dv|*H + |dw|*D, the sum form Vulkan allows; LOD = log2(rho).
     is(sLod) {
       val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && (N >= 3).B && !unnorm
       // One level and one filter: the LOD changes nothing.
@@ -444,7 +397,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         }
     }
 
-    // --- Lanes ----------------------------------------------------------
     is(sLane) {
       // textureSize: width, height, depth or layers, levels, at the level in TEXA's lod.
       val lv = args(lane).lod(3, 0)
@@ -460,7 +412,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sLaneSetup) {
       val a = args(lane)
-      // LOD: base, bias, clamps -- all Q.8.
+      // All Q.8.
       val q = (levels - 1.U).zext << 8
       // lambda = base + clamp(sampler bias + shader bias, +-maxSamplerLodBias).
       val base0 = Mux(lodMode(ctl) === LodExplicit.U, fpToFixed(a.lod, 8, 24), quadLod)
@@ -502,7 +454,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       state := sLevel
     }
 
-    // --- Levels ---------------------------------------------------------
     is(sLevel) {
       val l = lvl(lvIdx)
       when(l === 0.U) { levelOff := 0.U; state := sLevelDims }
@@ -542,14 +493,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       state := mulRet
     }
 
-    // --- Axes: coordinate -> texel -----------------------------------------
     is(sAxisMul) {
       val a = args(lane)
       val c = MuxLookup(ax, a.u)(Seq(1.U -> a.v, 2.U -> a.w))
       val size = MuxLookup(ax, lw)(Seq(1.U -> lh, 2.U -> ld))
       val mode = addrMode(ax)
-      // x = coordinate * size, Q.8: the wrap of REPEAT/MIRRORED_REPEAT happens
-      // on the float first (exact), clamping modes clamp it to [-4, 4).
+      // x = coordinate * size, Q.8: repeat modes wrap the float first, clamp modes clamp to [-4, 4).
       val repeatF = fpToFixedMod(c, 0)                    // Q0.24
       val mirrorF = fpToFixedMod(c, 1)                    // Q1.24
       val clampF  = fpToFixed(c, 24, 28)                  // Q3.24
@@ -603,7 +552,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       }
     }
 
-    // --- Taps -------------------------------------------------------------
     is(sTap) {
       // Tap bit a picks axis a's second texel. Gather's order is Vulkan's:
       // (i0,j1), (i1,j1), (i1,j0), (i0,j0).
@@ -662,10 +610,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val shift = Log2(fmt.bytes)
       val texel = ((rowTiles + (x >> 2)) << 4) + (y(1, 0) << 2) + x(1, 0) + product.asUInt(GpuMemIO.AddrBits - 1, 0)
       val tiled = base + levelOff + layerOffTap + (texel << shift)
-      // A 16-byte tiled texel is two 8-byte halves, 128 bytes apart in its
-      // 256-byte tile (bytes 0-7 of the tile's texels, then 8-15): what a
-      // RAW128 colour attachment renders in its two slices. Word k is then
-      // at +128*(k >> 1) + 4*(k & 1) from the first half.
+      // A 16-byte tiled texel is two 8-byte halves 128 bytes apart in its 256-byte tile, as a
+      // RAW128 attachment renders its two slices: word k is at +128*(k >> 1) + 4*(k & 1).
       val tiledSplit = base + levelOff + layerOffTap + ((texel >> 4) << 8) + (texel(3, 0) << 3)
       val lin   = base + rowTiles + (x << shift)
       addr := Mux(layout === Linear.U, lin, Mux(split16, tiledSplit, tiled))(GpuMemIO.AddrBits - 1, 0)
@@ -681,8 +627,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       }
     }
     is(sDecode) {
-      // One channel per cycle, k: one field extractor and one sRGB ROM.
-      // Sub-word texels are shifted down by their byte offset first.
+      // One channel per cycle; sub-word texels shift down by their byte offset first.
       val all = Cat(raw(3), raw(2), raw(1), raw(0)) >> Mux(fmt.bytes < 4.U, addr(1, 0) << 3, 0.U)
       val w = fmt.bits(k(1, 0))
       val field = ((all >> fmt.off(k(1, 0))) & ((1.U(33.W) << w) - 1.U))(31, 0)
@@ -699,21 +644,18 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         TexFormat.UFLOAT.U -> Mux(w === 11.U, TexFormat.ufloatToFp32(field(10, 0), 6),
                                   TexFormat.ufloatToFp32(field(9, 0), 5)),
         TexFormat.SHAREDEXP.U -> TexFormat.uintScaledToFp32(field, all(31, 27).zext - 24.S)))
-      // Absent channels: 0, alpha 1. Border colours: VkBorderColor 0..5 --
-      // float/int transparent black, opaque black, opaque white.
+      // Absent channels read 0, alpha 1. VkBorderColor 0..5: float/int transparent black,
+      // opaque black, opaque white.
       val dflt = Mux(isAlpha, Mux(isInt, 1.U(32.W), oneF), 0.U(32.W))
-      // The float and int variants differ only in type; Vulkan requires the
-      // one matching the format, so the format decides.
+      // The format, not the float/int variant, decides the type.
       val bOne = Mux(isInt, 1.U(32.W), oneF)
       val bv = Mux(isAlpha, Mux(border >= 2.U, bOne, 0.U), Mux(border >= 4.U, bOne, 0.U))
-      // The border colour replaces only the channels the format has; the
-      // missing ones read (0, 0, 0, 1) as for any texel.
+      // The border replaces only the channels the format has.
       vals(k(1, 0)) := Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
       when(k === 3.U) { k := 0.U; state := Mux(doCmp, sCompare, sAcc) }.otherwise { k := k + 1.U }
     }
     is(sCompare) {
-      // Depth compare, per tap before filtering: dref OP texel as 1.0 or 0.0.
-      // A UNORM depth format clamps the reference to [0, 1] first.
+      // Depth compare per tap before filtering; UNORM formats clamp dref to [0, 1] first.
       val d0 = args(lane).dref
       val dClamped = Mux(d0(31), 0.U, Mux(d0 > "h3F800000".U, "h3F800000".U, d0))
       val dref = ordered(Mux(fmt.kind === TexFormat.UNORM.U, dClamped, d0)); val dtex = ordered(vals(0))
@@ -771,7 +713,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       }
     }
 
-    // --- Answer the lane ----------------------------------------------------
     is(sResp) {
       if (BorgDebug.trace) when(io.respReady) {
         printf("[TEX] lane %d u=0x%x v=0x%x lod=0x%x levels=%d lvl=%d taps i0=(%d,%d) addr=0x%x -> %x %x %x %x\n", lane,

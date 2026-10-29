@@ -6,18 +6,13 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** Texel formats the sampler decodes (docs/B2_texture_unit.md): every format
-  * Vulkan 1.0 requires SAMPLED_IMAGE support for, plus the 16-bit normalized
-  * ones. One table drives the hardware decoder and the tests' reference, so
-  * the two cannot disagree about a layout.
+/** Texel formats the sampler decodes (docs/B2_texture_unit.md): Vulkan 1.0's SAMPLED_IMAGE
+  * formats plus the 16-bit normalized ones. One table drives the decoder and the tests' reference.
   *
-  * A format is its size in bytes and up to four channels, each a bit field
-  * of the little-endian texel (offset, width; width 0 = absent) with one
-  * numeric type. Absent channels read as 0, alpha as 1. BGRA orders and the
-  * packed formats are just different offsets.
+  * A format is its byte size and four channels, each a bit field of the little-endian texel
+  * (offset, width; width 0 = absent, reads 0, alpha 1) with one numeric type.
   */
 object TexFormat {
-  // Numeric types.
   val UNORM = 0; val SNORM = 1; val UINT = 2; val SINT = 3; val SFLOAT = 4
   val SRGB = 5          // UNORM, with R, G, B converted from sRGB
   val UFLOAT = 6        // unsigned small floats: 5-bit exponent, 6/5-bit mantissa (B10G11R11)
@@ -33,8 +28,6 @@ object TexFormat {
   def byName(n: String): Fmt = all.find(_.name == n).getOrElse(throw new NoSuchElementException(n))
   val Bits = 6                                    // format code width
   require(all.size < (1 << Bits))
-
-  // --- Hardware -----------------------------------------------------------
 
   /** The table as ROM lookups by format code. */
   class Info extends Bundle {
@@ -53,9 +46,8 @@ object TexFormat {
     w
   }
 
-  /** v / (2^b - 1) as FP32, for 1 <= b <= 24: 0.vvvv... in binary, so the
-    * mantissa is v's bits repeated -- no division. Truncated, not rounded
-    * (within half an FP32 ULP of exact, far below any format's precision). */
+  /** v / (2^b - 1) as FP32, for 1 <= b <= 24: 0.vvvv... in binary, so the mantissa is v's bits
+    * repeated, no division. Truncated, within half an FP32 ULP. */
   def unormToFp32(v: UInt, b: UInt): UInt = {
     val v24 = v(23, 0)
     // v's bits repeated from the top of a 48-bit window: 0.vvvv.
@@ -82,8 +74,7 @@ object TexFormat {
     Mux(isMin, "hBF800000".U(32.W), Cat(neg && u =/= 0.U, u(30, 0)))
   }
 
-  /** Unsigned small float (5-bit exponent, bias 15, mBits mantissa, no sign)
-    * to FP32. */
+  /** Unsigned small float (5-bit exponent, bias 15, mBits mantissa, no sign) to FP32. */
   def ufloatToFp32(v: UInt, mBits: Int): UInt = {
     val e = v(mBits + 4, mBits); val m = v(mBits - 1, 0)
     val mant = Cat(m, 0.U((23 - mBits).W))

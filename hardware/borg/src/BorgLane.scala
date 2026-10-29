@@ -13,7 +13,7 @@ class LaneIdsIO(val cfg: BorgConfig) extends Bundle {
 }
 
 class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
-  // --- Shared control (broadcast identically to every lane) ---
+  // Broadcast to every lane.
   val regs        = Input(new RegIndices())
   val opFlags     = Input(new FpuOpFlags())
   // The lane's bit of the execution mask: low, it executes but none of its writes land.
@@ -31,30 +31,24 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val advance     = Input(Bool())   // the stages move on (not held by a stall FSM)
   val seqBusy     = Input(Bool())
 
-  // --- Per-lane pixel coordinate ---
   val iter        = Input(new Coord(cfg.coordWidth))
   val pixelOrigin = Input(new Coord(14))   // the render window's origin
-  // --- Compute or vertex stage: r30/r31 read these raw integers instead ---
+  // Compute or vertex stage: r30/r31 read these raw integers instead.
   val ids         = Input(new LaneIdsIO(cfg))
 
-  // --- Shared uniform-RAM read (done once in BorgCore) ---
-  val uniformData = Input(UInt(cfg.totalBits.W)) // op_en_del-gated read result
+  val uniformData = Input(UInt(cfg.totalBits.W)) // read once in BorgCore
   val funct3Del   = Input(UInt(3.W))             // delayed funct3 selecting uniform operand
   val ovA         = Input(Valid(UInt(cfg.totalBits.W))) // x0, LUI's zero, AUIPC's address
   val ovB         = Input(Valid(UInt(cfg.totalBits.W))) // x0 or an immediate
 
-  // --- Cross-lane quad-derivative operands (broadcast by BorgCore for DDX/DDY) ---
-  // The FMA adds them: a neighbour's rs1 and minus the other one's.
+  // DDX/DDY: the FMA adds a neighbour's rs1 and minus the other one's.
   val crossA      = Input(UInt(cfg.totalBits.W))
   val crossC      = Input(UInt(cfg.totalBits.W))
 
-  // --- MMIO bus (broadcast; GPR read/write) ---
   val bus         = Flipped(new BorgBusIO())
 
-  // --- Write-back from the shared memory/TEX FSMs (en/addr/data) ---
-  val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
+  val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))   // the units' writes
 
-  // --- Outputs ---
   val csrWrite    = new CsrWriteIO(cfg.totalBits)
   val regReadData = Output(UInt(cfg.totalBits.W))  // MMIO GPR read (lane 0 consumed)
   val recARaw     = Output(UInt(cfg.totalBits.W))  // operands for the shared FSMs
@@ -76,8 +70,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private val config = cfg.fp
 
-  // --- Storage: three register-file copies, written together, so decode reads rs1, rs2 and rs3
-  // at once (docs/B9_pipeline.md). regFile also serves MMIO.
+  // Three copies written together, so decode reads rs1, rs2 and rs3 at once. regFile serves MMIO.
   val regFile = Module(new RegFileCopy(config.totalBits, "regFile"))
   private val regFilesBC = Seq("regFileB", "regFileC").map(n => Module(new RegFileCopy(config.totalBits, n)))
 
@@ -108,15 +101,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val coordReadEn = io.decode || io.stages(cfg.cBusyLoad - 1, 1).orR
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
-  // Muxed ahead of the registers, not on the read path, so compute mode adds
-  // nothing to the register-file read timing.
+  // Muxed ahead of the registers, off the register-file read path.
   when(coordReadEn) {
     val gx = io.iter.x +& io.pixelOrigin.x; val gy = io.iter.y +& io.pixelOrigin.y
     coordX := Mux(io.ids.mode, io.ids.r30, pixelCentre(gx))
     coordY := Mux(io.ids.mode, io.ids.r31, pixelCentre(gy))
   }
 
-  // --- Register reads + uniform operand mux ---
   val (recA, recB, recC, mmioD) = wireGprReads()
   private val toOperands = cfg.cBusyLoad - cfg.cOperands
   private val ovA = later(io.ovA, toOperands); private val ovB = later(io.ovB, toOperands)
@@ -130,7 +121,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val aW = later(recA_raw, cfg.cOperands - 1)
   private val bW = later(recB_raw, cfg.cOperands - 1)
 
-  // --- ALU ---
   val fma_result = wireFma(recA_raw, recB_raw, recC_raw)
   // The special functions' table read: a stage before write-back.
   private val lutStage = 2
@@ -144,14 +134,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val special_result = special.io.out
   val (int_result, is_int_reg) = LaneIntAlu(flagsW, aW, bW, anyW, io.covMask, io.dstWord, config.totalBits)
 
-  // --- Write-back (+ memory/TEX override) ---
   wireWriteBack(fma_result, special_result, int_result, is_int_reg, mmioD)
 
   io.regReadData := mmioD
 
 
-  /** Resolve a register-file read result, substituting the pixel-coordinate
-    * pseudo-registers r30/r31 (same special-case for every port, GPR or MMIO). */
+  /** A register read with r30/r31 replaced by the pixel coordinates or ids. */
   private def resolveCoordReg(raw: UInt, idx: UInt): UInt = {
     val isCoordReg = idx === 30.U || idx === 31.U
     // A sequencer's program reads 0 (the setup ROM uses r31 as zero) unless it supplies ids.
@@ -159,8 +147,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     Mux(isCoordReg, Mux(!io.seqBusy || idsMode, Mux(idx === 30.U, coordX, coordY), 0.U), raw)
   }
 
-  /** rs1, rs2 and rs3 read at decode from the three copies, held for the operand stage. MMIO
-    * reads (software register access while idle) use regFile's port. */
+  /** rs1, rs2 and rs3 read at decode, held for the operand stage; idle MMIO reads use regFile. */
   private def wireGprReads(): (UInt, UInt, UInt, UInt) = {
     val mmioEn = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) &&
                  io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset

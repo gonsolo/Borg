@@ -9,7 +9,7 @@ import chisel3.util._
 /** FP16 reciprocal and reciprocal square root: a LUT and linear interpolation,
   * `correction = (delta * frac) >> 6`, shared by both ops (one instance, selected by `op`).
   * The 10-bit LUT entries arrive zero-extended to 16 bits; delta = lutVal - lutNext is never
-  * negative for these decreasing curves. sRGB went to the tile path (SrgbCodec).
+  * negative for these decreasing curves.
   */
 object Fp16SpecialOp {
   val Rcp  = 0.U(2.W)
@@ -43,16 +43,14 @@ class Fp16Special extends Module {
   val isInf             = isInfOrNaN && mant === 0.U
   val isNeg             = sign && !isZeroOrSubnormal // rsqrt(neg) = NaN
 
-  // --- Shared interpolation core ---
   // @doc:rcp-interpolation
-  // rcp/rsq: decreasing curves (lutVal >= lutNext).
   val delta      = io.lutVal - io.lutNext
   val correction = (delta * frac) >> 6
   val estMant16  = (io.lutVal - correction)(15, 0)
   val estMant10  = estMant16(9, 0)
   // @doc:end
 
-  // --- rcp: exponent = 29 - exp (clamped), sign preserved ---
+  // rcp: exponent 29 - exp (clamped), sign preserved.
   val rcpEstExp = WireDefault(0.U(5.W))
   when(exp <= 29.U) { rcpEstExp := 29.U - exp }
   val rcpNormal = Cat(sign, rcpEstExp, estMant10)
@@ -62,7 +60,7 @@ class Fp16Special extends Module {
     isZeroOrSubnormal -> Cat(sign, "b11111".U(5.W), 0.U(10.W))   // +-0/sub -> +-Inf
   ))
 
-  // --- rsq: parity-dependent exponent, always non-negative result ---
+  // rsq: the exponent depends on its parity; the result is never negative.
   val parity = !exp(0)
   val mzero  = mant === 0.U
   val rsqExp = Mux(parity,

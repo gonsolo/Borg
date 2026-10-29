@@ -6,43 +6,11 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgFma — in-tree fused multiply-add for the GPU's float domain.
+/** Fused multiply-add: round_RNE((negate ? -(a*b) : a*b) + c) with one rounding, IEEE Inf/NaN.
+  * Stage 1 (regs at pipeEn1): unpack, multiply, special cases; stage 2 (pipeEn2): align and
+  * signed sum; stage 3: normalize, round, pack into a free-running output register, which is
+  * stable because the earlier stages hold while idle.
   *
-  * Computes `round_RNE( (negate ? -(a*b) : a*b) + c )` with a SINGLE rounding,
-  * round-to-nearest-even, on IEEE-754 binary32. Renamed from `BorgFp16Fma` 2026-09-25 -- FP32 has been the default
-  * since 2026-09-15 and the old name was actively misleading about what the
-  * wafer.space build instantiates. The sole FMA across all targets and the
-  * per-lane arithmetic core for 4-lane SIMT; [[BorgSampler]] also builds its
-  * own instance for texture filtering math.
-  *
-  * Operand muxing (ADD/MUL/FMA/FNEG) stays in `BorgLane`; this unit sees the
-  * resolved a/b/c + negate.  Proper IEEE Inf/NaN handling (edge functions overflow
-  * FP16 to ±Inf).  Verified bit-identical to HardFloat (30k RTL co-sim + verilator
-  * goldens at fragLanes 1 and 4).
-  *
-  * FOUR-STAGE pipeline (THREE internal registers) to close 25 MHz timing on the
-  * 4-lane ULX3S build (the single-register version capped the SoC clock at ~19 MHz —
-  * its mantissa-multiply→align→sum cone was the whole-design critical path).  Operands
-  * are valid at busy_counter==4 (regfile and uniform reads both complete then); the
-  * result is consumed by write-back at busy_counter==1.
-  *   - Stage 1 (→ regA @ pipeEn1, counter==4): unpack + 11×11 multiply + exponents
-  *     + signs + Inf/NaN classification.
-  *   - Stage 2 (→ regB @ pipeEn2, counter==3): top-exponent + alignment + signed sum.
-  *   - Stage 3 (→ regC, FREE-RUNNING): normalize + round + pack.
-  *   - `io.out` IS regC — registered, so write-back AND the dispatcher's edge/frag
-  *     snoop at counter==1 read a register (short path), not the round cone.
-  * After the split the critical path is the balanced stage-2 align+sum (26.14 MHz,
-  * PASS at 25).  regC is FREE-RUNNING (plain RegNext): its input stage3(regB) is
-  * stable because regB holds during non-busy, so it re-latches the same value while
-  * dropping the high-fanout pipeEn3 enable net to the 16-bit output register.
-  * Same arithmetic as the single-register version — purely register placement.
-  *
-  * Renders correctly in chisel-sim, verilator (N=1 and N=4 goldens), arcilator, and
-  * on ULX3S hardware.  (The deeper pipeline grows BorgLane past arcilator's --inline
-  * threshold, so the per-lane rcp LUT moves from core.rcpLutA_ext to
-  * core.lanes_0.rcpLutA_ext — ArcBorgSimulator.cpp load_luts() pokes the new path.)
-  *
-  * @doc:custom-fma
   */
 class BorgFmaIO(val cfg: BorgConfig) extends Bundle {
   val a      = Input(UInt(cfg.totalBits.W))
@@ -57,17 +25,17 @@ class BorgFmaIO(val cfg: BorgConfig) extends Bundle {
 class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgFmaIO(cfg))
 
-  private val EXP    = cfg.exp                 // 5
-  private val SIG    = cfg.sig                 // 11 (10 stored frac + implicit 1)
-  private val MANT   = SIG - 1                 // 10
-  private val BIAS   = (1 << (EXP - 1)) - 1    // 15
-  private val EXPMAX = (1 << EXP) - 1          // 31 (Inf/NaN exponent field)
+  private val EXP    = cfg.exp
+  private val SIG    = cfg.sig                 // stored fraction + implicit 1
+  private val MANT   = SIG - 1
+  private val BIAS   = (1 << (EXP - 1)) - 1
+  private val EXPMAX = (1 << EXP) - 1          // Inf/NaN exponent field
 
-  private val F  = 2 * SIG + 18                // 40 for FP16 (alignment field)
+  private val F  = 2 * SIG + 18                // alignment field
   private val FE = F + 1                       // + appended per-operand sticky bit
   private val EW = EXP + 8                     // signed exponent arithmetic width
 
-  // ---- Unpack: value = sig * 2^(eVal - MANT) ----
+  // value = sig * 2^(eVal - MANT)
   private case class Unpacked(sign: Bool, sig: UInt, eVal: SInt, isZero: Bool, isInf: Bool, isNaN: Bool)
   private def unpack(x: UInt): Unpacked = {
     val expF = x(EXP + MANT - 1, MANT)
@@ -84,9 +52,7 @@ class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     )
   }
 
-  // ==========================================================================
-  // Stage 1 (combinational): unpack + multiply + exponents + Inf/NaN class
-  // ==========================================================================
+  // Stage 1: unpack, multiply, exponents, Inf/NaN class.
   private val ua = unpack(io.a)
   private val ub = unpack(io.b)
   private val uc = unpack(io.c)
@@ -100,7 +66,6 @@ class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val s1_cSig       = uc.sig
   private val s1_cLowExp    = uc.eVal - MANT.S
 
-  // IEEE special-case classification (matches HardFloat over the domain).
   private val anyNaN       = ua.isNaN || ub.isNaN || uc.isNaN
   private val infTimesZero = (ua.isInf && ub.isZero) || (ua.isZero && ub.isInf)
   private val prodInf      = (ua.isInf || ub.isInf) && !infTimesZero
@@ -110,32 +75,21 @@ class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val s1_specialInf   = !s1_specialNaN && (prodInf || cInf)
   private val s1_specialSign  = Mux(prodInf, s1_prodSign, s1_cSign)
 
-  // ---- regMid (pipeEn1; holds during non-busy → no X churn) ----
-  // Reset-initialised: arcilator starts resetless regs as X and propagates it into
-  // a hang; verilator/chisel-sim tolerate the X.  Inits are functionally neutral
-  // (operands are captured before the result is ever consumed).
+  // Reset-initialised: arcilator starts resetless regs as X and hangs on it.
   private val m_prodSig    = RegEnable(s1_prodSig,    0.U, io.pipeEn1)
   private val m_cSig       = RegEnable(s1_cSig,       0.U, io.pipeEn1)
   private val m_prodSign   = RegEnable(s1_prodSign,   false.B, io.pipeEn1)
   private val m_cSign      = RegEnable(s1_cSign,      false.B, io.pipeEn1)
   private val m_prodZero   = RegEnable(s1_prodZero,   false.B, io.pipeEn1)
   private val m_cZero      = RegEnable(s1_cZero,      false.B, io.pipeEn1)
-  // Truncated to EW bits (low-order bits + resulting sign, same as the
-  // implicit truncation this makes explicit): EW = EXP+8 already reserves 8
-  // bits of deliberate headroom over FP16's ~5-bit raw exponent range for
-  // exactly this kind of chained exponent arithmetic (see EW's own comment
-  // above); the 1 extra bit s1_prodLowExp's type carries beyond EW is
-  // Chisel's generic conservative width growth from chaining +&/-, not real
-  // additional range the value needs.
+  // EW already has headroom; the extra bit is only Chisel's +& width growth.
   private val m_prodLowExp = RegEnable(s1_prodLowExp(EW - 1, 0).asSInt, 0.S(EW.W), io.pipeEn1)
   private val m_cLowExp    = RegEnable(s1_cLowExp,    0.S(EW.W), io.pipeEn1)
   private val m_specialNaN = RegEnable(s1_specialNaN, false.B, io.pipeEn1)
   private val m_specialInf = RegEnable(s1_specialInf, false.B, io.pipeEn1)
   private val m_specialSign= RegEnable(s1_specialSign,false.B, io.pipeEn1)
 
-  // ==========================================================================
-  // Stage 2 (combinational from regMid): align + signed sum
-  // ==========================================================================
+  // Stage 2: align and signed sum.
   private val MINEXP  = (-128).S(EW.W)
   private val prodTop = Mux(m_prodZero, MINEXP, m_prodLowExp + (2 * SIG - 1).S)
   private val cTop    = Mux(m_cZero,    MINEXP, m_cLowExp + (SIG - 1).S)
@@ -167,9 +121,7 @@ class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val magW       = FE + 1
   private val s2_mag     = Mux(s2_sign, (-sumSigned).asUInt, sumSigned.asUInt)(magW - 1, 0)
 
-  // ---- regB (pipeEn2; holds during non-busy → no X churn) ----
-  // Width made explicit (s2_mag is already magW bits): Log2(magR) in stage 3
-  // needs the width known at construction, and a bare 0.U init defers it.
+  // Explicit init width: Log2(magR) needs it at construction.
   private val magR        = RegEnable(s2_mag,                       0.U(magW.W), io.pipeEn2)
   private val signR       = RegEnable(s2_sign,                      false.B, io.pipeEn2)
   private val topExpR     = RegEnable(topExp,                     0.S(EW.W), io.pipeEn2)
@@ -177,17 +129,9 @@ class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val specNaNR    = RegEnable(m_specialNaN,                 false.B, io.pipeEn2)
   private val specSignR   = RegEnable(m_specialSign,                false.B, io.pipeEn2)
 
-  // ==========================================================================
-  // Stage 3 (combinational): normalize + round-to-nearest-even + pack
-  // ==========================================================================
+  // Stage 3: normalize, round to nearest even, pack.
   private val isZeroResult = magR === 0.U
-  // Position of the highest set bit.  Log2 emits a logarithmic tree; the
-  // previous form -- `for (i <- 0 until magW) when(magR(i)) { idx := i.U }` --
-  // is a magW-deep last-connect-wins mux cascade, which at FP16 (magW=42) was
-  // harmless but at FP32 (magW=68) became the FMA's critical path.  Identical
-  // semantics: both yield the index of the top set bit, and the magR===0 case
-  // is handled separately by isZeroResult, so Log2's undefined-at-zero does
-  // not matter.
+  // Log2 is a log-depth tree; zero is handled by isZeroResult.
   private val msbPos = Log2(magR)
   private val expBiased = msbPos.zext.asTypeOf(SInt(EW.W)) + topExpR - F.S + BIAS.S
   private val effExp    = Mux(expBiased < 1.S, 1.S(EW.W), expBiased)
@@ -222,7 +166,5 @@ class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val specialOut = Mux(specNaNR, nanOut, infOut)
   private val s3_out     = Mux(useSpecialR, specialOut, Mux(isZeroResult, zeroOut, normalOut))
 
-  // regC: register the final result so write-back + dispatcher snoop read a reg.
   io.out := RegNext(s3_out, 0.U(cfg.totalBits.W))
 }
-// @doc:end

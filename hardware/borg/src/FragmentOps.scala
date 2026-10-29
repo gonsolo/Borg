@@ -6,16 +6,11 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** The per-fragment operations of one lane's tile write, for [[BorgShaderDispatcher]]: depth and
-  * stencil tests, blending, the write masks, occlusion counting.
-  *
-  * With blending or stencil at MSAA (`perSample`), each sample is written on its own cycle with a
-  * one-hot coverage, so blending, stencil and depthWriteEnable see that sample's stored value; the
-  * single blend unit is reused. Otherwise one colour goes to every covered sample at once.
-  *
-  * Under ZTEST (`early`) only depth and stencil change: the stored colour is rewritten as read (an
-  * exact round trip) and each sample's result is kept in earlyPass; the late pass then writes
-  * colour to exactly those samples. */
+/** The per-fragment operations of one lane's tile write: depth and stencil tests, blending, the
+  * write masks, occlusion counting. With blending or stencil at MSAA (`perSample`) each sample is
+  * written on its own cycle, so it sees that sample's stored value; otherwise one colour goes to
+  * every covered sample. Under ZTEST (`early`) only depth and stencil change, colour is rewritten
+  * as read, and earlyPass keeps each sample's result for the late pass. */
 class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs, cov: QuadCoverage) {
   val perSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 
@@ -30,15 +25,13 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
     CompareOp(io.depthCompareOp, key(newZ), key(oldZ))
   }
 
-  /** Lane `lane`'s write of sample `smp` (0 when not perSample), from the tile read three cycles
-    * before. */
+  /** Lane `lane`'s write of sample `smp` (0 when not perSample), from the tile read 3 cycles before. */
   def write(lane: UInt, smp: UInt, early: Bool, earlyDone: Bool, earlyPass: Vec[Vec[Bool]]): Unit = {
     val rd = io.tileRead.data(smp)
     val rawActive  = io.rawColor && outs.rawSupported.B
     val srgbActive = io.srgbColor && outs.rawSupported.B
 
-    // Blending on UNORM8, back to FP16; with blending off the FP16 bits go through untouched. The
-    // colour write mask holds whether or not blending is on; its A bit gates the alpha plane.
+    // Blend on UNORM8, back to FP16; blending off passes the FP16 bits. The write mask always holds.
     val (blendR, blendG, blendB) = if (cfg.hasBlend) {
       val cfgIn = io.blendCfg.get
       val src = Wire(new Rgba8)
@@ -91,13 +84,12 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
                               Mux(io.depthWriteEn && !earlyDone, outs.zAt(lane, smp), rd.z)
                             else outs.zClamp(outs.frag_z(lane)))
 
-    // Stencil tests before depth but writes after it (the op depends on the depth result), on
-    // every outcome, so its write enable is its own.
+    // Stencil tests before depth but writes after it on every outcome, so it has its own enable.
     val stencilRes = Option.when(cfg.hasStencil)(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get,
       io.stencilRead.get(smp), depthPasses(outs.zAt(lane, smp), rd.z)))
 
-    // Reached the per-fragment operations: covered, not discarded, inside the scissor, and in the
-    // late pass inside alpha to coverage and the shader's mask (the early tests ran without them).
+    // Covered, not discarded, inside the scissor, and in the late pass inside alpha to coverage and
+    // the shader's mask (the early tests ran without them).
     def reached(s: Int): Bool =
       cov.coverage(lane)(s) && !outs.killed(lane) && io.scissorPass(lane) && (early || outs.postMask(lane)(s))
     def reachedDyn(s: UInt): Bool =

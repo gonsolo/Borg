@@ -3,16 +3,12 @@
 
 package borg
 
-// Compile-time constants for the FP16 special-function LUTs.
-// Baked into BorgLane as VecInit ROMs: purely combinational, zero FFs, zero clock load.
-// Source: the mathematically-derived hex tables in test/soc/*.hex.
+// The special-function LUTs, baked into ROMs; the same tables as test/soc/*.hex.
 private[borg] object BorgLutTables {
 
   // @doc:rcp-lut
-  // rcp_lut: 33 entries x 10 bits -- mantissa correction for FP16 reciprocal,
-  // indexed on mant(9,5) with a 5-bit interpolation fraction.
-  // Exhaustive normal-quotient sweep for issue #2: worst OpFDiv error drops
-  // from 3.295 to 2.245 ULP, with no result above Vulkan's 2.5 ULP bound.
+  // Reciprocal mantissa correction, indexed on mant(9,5) with a 5-bit interpolation
+  // fraction; tuned so OpFDiv stays within Vulkan's 2.5 ULP.
   val rcpLut: Seq[Int] = Seq(
     0x03FF, 0x03C1, 0x0387, 0x0350, 0x031C, 0x02EB, 0x02BC, 0x0290,
     0x0266, 0x023E, 0x0218, 0x01F4, 0x01D1, 0x01B0, 0x0190, 0x0172,
@@ -22,8 +18,7 @@ private[borg] object BorgLutTables {
   )
   // @doc:end
 
-  // frsq_lut: 34 entries x 10 bits -- mantissa correction for FP16 rsqrt.
-  // Split into two parity regions of 17 (even/odd binade).
+  // Rsqrt mantissa correction: 17 entries each for even and odd binades.
   val frsqLut: Seq[Int] = Seq(
     0x03FF, 0x03C3, 0x038B, 0x0357, 0x0328, 0x02FC, 0x02D3, 0x02AC,
     0x0288, 0x0266, 0x0247, 0x0229, 0x020C, 0x01F1, 0x01D8, 0x01BF,
@@ -33,8 +28,7 @@ private[borg] object BorgLutTables {
     0x0000
   )
 
-  // srgb_lut: 256 entries x 16 bits -- direct fp16->fp16 linear-to-sRGB table.
-  // Indexed by (exp-1)*16 + mant[9:6]; entries 224-255 clamp to fp16 1.0 (0x3C00).
+  // FP16 linear to sRGB, indexed by (exp-1)*16 + mant[9:6]; 224-255 clamp to 1.0.
   val srgbLut: Seq[Int] = Seq(
     0x1276, 0x12DD, 0x1344, 0x13AC, 0x140A, 0x143D, 0x1471, 0x14A5,
     0x14D8, 0x150C, 0x1540, 0x1573, 0x15A7, 0x15DB, 0x160E, 0x1642,

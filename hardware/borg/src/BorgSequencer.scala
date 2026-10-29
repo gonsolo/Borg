@@ -6,29 +6,11 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgSequencer IO. The sequencer renders a draw (docs/B1_geometry_front_end.md)
-  * in two passes: Pass 1 ([[BorgDrawWalker]]) runs the vertex shader and the
-  * setup ROM per triangle and bins it, Pass 2 ([[BorgTileSequencer]]) renders
-  * and flushes every tile.
-  */
 class SeqMmioIO(cfg: BorgConfig) extends Bundle {
-  // tilesPerRow/fbWidthTiles/fbHeightTiles all express a tile-grid extent
-  // that can never exceed cfg.maxBinTiles (BorgBinner's on-chip count SRAM
-  // -- and BorgTileSequencer's own tileWasDirty/tileIsDirty arrays --
-  // already hard-require this for correctness, narrowing here just makes
-  // the width match the existing invariant). Narrower operands shrink the
-  // tile-index multiplies (curTileIndex-style math below and in BorgBinner)
-  // that dominate this module's synthesized area on the ASIC's 16-tile
-  // config; math.min keeps Default (maxBinTiles=1024) byte-identical
-  // at 10 bits.
+  // A tile-grid extent never exceeds maxBinTiles; narrow operands shrink the tile-index multiplies.
   private val tileRowWidth = math.min(10, log2Ceil(cfg.maxBinTiles + 1))
 
-  // binRowBytes = maxTrianglesPerTile*2 bytes at most (see BorgConfig's doc
-  // comment -- tied to software/borg/borg_layout.h's SEQ_MAX_TRI, a single
-  // compile-time constant shared by every target). Narrows the
-  // tileLinear*binRowBytes multiply the same way tileRowWidth narrows the
-  // tile-index one above; math.min keeps this at the register's full 20
-  // bits unless maxTrianglesPerTile is deliberately set below ~512k.
+  // binRowBytes is at most maxTrianglesPerTile * 2 (borg_layout.h's SEQ_MAX_TRI).
   private val binRowBytesWidth = math.min(20, log2Ceil(cfg.maxTrianglesPerTile * 2 + 1))
 
   val start = Input(Bool())
@@ -45,42 +27,26 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val setupBase = Input(UInt(GpuMemIO.AddrBits.W))
   val fbWidthTiles = Input(UInt(tileRowWidth.W))
   val fbHeightTiles = Input(UInt(tileRowWidth.W))
-  // Face culling (CULL_CFG), applied by the draw walker after setup.
   val cullMode        = Input(UInt(2.W))
   val frontFaceInvert = Input(Bool())
-  // Any attachment aspect has loadOp = LOAD (TILE_LOAD != 0).
   val tileLoad        = Input(Bool())
-  // TILE_LOAD.keep: a tile no triangle of this render reaches is left alone
-  // (no clear, no load, no flush) -- a render that continues an attachment.
+  // A tile no triangle reaches is not cleared, loaded or flushed.
   val tileKeep        = Input(Bool())
-  // SAMPLE_MASK_CFG bit 6, rasterizationSamples = 1.
   val singleSample    = Input(Bool())
-  // DRAW_CFG's record stride (triangle t at setupBase + t << shift).
-  val recordShift     = Input(UInt(4.W))
-  // Each stage's constant window (0 = none): loaded once per draw into the
-  // uniform words above the hardware's -- see BorgSetupRom.Record.
+  val recordShift     = Input(UInt(4.W))   // triangle t at setupBase + t << shift
+  // Each stage's constants (0 = none), loaded once per draw, see BorgSetupRom.Record.
   val vsConstBase     = Input(UInt(GpuMemIO.AddrBits.W))
   val fsConstBase     = Input(UInt(GpuMemIO.AddrBits.W))
-  // Render window (FB_ORIGIN, FB_PITCH): the window's first tile in the
-  // framebuffer, and the framebuffer's tiles per row. Bins, tile walks and
-  // coordWidth stay window-relative; flush/load addresses and pixel
-  // coordinates are the framebuffer's.
+  // Bins and tile walks are window-relative; flush/load addresses and pixel coordinates are not.
   val fbOriginX       = Input(UInt(12.W))
   val fbOriginY       = Input(UInt(12.W))
   val fbPitch         = Input(UInt(12.W))
-  // Colour attachments: how many (1..4); the tile is rendered once per
-  // attachment, see BorgTileSequencer.attPass.
   val attCount        = Input(UInt(4.W))   // passes: up to 4 attachments, RAW128 ones twice
-  // RENDER_LIST: byte address of the render list, 0 = render the draw in the registers.
+  // 0 = render the draw in the registers.
   val listBase        = Input(UInt(GpuMemIO.AddrBits.W))
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
-  // Tile index into countMem (maxBinTiles entries) and per-tile triangle
-  // count (0..maxTrianglesPerTile) -- narrowed from the historical fixed
-  // 13/10-bit widths to match the config, same math.min-guarded pattern as
-  // SeqMmioIO's tileRowWidth/binRowBytesWidth (never widens past the
-  // original bound, only narrows when the config's real max is smaller).
   private val countAddrWidth = math.min(13, log2Ceil(cfg.maxBinTiles))
   private val countWidth     = math.min(10, log2Ceil(cfg.maxTrianglesPerTile + 1))
   val start = Output(Bool())
@@ -103,22 +69,18 @@ class SeqStoreIO extends Bundle {
 }
 
 class SeqFlusherIO extends Bundle {
-  // Byte offset of the current tile from the start of an attachment whose
-  // tiles are 32 bytes (RGB565 colour, D16 depth). Borg.scala scales it for
-  // wider colour formats and adds each attachment's own base.
+  // In 32-byte tiles (RGB565, D16); Borg.scala scales it for wider formats.
   val tileOffset = Output(UInt(GpuMemIO.AddrBits.W))
   val trigger = Output(Bool())
   val busy = Input(Bool())
-  // Tile load (loadOp = LOAD): pulsed after the tile's clear when any aspect
-  // is loaded; the tile waits for loadBusy to drop. Same tileOffset.
+  // Pulsed after the tile's clear when any aspect is loaded.
   val loadStart = Output(Bool())
   val loadBusy  = Input(Bool())
 }
 
 class SeqIteratorIO(val coordWidth: Int) extends Bundle {
   val clear = Output(Bool())
-  // Dispatcher pipeline idle signal — true when dispatch FSM is in sIdle.
-  // Used to drain the dispatcher before flushing the tile buffer.
+  // Drained before the tile flush.
   val dispatcherIdle = Input(Bool())
   val enqueue = Valid(new Coord(coordWidth))
   val iterate = Output(Bool())
@@ -146,19 +108,13 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
-  /** A later part of a render (docs/B11_partial_render.md): every tile loads every
-    * aspect that has an attachment, and a tile no triangle reaches is kept. */
+  // A later part of a partial render (docs/B11_partial_render.md).
   val loadAll = Output(Bool())
 
-  // Step 50.2b: per-edge MSAA sample deltas, [edge][k] where k=0 is d0 and
-  // k=1 is d1 (the other two samples are sign flips, derived in hardware).
-  // Latched from the setup shader's r8..r13 and held stable for the whole
-  // triangle, so the dispatcher can use them throughout tile iteration.
+  // Per-edge MSAA sample deltas d0, d1; the other two samples are their sign flips.
   val covDelta = if (cfg.samples > 1)
     Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
-  // Per-triangle facing (Vulkan conformance item 10, two-sided stencil).
-  // Straight passthrough of Pass 2's own output -- only meaningful while the
-  // sequencer is busy, which is how Borg.scala gates it.
+  // Per-triangle facing, meaningful only while busy.
   val frontFacingOverride = Output(Bool())
   val curTriIndex = Output(UInt(16.W))   // pass 2's current triangle (occlusion queries)
 
@@ -167,38 +123,19 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 
-  // Draw front end: the draw registers, every lane's write-back (the vertex
-  // shader shades three corners at once), and what the core needs from the
-  // walker (VertexIndex/InstanceIndex, record addresses) and from Pass 2
-  // (the current triangle's attributes, for FATTR).
+  // Every lane's write-back: the vertex shader shades three corners at once.
   val draw       = Input(new DrawMmioIO)
   val csrWriteLanes  = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val ids        = Output(new InvocationIdsIO(cfg))
   val record     = Output(new CoreRecordIO)
   val topLeft    = Output(Vec(3, Bool()))
-  // The colour attachment the current tile pass renders (ATTIDX).
   val attPass    = Output(UInt(3.W))
-  // Render lists: a state block's register writes, to the MMIO bus.
   val regWrite   = Decoupled(new RegWrite)
 }
 
-/** BorgSequencer — top-level supervisor over the GPU's two-pass render:
-  * Pass 1 ([[BorgDrawWalker]]: primitive assembly, the vertex shader and the
-  * setup ROM per triangle, binning) and Pass 2 ([[BorgTileSequencer]]: tile
-  * rendering and flushing).
-  *
-  * The two passes are separate modules because they are separate FSMs: Pass
-  * 2 never reads Pass 1's live registers, only what Pass 1 wrote to memory
-  * (bin lists, per-triangle records). Splitting the old flat 35-state FSM
-  * also shortened its timing paths -- every one of the worst 1000 paths of a
-  * post-CTS 25 MHz run started at a bit of its `state` register, because a
-  * `switch` desugars to a priority chain across all its arms.
-  *
-  * This wrapper owns only what crosses the boundary: the start/done
-  * handshake (Pass 1 to completion, then Pass 2, then done), `curBufIdx`
-  * (which persists across frames), and arbitration of the two passes'
-  * shared DMA and uniform-write ports (trivial, as they never run
-  * concurrently).
+/** Runs a draw in two passes: [[BorgDrawWalker]] shades, sets up and bins every triangle, then
+  * [[BorgTileSequencer]] renders and flushes every tile. Pass 2 reads only what Pass 1 wrote to
+  * memory; this wrapper sequences them, walks render lists and shares their DMA and uniform ports.
   */
 class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgSequencerIO(cfg))
@@ -210,13 +147,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                wPartial :: wPartClear :: wResume :: Nil) = Enum(13)
   private val wstate = RegInit(wIdle)
 
-  // --- Render list (docs/B1_geometry_front_end.md, "Render lists") --------
-  // RENDER_LIST names a list of entries, two words each: the address of the
-  // draw's state block and of its parameter block (0 = none); a state address
-  // of 0 ends the list. Per entry the player writes the blocks into the
-  // registers and Pass 1 runs, triangles numbered on from the previous draw
-  // and binned into the same bins; then Pass 2 renders every tile once, and
-  // replays a triangle's state block when it differs from the last one's.
+  // Render list entries: state block and parameter block addresses (0 = none); a state address
+  // of 0 ends the list. Every draw bins into the same bins, then Pass 2 renders every tile once.
   private val player   = Module(new BorgRegPlayer)
   private val listMode = RegInit(false.B)
   private val listPtr  = Reg(UInt(GpuMemIO.AddrBits.W))
@@ -235,15 +167,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   player.io.addr  := entry(0)
   io.regWrite <> player.io.write
 
-  // Which framebuffer Pass 2 is rendering into. Persists across whole
-  // frames (toggled once per frame here, at wDone) -- neither sub-FSM can
-  // own it, since each is reset to its own idle at the end of its pass.
+  // Toggles per frame, so neither pass can own it.
   private val curBufIdx = RegInit(0.U(1.W))
 
-  // --- Partial render (docs/B11_partial_render.md) ------------------------
-  // A full bin pauses the walker on triangle t: Pass 2 renders the triangles below t,
-  // the bins are cleared, the current draw's blocks are played again (list mode) and
-  // the walker bins t once more. Every part after the first loads what the last stored.
+  // Partial render (docs/B11_partial_render.md): a full bin pauses the walker on triangle t,
+  // Pass 2 renders the triangles below t, and the walker resumes at t on cleared bins.
   private val noLimit   = (1 << 16).U(17.W)
   private val triLimit  = RegInit(noLimit)
   private val parted    = RegInit(false.B)
@@ -263,8 +191,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         parted   := false.B
         triLimit := noLimit
         when(nothingToDraw) {
-          // Nothing to draw: pulse busy and finish. Without this guard the
-          // whole pipeline would run and the flusher write every tile.
+          // Without this the flusher would write every tile.
           wstate := wDone
         }.otherwise {
           dw.io.start := true.B
@@ -291,7 +218,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(io.dma.snoop.valid) { entry(entryWord) := io.dma.snoop.bits; entryWord := 1.U }
       when(!io.dma.busy) {
         when(entry(0) === 0.U) {
-          // End of the list.
           when(!anyDraw) { wstate := wDone }
             .otherwise { p2.io.start := true.B; wstate := wPass2 }
         }.otherwise {
@@ -366,7 +292,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     is(wDone) {
       if (BorgDebug.trace) printf("[SEQ] done -> idle\n")
       io.done   := true.B
-      curBufIdx := curBufIdx ^ 1.U  // advance to the other framebuffer for the next render
+      curBufIdx := curBufIdx ^ 1.U
       wstate    := wIdle
     }
   }
@@ -375,10 +301,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.seqShaderActive := dw.io.seqShaderActive
   io.loadAll         := parted
 
-  // --- Pass 1: the draw walker ---
-  // Pass 1 alone triggers BorgCore directly (the vertex shader and the setup
-  // ROM), stores records and feeds the binner; Pass 2's shading is triggered
-  // by the rasterizer's own dispatcher.
+  // Only Pass 1 triggers the core; Pass 2's shading comes from the rasterizer's dispatcher.
   dw.io.mmio := io.mmio
   dw.io.first := !listMode || !anyDraw
   dw.io.stateAddr := Mux(listMode, lastState, 0.U)
@@ -398,14 +321,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.binner.start := dw.io.binner.start; io.binner.triIndex := dw.io.binner.triIndex
   io.binner.bbox  := dw.io.binner.bbox;  io.binner.clearCounts := dw.io.binner.clearCounts || partClear
   io.ids := dw.io.ids
-  // Pass 1 writes records; Pass 2 reads the current triangle's attributes.
   io.record := dw.io.record
   io.record.attrBase := p2.io.attrBase
   io.record.attrFlush := p2.io.start
   io.topLeft := p2.io.topLeft
   p2.io.mmio := io.mmio
   p2.io.curBufIdx := curBufIdx
-  // Pass 2 asks for a triangle's state block when it is not the one in the registers.
   p2.io.listMode := listMode
   p2.io.triLimit := triLimit
   p2.io.playDone := player.io.done
@@ -416,9 +337,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   player.io.dmaBusy := io.dma.busy
   player.io.snoop   := io.dma.snoop
 
-  // --- DMA and uniform writes: shared ports, arbitrated by which pass is
-  // active. Responses (busy/snoop/uniformSnoop) go to both; only the pass
-  // waiting on them acts. Pass 1 writes uniform page 0. ---
+  // Responses go to both passes; only the one waiting acts. Pass 1 writes uniform page 0.
   private val pass1Active = wstate === wPass1
   io.dma.start := Mux(pass1Active, dw.io.dma.start, p2.io.dma.start)
   io.dma.desc  := Mux(pass1Active, dw.io.dma.desc, p2.io.dma.desc)
@@ -440,7 +359,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.uniformWrite.data := Mux(pass1Active, dw.io.uniformWrite.data, p2.io.uniformWrite.data)
   io.uniformWritePage  := Mux(pass1Active, 0.U, p2.io.uniformWritePage)
 
-  // --- Pass 2 only: flusher and iterator (tile rendering). ---
   io.flusher.tileOffset := p2.io.flusher.tileOffset
   io.flusher.trigger := p2.io.flusher.trigger
   p2.io.flusher.busy := io.flusher.busy
@@ -453,13 +371,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   p2.io.iter.complete       := io.iter.complete
   p2.io.iter.stall          := io.iter.stall
 
-  // covDelta: the current triangle's MSAA sample deltas, from its record.
   io.covDelta.foreach(_ := p2.io.covDelta.get)
   io.frontFacingOverride := p2.io.frontFacingOverride
   io.curTriIndex := p2.io.curTriIndex
   io.attPass := p2.io.attPass
 
-  // --- BorgBinner's count reader is Pass 2's (the writer is Pass 1's, above). ---
   io.binner.countReadAddr := p2.io.binner.countReadAddr
   io.binner.countReadEn   := p2.io.binner.countReadEn
   p2.io.binner.busy         := io.binner.busy

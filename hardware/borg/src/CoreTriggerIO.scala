@@ -5,28 +5,17 @@ package borg
 
 import chisel3._
 
-/** Rasterizer → Core shader trigger (from rasterizer's perspective: Output).
-  * Use Flipped() in BorgCoreIO.
-  * Note: BorgCoreIO previously named these `triggerShader*`;
-  *       BorgRasterizerIO named them `triggerCore*`. Unified here.
-  */
+/** Sequencer → core shader trigger, from the sequencer's side. */
 class CoreTriggerIO extends Bundle {
   val valid  = Output(Bool())
-  // Wide enough for any program counter (BorgConfig.pcBits <= 16); the core
-  // keeps its own width. Entry points are inside IMEM; a BARRIER resume
-  // point need not be.
+  // Wide enough for any pc (pcBits <= 16); a BARRIER resume point may lie past IMEM.
   val pc     = Output(UInt(CoreTriggerIO.PcBits.W))
-  // True when this trigger should fetch from BorgRasterRom (the baked edge-test
-  // shader) instead of the writable instructionMemory.  Only the dispatcher's
-  // sRast trigger ever sets this; sequencer (vert/setup) and sFrag triggers
-  // always leave it false.
+  // Fetch from BorgRasterRom; only the dispatcher's sRast trigger sets it.
   val isRast = Output(Bool())
-  // True when this trigger should fetch from BorgSetupRom (the draw front
-  // end's triangle setup). Only the draw walker sets it.
+  // Fetch from BorgSetupRom; only the draw walker sets it.
   val isSetup = Output(Bool())
 }
 
 object CoreTriggerIO {
-  /** Width of a program counter crossing a module boundary. */
   val PcBits = 16
 }

@@ -3,26 +3,9 @@
 
 package borg
 
-/** BorgRasterRom — the edge-function rasterizer shader, baked into a permanent
-  * hardware ROM instead of living in the writable, per-draw-shader
-  * `instructionMemory`.
-  *
-  * The rasterizer program (source: software/borg/compiler/rasterize.s) is
-  * identical for every triangle on every target -- it is never recompiled or
-  * reuploaded at runtime (see software/borg/compiler/Makefile: "rasterize.s
-  * is still hand-written Borg ISA... hand-written, fixed-function"). Baking
-  * it into BorgCore as a ROM means it no longer competes with the fragment
-  * shader for the shared IMEM budget (previously: rast 13 + frag N had to be
-  * simultaneously resident, capping ASIC's usable frag budget at
-  * maxInstructions-13).
-  *
-  * Consumes uniform slots 0-11 (dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2,
-  * neg_vx0, neg_vy0, neg_vx1, neg_vy1, neg_vx2, neg_vy2), computes e0/e1/e2
-  * in r1/r2/r3 and writes them to the CSRs `rast_e0..2` for the dispatcher.
-  *
-  * REGISTER CLOBBER ABI -- running this ROM destroys r1..r5 on EVERY pixel
-  * (r4, r5: the per-edge x + neg_vx_k, y + neg_vy_k), so fragment shaders
-  * must treat them as caller-clobbered.
+/** The edge-function rasterizer programs, in ROM so they do not take IMEM space.
+  * The MMIO one reads uniforms 0-11 (dx_k, neg_dy_k, then neg_vx_k, neg_vy_k), leaves
+  * E0..E2 in r1..r3 and the `rast_e*` CSRs, and clobbers r1..r5 on every pixel.
   */
 private[borg] object BorgRasterRom {
   import Instructions._
@@ -33,22 +16,15 @@ private[borg] object BorgRasterRom {
   /** The registers holding E0..E2, then the draw front end's Zn and Zf. */
   val planeRegs: Seq[Int] = Seq(1, 2, 3, 4, 10)
 
-  /** Edge k: e = dx_k * (y + neg_vy_k) + neg_dy_k * (x + neg_vx_k), uniforms
-    * 2k, 2k + 1 and 6 + 2k, 7 + 2k. Clobbers r4, r5. */
+  /** Edge k: e = dx_k * (y + neg_vy_k) + neg_dy_k * (x + neg_vx_k). */
   val instructions: Seq[BigInt] = (0 until 3).flatMap { k =>
     val e = planeRegs(k)
     Seq(ld(e, 6 + 2 * k), ADD(rs1 = 30, rs2 = e, rd = 4), ld(e, 7 + 2 * k), ADD(rs1 = 31, rs2 = e, rd = 5),
         ld(e, 2 * k), MUL(rs1 = e, rs2 = 5, rd = e), ld(5, 2 * k + 1), FMA(rs1 = 5, rs2 = 4, rs3 = e, rd = e))
   } ++ (0 until 3).map(k => out(Csr.RastE0 + k, planeRegs(k))) :+ BigInt(0)
 
-  /** The draw front end's per-pixel program (docs/B1_geometry_front_end.md),
-    * used when DRAW_CFG selects it. Uniforms are the first words of the
-    * triangle's record, written by BorgSetupRom (see its Record layout):
-    * planes a*x + b*y + c for E0..E2 and Zn, then depth scale, depth offset
-    * and 1.0. r30/r31 are the pixel centre.
-    *
-    * Leaves, for the fragment shader (and through the `rast_*` CSRs for the
-    * dispatcher's coverage test):
+  /** The draw front end's per-pixel program (docs/B1_geometry_front_end.md). Uniforms are
+    * BorgSetupRom's Record; r30/r31 are the pixel centre. Leaves, also in the `rast_*` CSRs:
     *   r1..r3  E0..E2, screen-linear edge values, unscaled
     *   r4, r10 Zn = z_ndc and Zf = 1 - Zn, the near and far half-spaces
     *   r5..r7  perspective-correct barycentrics Ek / sum(E)
@@ -93,8 +69,6 @@ private[borg] object BorgRasterRom {
   }
   val drawInstructions: Seq[BigInt] = draw._1
 
-  /** The PC of the first per-sample depth instruction. At one sample every
-    * sample sits at the pixel centre, all four depths equal FragCoord.z, and
-    * BorgCore fetches a HALT here instead. */
+  /** The first per-sample depth instruction; one-sample draws fetch a HALT here instead. */
   val drawSampleDepthPc: Int = draw._2
 }

@@ -9,7 +9,7 @@ class FpuOpFlags extends Bundle {
   val fma    = Bool()
   val mul    = Bool()
   val frcp   = Bool()
-  // Integer ALU ops (16-bit, operate on the raw register bits).
+  // Integer ALU ops on the raw register bits.
   val iadd   = Bool()
   val ishl   = Bool()
   val ishr   = Bool()
@@ -24,34 +24,25 @@ class FpuOpFlags extends Bundle {
   val frsq   = Bool()
   val ddx    = Bool() // quad derivative d/dx (cross-lane: lane1 - lane0)
   val ddy    = Bool() // quad derivative d/dy (cross-lane: lane2 - lane0)
-  // Memory access (LS_BASE + (rs1 << 2)). Both stall the core like TEX/TEXA; the
-  // lane's own ALU write-back never fires for them, because the shared
-  // memory FSM freezes busy_counter at 4 and write-back happens at 1.
+  // LS_BASE + (rs1 << 2); both stall the core like TEX/TEXA.
   val load   = Bool()
   val store  = Bool()
-  // Control flow: BEQ..BGEU and JAL. BorgLane suppresses write-back on it.
+  // BEQ..BGEU and JAL; no write-back.
   val branch = Bool()
-  // Execution-mask ops. Like `branch`, `execOp` exists so BorgLane can
-  // suppress write-back for all three without decoding each: none of them
-  // has a destination register.
+  // Execution-mask ops; `execOp` marks all three as having no destination register.
   val expush = Bool()
   val exelse = Bool()
   val expop  = Bool()
   val execOp = Bool()
-  // Compute only (BorgConfig.hasCompute) -- see Opcodes.MATCH_BARRIER_V2.
-  val barrier = Bool()
-  // See Opcodes.MATCH_EXANY_V2.
+  val barrier = Bool()   // compute only
   val exany   = Bool()
-  // Early per-fragment tests -- see Opcodes.MATCH_ZTEST_V2.
-  val ztest   = Bool()
-  // Draw front end -- see Opcodes.MATCH_SOUT_V2/MATCH_FATTR_V2.
+  val ztest   = Bool()   // early per-fragment tests
   val sout    = Bool()
   val fattr   = Bool()
-  // The descriptor-based texture unit.
   val tex     = Bool()
   val texa    = Bool()
-  val smask   = Bool()   // SMASK
-  val tld     = Bool()   // TLD
+  val smask   = Bool()
+  val tld     = Bool()
   val fine    = Bool()   // DDX/DDY: fine derivatives (rs2 = 1)
   val isrl    = Bool()   // logical shift right (RISC-V SRL)
   val isltu   = Bool()   // unsigned compare (RISC-V SLTU)
@@ -59,9 +50,9 @@ class FpuOpFlags extends Bundle {
   val rvNoWrite = Bool()  // a RISC-V instruction writing x0, or a CSR access (no reads yet)
   val csrw    = Bool()     // CSRRW
   val texs    = Bool()     // TEXS: sampler descriptor address and control word
-  val rvx     = Bool()     // a Zmmul/Zicond/Zbb op (B8 step 3), rvxOp says which
+  val rvx     = Bool()     // a Zmmul/Zicond/Zbb op, rvxOp says which
   val rvxOp   = UInt(6.W)
-  val negC    = Bool()     // FSUB, FMSUB, FNMADD: the FMA's addend negated (B8 step 4)
+  val negC    = Bool()     // FSUB, FMSUB, FNMADD: the FMA's addend negated
   val negProd = Bool()     // FNMADD, FNMSUB: the FMA's product negated
   val csr     = UInt(12.W)
 }

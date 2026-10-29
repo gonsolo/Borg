@@ -24,14 +24,8 @@ class BorgRegPlayerIO extends Bundle {
   val write    = Decoupled(new RegWrite)
 }
 
-/** BorgRegPlayer -- plays a **state block** from GPU memory into the MMIO
-  * registers (docs/B1_geometry_front_end.md, "Render lists").
-  *
-  * A block is a count `n` followed by `n` pairs (register byte offset,
-  * value). Each pair becomes one register write, exactly as if the driver had
-  * written it over the bus, so every register a draw can set is settable per
-  * draw without a second copy of the register map. The words are read one
-  * pair at a time, so the bus may hold a write back for as long as it likes.
+/** Plays a state block from memory into the MMIO registers (docs/B1_geometry_front_end.md):
+  * a count `n`, then `n` (register byte offset, value) pairs, each written as if over the bus.
   */
 class BorgRegPlayer extends Module {
   val io = IO(new BorgRegPlayerIO)

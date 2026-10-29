@@ -6,8 +6,7 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** Dispatch parameters, latched at `start` (the MMIO registers may change
-  * while a dispatch runs). */
+/** Dispatch parameters, latched at `start`. */
 class ComputeDispatchIO extends Bundle {
   val start      = Input(Bool())
   val pc         = Input(UInt(6.W))
@@ -16,15 +15,12 @@ class ComputeDispatchIO extends Bundle {
   val groupsZ    = Input(UInt(16.W))
   val localX     = Input(UInt(8.W))
   val localY     = Input(UInt(8.W))
-  // localX * localY * localZ, supplied by the driver: localZ itself is never
-  // needed, because z is simply what x and y carry into.
+  // localX * localY * localZ: z is just what x and y carry into.
   val localCount = Input(UInt(8.W))
 }
 
-/** What the lanes see in compute mode. */
-/** Sequencer -> BorgCore: integer IDs for r30/r31 in place of the pixel
-  * centre, per lane, and the lanes a trigger starts with. Compute's invocation
-  * IDs, or a vertex shader's VertexIndex/InstanceIndex. */
+/** Sequencer -> BorgCore: per-lane integer IDs for r30/r31 in place of the pixel centre
+  * (invocation IDs, or VertexIndex/InstanceIndex), and the lanes a trigger starts with. */
 class InvocationIdsIO(val cfg: BorgConfig) extends Bundle {
   val mode     = Bool()
   val laneMask = UInt(cfg.fragLanes.W)
@@ -32,8 +28,7 @@ class InvocationIdsIO(val cfg: BorgConfig) extends Bundle {
   val r31      = Vec(cfg.fragLanes, UInt(cfg.totalBits.W))  // LocalInvocationID, x | y << 10 | z << 20
 }
 
-/** BorgCore -> BorgComputeSequencer: why the invocation that just stopped did
-  * so. See Opcodes.MATCH_BARRIER_V2. */
+/** BorgCore -> BorgComputeSequencer: why the invocation that just stopped did so. */
 class ComputeBarrierIO extends Bundle {
   val hit      = Bool()      // stopped at BARRIER, not HALT
   val resumePC = UInt(CoreTriggerIO.PcBits.W)  // valid only when hit; may lie past IMEM
@@ -48,58 +43,18 @@ class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
   val barrier      = Input(new ComputeBarrierIO)
   val lanes        = Output(new InvocationIdsIO(cfg))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
-  // Sticky: set when quads of one workgroup disagreed about whether/where
-  // they hit a BARRIER. Cleared by the next dispatch's start, same shape as
-  // BorgCore's branch_divergent/exec_fault.
+  // Sticky until the next start: quads of one workgroup disagreed about a BARRIER.
   val barrierFault = Output(Bool())
 }
 
-/** BorgComputeSequencer -- vkCmdDispatch on the shader core.
+/** vkCmdDispatch on the shader core: a workgroup runs as a sequence of quads through the
+  * graphics `coreTrigger`. r30/r31 hold LocalInvocationIndex/ID, u29-u31 of page 0 hold
+  * WorkgroupID, and a partial last quad masks its missing lanes. One quad at a time, so
+  * memory is sequentially consistent by construction.
   *
-  * Compute reuses the core unchanged: a workgroup runs as a sequence of quads
-  * of `fragLanes` invocations, one quad at a time, each started through the
-  * same `coreTrigger` the graphics sequencer uses. What differs is only what
-  * the shader can see:
-  *
-  *   - r30/r31 read as raw integers (the lane's LocalInvocationIndex and its
-  *     packed LocalInvocationID) instead of pixel centres;
-  *   - uniforms u29/u30/u31 of page 0 hold WorkgroupID x/y/z, written here
-  *     before each workgroup -- they are uniform across it, so one shared
-  *     write serves every lane of every quad;
-  *   - the last quad of a workgroup whose size is not a multiple of
-  *     `fragLanes` starts with the missing lanes masked off, so they execute
-  *     nothing observable (no register writes, no memory access).
-  *
-  * Everything a shader computes from these -- GlobalInvocationID, addresses,
-  * NumWorkGroups (a push constant) -- is ordinary integer code.
-  *
-  * One workgroup at a time, one quad at a time, and every memory access stalls
-  * the core until it completes: memory is sequentially consistent across all
-  * invocations of a dispatch by construction.
-  *
-  * == BARRIER: a segment loop over the same quad walk ==
-  *
-  * OpControlBarrier needs every invocation of a workgroup to reach it before
-  * any of them proceeds past it. Since a workgroup here is a SEQUENCE of
-  * quads (not concurrent lanes), that becomes: run every quad of the
-  * workgroup up to its BARRIER, THEN run every quad again from just past it,
-  * as a second pass over the exact same (lin, lx, ly, lz) walk sLane already
-  * does -- a "segment" is just which PC that walk starts each quad at.
-  * `segStartPC` is that PC; it resets to the dispatch entry point `pc` at the
-  * start of each workgroup and advances to the barrier's resume point each
-  * time every quad agrees they hit one.
-  *
-  * "Agrees" is enforced, not assumed: SPIR-V requires uniform control flow
-  * through a control barrier (every invocation executes the same one), and a
-  * shader that violates it would otherwise make some quads finish (HALT)
-  * while others are still waiting at a BARRIER that can now never be
-  * reached by every quad -- a real hang, not just a wrong image, if nothing
-  * else read the mismatch. So instead, of the up-to-fragLanes*maxQuads
-  * invocations in one segment: if any two disagree about whether they
-  * stopped at a BARRIER at all, or (both barrier) disagree about the resume
-  * PC, `barrierFault` sets sticky and the workgroup is treated as finished --
-  * same "observable, not silently wrong, not hung" shape as BorgCore's
-  * branch_divergent/exec_fault.
+  * BARRIER: run every quad up to the barrier, then every quad again from its resume PC
+  * (a new segment). Quads that disagree about the barrier set `barrierFault` and end the
+  * workgroup instead of hanging.
   */
 class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgComputeSequencerIO(cfg))
@@ -120,11 +75,10 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val wgY = RegInit(0.U(16.W))
   private val wgZ = RegInit(0.U(16.W))
 
-  // --- Current segment (see class doc) ---
   private val segStartPC    = RegInit(0.U(CoreTriggerIO.PcBits.W))
   private val segSawBarrier = RegInit(false.B)  // some quad this segment stopped at BARRIER
   private val segSawHalt    = RegInit(false.B)  // some quad this segment stopped at HALT
-  private val segResumePC   = RegInit(0.U(CoreTriggerIO.PcBits.W)) // the (checked-common) resume PC, once segSawBarrier
+  private val segResumePC   = RegInit(0.U(CoreTriggerIO.PcBits.W)) // valid once segSawBarrier
   private val barrierFault  = RegInit(false.B)
 
   // The next invocation to hand out, as a linear index and as (x, y, z).
@@ -163,18 +117,12 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.uniformWrite.addr := Cat(0.U(1.W), 29.U(5.W) + uniIdx)
   io.uniformWrite.data := MuxLookup(uniIdx, wgZ)(Seq(0.U -> wgX, 1.U -> wgY))
 
-  /** Reset the per-quad walk (lin/lx/ly/lz/lane, via sWgIds -> sLane) and
-    * (re)write the workgroup-ID uniforms -- shared by "next workgroup" and
-    * "next segment of this same workgroup" (the ID hasn't changed either
-    * way, so re-writing it there is harmless, not just cheap: one fewer
-    * special case). Caller sets segStartPC first. */
+  // Restart the quad walk and rewrite the workgroup IDs (harmless for a new segment).
   private def startWorkgroup(): Unit = {
     uniIdx := 0.U
     state  := sWgIds
   }
 
-  /** Begin a fresh segment of the CURRENT workgroup, starting every quad at
-    * `startPC`. */
   private def beginSegment(startPC: UInt): Unit = {
     segStartPC    := startPC
     segSawBarrier := false.B
@@ -209,8 +157,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       }
     }
 
-    // One lane per cycle: stepping (x, y, z) one invocation at a time needs
-    // only one wrap-incrementer, where doing all lanes at once needs a chain.
+    // One lane per cycle needs one wrap-incrementer instead of a chain.
     is(sLane) {
       val valid = lin < count
       laneIdx(laneSel) := lin
@@ -234,15 +181,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
     is(sWait) {
       when(coreFinished) {
-        // Fold this quad's stop reason into the segment's aggregate. Reads of
-        // segSawBarrier/segResumePC below see their value from BEFORE this
-        // quad (Chisel Reg semantics), i.e. "what prior quads this segment
-        // already established" -- exactly what a same-segment disagreement
-        // check needs. sawBarrierNext/sawHaltNext additionally fold in THIS
-        // quad, for the "is the segment, as of the quad that just finished,
-        // clean" decision below (which needs its own contribution, not just
-        // the ones before it -- otherwise a one-quad-workgroup could never
-        // see its own barrier hit).
+        // segSaw* hold the prior quads; the *Next values include this one.
         val hitBarrier    = io.barrier.hit
         val sawBarrierNext = segSawBarrier || hitBarrier
         val sawHaltNext    = segSawHalt    || !hitBarrier
@@ -261,7 +200,6 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
           lane  := 0.U
           state := sLane
         }.elsewhen(sawBarrierNext && !sawHaltNext) {
-          // Every quad of this workgroup hit the same barrier: next segment.
           beginSegment(Mux(segSawBarrier, segResumePC, io.barrier.resumePC))
         }.elsewhen(wgX +& 1.U < groupsX) {
           wgX := wgX + 1.U

@@ -6,22 +6,12 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** FP16 <-> FP32 boundary conversion, for the spots that deliberately stay
-  * FP16-native even when cfg.fp = FloatConfig.FP32 (rasterizer coordinate
-  * generation, texture sampling, Fp16Special) but need to hand a value to or
-  * from the general (now FP32) shader ALU. See the feat/fp32-datapath
-  * branch's plan doc for the boundary list.
+/** FP16 <-> FP32 conversion where FP16-native units (rasterizer coordinates, texture
+  * sampling, Fp16Special) meet the FP32 shader ALU.
   */
 object Fp16Fp32 {
-  /** FP16 -> FP32 widen. Exact for zero and normal FP16 inputs -- the only
-    * values any current caller (BorgLane's pixelToFP16Half pixel-center
-    * generation; a future texture-sample-output widen) ever produces.
-    * Subnormal FP16 inputs flush to a correctly-signed zero rather than
-    * being renormalized -- a common, defensible GPU simplification, not
-    * exercised by any current call site (pixel coordinates and texel
-    * colours never produce FP16 subnormals in this pipeline). Inf/NaN pass
-    * through as FP32 Inf/NaN (exponent all-ones); NaN-ness is preserved but
-    * the payload is zero-extended rather than IEEE-repositioned.
+  /** FP16 -> FP32 widen, exact for zero and normals. Subnormals flush to signed zero
+    * (no caller produces them); Inf/NaN stay Inf/NaN, the payload is not repositioned.
     */
   def widen(h: UInt): UInt = {
     require(h.getWidth == 16, s"Fp16Fp32.widen expects a 16-bit FP16 pattern, got ${h.getWidth}")
@@ -38,19 +28,9 @@ object Fp16Fp32 {
     Cat(sign, exp32(7, 0), mant32)
   }
 
-  /** FP32 -> FP16 narrow, round-to-nearest-even. Used at boundaries where a
-    * value computed on the general (FP32) ALU needs to become a real FP16
-    * value for FP16-native hardware to consume (e.g. Fp16Special's rcp/
-    * rsqrt/sRGB input). Correctly rounds the normal range (guard/sticky/
-    * round-to-even on the dropped 13 mantissa bits, matching this
-    * codebase's existing f2i idiom for the exponent unbias: `expF.zext -
-    * bias.S`), saturates overflow (exponent too large for FP16) to +/-Inf,
-    * and flushes underflow -- including FP16's own subnormal band -- to a
-    * correctly-signed zero. The flush-to-zero choice mirrors widen()'s
-    * simplification above, for the same reason: not exercised by any
-    * current caller's real value range (reciprocal/rsqrt/sRGB operands,
-    * pixel coordinates, and colours all stay well inside FP16's normal
-    * range). Inf/NaN pass through; NaN-ness is preserved, not the payload.
+  /** FP32 -> FP16 narrow, round-to-nearest-even. Overflow saturates to +/-Inf, underflow
+    * (including the FP16 subnormal band) flushes to signed zero; no caller's operands
+    * leave the FP16 normal range. Inf/NaN pass through, not the NaN payload.
     */
   def narrow(f: UInt): UInt = {
     require(f.getWidth == 32, s"Fp16Fp32.narrow expects a 32-bit FP32 pattern, got ${f.getWidth}")
@@ -66,9 +46,7 @@ object Fp16Fp32 {
     val overflow  = eUnbiased > 15.S
     val exp16Normal = (eUnbiased + 15.S).asUInt(4, 0)
 
-    // Round-to-nearest-even: keep the top 10 bits of the 23-bit mantissa;
-    // guard = first dropped bit, sticky = OR of the rest, tie-to-even on
-    // the kept LSB.
+    // Keep the top 10 mantissa bits; guard, sticky, ties to even.
     val keep    = mant32(22, 13)
     val guard   = mant32(12)
     val sticky  = mant32(11, 0).orR
@@ -76,9 +54,7 @@ object Fp16Fp32 {
     val mantSum = keep +& roundUp
     val mantissaCarry   = mantSum(10)
     val mantissaRounded = Mux(mantissaCarry, 0.U(10.W), mantSum(9, 0))
-    // A carry here means the mantissa rounded up to 1.0 -- bumping the
-    // exponent by one correctly reaches Inf's bit pattern (exp=31,
-    // mant=0) in the one case that lands exactly on FP16's max exponent.
+    // A carry bumps the exponent, which correctly reaches Inf at FP16's max exponent.
     val exp16Rounded = (exp16Normal +& mantissaCarry.asUInt)(4, 0)
 
     val exp16 = MuxCase(exp16Rounded, Seq(

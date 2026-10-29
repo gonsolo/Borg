@@ -14,17 +14,9 @@ import chisel3.util._
   *   [11:0]  payload  channel-specific, see below
   * }}}
   *
-  * Payload layouts, each exactly 12 bits:
-  *
-  *   - M.A: `{size[1:0], addr[9:0]}`         -- HuttBus(10) request
-  *   - V.A: `{wlenLog2[2:0], 9'b0}`          -- gpuMem request; the 32-bit
-  *     byte address follows in two flits, `addr[15:0]` then `addr[31:16]`
-  *     (low half first, like every data word on the link)
-  *   - D:   zero
-  *
-  * The burst length is encoded as a log2 so that the total packet length stays a
-  * pure function of the header alone.  That is the whole reason [[LinkRx]] can be
-  * a two-state FSM instead of having to decode a length that arrives mid-packet.
+  * Payloads: M.A `{size[1:0], addr[9:0]}`; V.A `{wlenLog2[2:0], 9'b0}`, followed by the byte
+  * address low half first; D zero. A log2 burst length keeps the packet length a function
+  * of the header alone, so [[LinkRx]] stays a two-state FSM.
   */
 class LinkHeader extends Bundle {
   val chan    = UInt(1.W)
@@ -41,10 +33,8 @@ object LinkHeader {
     h
   }
 
-  /** Reinterpret a raw 16-bit flit as a header. */
   def fromBits(bits: UInt): LinkHeader = bits.asTypeOf(new LinkHeader)
 
-  // -- payload accessors ----------------------------------------------------
   def mmioAddr(h: LinkHeader): UInt = h.payload(9, 0)
   def mmioSize(h: LinkHeader): UInt = h.payload(11, 10)
 
@@ -54,23 +44,14 @@ object LinkHeader {
   def vramPayload(wlenLog2: UInt): UInt = Cat(wlenLog2(2, 0), 0.U(9.W))
 }
 
-/** One 16-bit flit of a packet, with an end-of-packet marker.
-  *
-  * Producers (the adapters) emit header-then-payload and raise `last` on the
-  * final flit.  [[LinkTx]] arbitrates at packet granularity and will not
-  * interleave another channel until it has seen `last`.
-  */
+/** One 16-bit flit; [[LinkTx]] does not interleave another channel before `last`. */
 class LinkFlitStream extends Bundle {
   val flit = UInt(16.W)
   val last = Bool()
 }
 
-/** The pins for one direction.
-  *
-  * `p` is *odd* parity over `{d, v}`.  Odd is deliberate: an unplugged or
-  * stuck-low cable presents `d=0, v=0, p=0`, which is even, so it fails parity
-  * on every beat and `link_up` can never assert.  Parity is therefore checked on
-  * idle beats too, not just during packets.
+/** The pins for one direction. `p` is odd parity over `{d, v}`, so an unplugged or stuck-low
+  * cable fails parity on every beat, idle beats included.
   */
 class LinkPins(val w: Int) extends Bundle {
   val d = UInt(w.W)
@@ -80,26 +61,14 @@ class LinkPins(val w: Int) extends Bundle {
 
 object LinkFlit {
 
-  /** Odd parity over the concatenation of `d` and `v`. */
   def parity(d: UInt, v: Bool): Bool = !(Cat(d, v).xorR)
 
-  /** Odd parity over only the lanes narrow mode is actually using.
-    *
-    * In narrow mode d[15:8] is tied low and carries nothing, so it must be
-    * excluded: folding a dead half into the checksum would make a stuck-high
-    * unused lane look like a data error, and — worse — a stuck-LOW one
-    * contribute nothing, hiding the very fault parity exists to catch on the
-    * lanes that are live. `narrow` is ignored unless the build is narrowCapable,
-    * so a fixed-width link elaborates exactly the logic it did before.
-    */
+  // Narrow mode excludes the dead d[15:8], which would otherwise mask or fake lane faults.
   def parityW(d: UInt, v: Bool, narrow: Bool, p: LinkParams): Bool =
     if (!p.narrowCapable) parity(d, v)
     else Mux(narrow, parity(d(7, 0), v), parity(d, v))
 
-  /** Flits in a packet travelling FPGA→ASIC, from its header alone.
-    *
-    * DN carries M.A (request) and V.D (response).
-    */
+  /** Flits in an FPGA→ASIC packet (M.A requests, V.D responses). */
   def flitsDn(h: LinkHeader): UInt =
     Mux(
       h.chan === LinkChan.M,
@@ -109,16 +78,11 @@ object LinkFlit {
       Mux(h.opcode === TLOpcode.AccessAckData, 3.U, 1.U)
     )
 
-  /** Flits in a packet travelling ASIC→FPGA, from its header alone.
-    *
-    * UP carries V.A (request) and M.D (response).
-    */
+  /** Flits in an ASIC→FPGA packet (V.A requests, M.D responses). */
   def flitsUp(h: LinkHeader): UInt =
     Mux(
       h.chan === LinkChan.V,
-      // V.A: header + addr[15:0] + addr[31:16], then one flit per burst word
-      // on writes. gpuMem.wdata only carries 16 meaningful bits, so a word is
-      // one flit.
+      // V.A: header and two address flits, then one flit per burst word on writes.
       Mux(
         h.opcode === TLOpcode.Get,
         3.U,
@@ -128,7 +92,6 @@ object LinkFlit {
       Mux(h.opcode === TLOpcode.AccessAckData, 3.U, 1.U)
     )
 
-  /** True when the header names an A-type (request) packet in this direction. */
   def isRequestDn(h: LinkHeader): Bool = h.chan === LinkChan.M
   def isRequestUp(h: LinkHeader): Bool = h.chan === LinkChan.V
 }

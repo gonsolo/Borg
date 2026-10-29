@@ -150,12 +150,10 @@ class MemUnit(cfg: BorgConfig) extends Module {
     finishLane()
   }
 
-  // FATTR: word k to rd+k of every active lane, three times, from the varying cache when it holds
-  // the word, else from DRAM. The cache is direct-mapped over record words. Pass 1 wrote them all
-  // before Pass 2 reads them and nothing writes them during Pass 2, so nothing watches writes: each
-  // Pass 2 start (record.attrFlush) moves to a new epoch, and an entry hits only in the epoch it
-  // was filled in. Epoch 0 is never current; when the epoch wraps, and out of reset, a sweep
-  // rewrites every entry's epoch to 0 and nothing hits until it ends.
+  // FATTR: word k to rd+k of every active lane, three times, through a direct-mapped varying cache.
+  // Nothing writes records during Pass 2, so instead of snooping writes each Pass 2 start moves to
+  // a new epoch and an entry hits only in its own. Epoch 0 is never current; on wrap and out of
+  // reset a sweep zeroes every entry's epoch, and nothing hits until it ends.
   private val fcLog2    = cfg.fattrCacheLog2
   private val fcTagBits = GpuMemIO.AddrBits - 2
   private val fcWidth   = fcTagBits + 8 + W                  // tag, epoch, data

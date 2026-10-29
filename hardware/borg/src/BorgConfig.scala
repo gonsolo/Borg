@@ -31,41 +31,28 @@ case class BorgConfig(
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   def fifoDepth: Int = 2
-  /** FATTR's varying cache, 2^n words (vkcube: 2.39M -> 2.12M cycles). */
-  def fattrCacheLog2: Int = 8
-  /** Texture descriptors TEX keeps. */
+  def fattrCacheLog2: Int = 8           // FATTR's varying cache, 2^n words
   def texDescCacheLog2: Int = 2
-  /** At least SEQ_MAX_TRI in software/borg/borg_layout.h. */
-  def maxTrianglesPerTile: Int = 256
-  /** Planes whose MSAA sample deltas travel with a triangle: the three edges
-    * and the depth plane Zn (the far plane's are Zn's, negated). */
+  def maxTrianglesPerTile: Int = 256    // at least SEQ_MAX_TRI in software/borg/borg_layout.h
+  // The three edges and Zn; the far plane's sample deltas are Zn's, negated.
   def coveragePlanesStored: Int = 4
-  /** FP32 depth holds every D16/D24 value and D32_SFLOAT exactly. */
-  def tileDepthBits: Int = 32
-  /** 16K-word programs: branches reach their 1024-word page, JAL anywhere. */
-  def pcBits: Int = 14
-  /** Direct-mapped cache lines: the largest power of two within IMEM. Lines
-    * at and above it (IMEM 64..71 on a 72-word build) are never replaced. */
+  def tileDepthBits: Int = 32           // holds every D16/D24 value and D32_SFLOAT exactly
+  def pcBits: Int = 14                  // branches reach their 1024-word page, JAL anywhere
+  // The largest power of two within IMEM; lines above it are never replaced.
   def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
   // Line state in a RAM instead of flops once flops would cost more than a RAM.
   def icacheMetaInRam: Boolean = maxInstructions > 128
-  /** The datapath is FP32: Vulkan's minimum. */
-  def fp: FloatConfig = FloatConfig.FP32
+  def fp: FloatConfig = FloatConfig.FP32 // Vulkan's minimum
   def totalBits: Int = fp.totalBits
-  /** A 2x2 pixel quad per shader pass: DDX/DDY (and Vulkan's derivatives) need it. */
-  def fragLanes: Int = 4
+  def fragLanes: Int = 4                // a 2x2 quad: DDX/DDY need it
   def exp: Int = fp.exp
   def sig: Int = fp.sig
 
-  // --- Pipeline stages (BorgCore's "Pipeline" doc), counted down to write-back at 1 ---
-  /** pipeEn2: magR capture. */
-  def cPipeEn2: Int = 3
-  /** pipeEn1 / all three operands held and valid -- also when BorgCore starts
-    * TEX/TEXA, LOAD/STORE and evaluates branches. */
+  // Pipeline stages (BorgCore's "Pipeline" doc), counted down to write-back at 1.
+  def cPipeEn2: Int = 3                 // magR capture
+  // All three operands valid; BorgCore also starts TEX/TEXA, LOAD/STORE and branches here.
   def cOperands: Int = 4
-  /** Issue: rs1, rs2 and rs3 read, held here. */
-  def cHoldC: Int = 5
-  /** Stages an instruction passes through after issue. */
+  def cHoldC: Int = 5                   // issue: rs1, rs2 and rs3 read
   def cBusyLoad: Int = cHoldC
   def busyCounterWidth: Int = chisel3.util.log2Ceil(cBusyLoad + 1)
 }
@@ -74,13 +61,12 @@ object BorgConfig {
   // What Vulkan 1.0 needs: the simulators, and the base of every other config.
   val Default = BorgConfig()
 
-  // The ULX3S: what unmodified cube.c uses; the full set is ~13% over the ECP5-85K.
+  // The ULX3S: what unmodified cube.c uses, since the full set does not fit the ECP5-85K.
   // 1024 bin tiles cover its 128x128 framebuffer.
   val Cube = Default.copy(maxBinTiles = 1024, samples = 1, hasBlend = false,
                           hasStencil = false, hasCompute = false, hasDepthFlush = false)
 
-  // The ASIC (wafer.space GF180MCU 1x1, BorgOnlyTop; QspiSocTop too): Default sized down.
-  // cube.frag is 59 words.
+  // The ASIC (BorgOnlyTop, QspiSocTop too): Default sized down; cube.frag is 59 words.
   val Wafer = Default.copy(
     coordWidth       = 7,
     maxBinTiles      = 16,
@@ -88,6 +74,6 @@ object BorgConfig {
     maxUniforms      = 32
   )
 
-  // Unit tests: the tile dirty bits dominate elaboration (4096 tiles: 1092 s, 64: 13 s).
+  // Unit tests: the tile dirty bits dominate elaboration time.
   val Test = Default.copy(maxBinTiles = 64)
 }

@@ -10,33 +10,24 @@ import hutt.HuttBus
 
 class BorgLinkSlaveIO(val p: LinkParams) extends Bundle {
 
-  /** To Borg's `mmio` port.  Borg declares `Flipped(HuttBus(10))`, so the adapter
-    * takes the unflipped side: it drives `req` and receives `resp`.
-    */
+  // To Borg's Flipped mmio port: the adapter drives `req`.
   val mmio = new HuttBus(10)
 
-  /** To Borg's `gpuMem` port.  Borg is the master, so the adapter is the memory side. */
   val gpuMem = Flipped(new GpuMemIO)
 
   val dnPins = Input(new LinkPins(p.w))
   val upPins = Output(new LinkPins(p.w))
 
-  /** Credit we return for consumed M.A packets. */
-  val dnCred = Output(Bool())
-
-  /** Credit the far side returns for our V.A packets. */
-  val upCred = Input(Bool())
+  val dnCred = Output(Bool())   // returned for consumed M.A packets
+  val upCred = Input(Bool())    // returned by the far side for our V.A packets
 
   val linkFast = Input(Bool())
-  /** `link_narrow` strap: halve the lanes at runtime. Only load-bearing when
-    * the build is narrowCapable; see LinkParams. */
+  // `link_narrow` strap: halve the lanes at runtime (narrowCapable builds only).
   val narrow   = Input(Bool())
   val linkUp   = Output(Bool())
   val linkErr  = Output(Bool())
 
-  /** Internal state worth seeing from outside the package when the chip does
-    * not come up. See BorgLinkClockGenIO's dbg fields for why training progress
-    * in particular is the signal that separates the plausible causes. */
+  // For a chip that does not come up; see BorgLinkClockGenIO's dbg fields.
   val dbgTrainGood = Output(UInt(log2Ceil(p.trainBeats + 1).W))
   val dbgChanged   = Output(Bool())
   val dbgRxErr     = Output(Bool())
@@ -44,35 +35,9 @@ class BorgLinkSlaveIO(val p: LinkParams) extends Bundle {
   val dbgTxBusy    = Output(Bool())
 }
 
-/** ASIC-side link adapter: the bridge between the pins and Borg's own ports.
-  *
-  * == Why the four interface hazards dissolve ==
-  *
-  * The governing principle is that '''both adapters stay in Borg's clock domain and
-  * only the flit stream crosses'''.  Nothing about Borg's timing contract is
-  * transported over a wire, so:
-  *
-  *  1. `gpuMem.ready` is a one-cycle pulse with no backpressure.  It is never
-  *     transported; this adapter '''generates it locally''' when the V.D response
-  *     arrives.
-  *  2. `gpuMem.req`/`wr` are level-held with no accept handshake.  That is a
-  *     feature here, not a problem: it makes the protocol latency-tolerant by
-  *     construction.  They are level-sampled in `sVIdle`, exactly as
-  *     `MemoryController`'s own idle state does.
-  *  3. `mmio.req.ready` and `resp.valid` are gated by `rast.io.autoRunStall` and can
-  *     be '''withdrawn mid-flight'''.  Holding `resp.ready` unconditionally high in
-  *     `sMResp` means the only event that matters is a fire, so a
-  *     withdrawn-then-reasserted `valid` needs no state at all.
-  *  4. `waccept` is a per-word burst pull.  It never crosses a wire: the adapter
-  *     pulses it locally at one word per cycle to drain the whole burst into
-  *     `vBuf` '''before''' transmitting.  That is also what satisfies [[LinkTx]]'s
-  *     atomicity requirement -- a packet cannot stall once started.
-  *
-  * `BorgTestWrapper` already models hazard 3 correctly and was the template.
-  *
-  * Received traffic is gated on `linkUp` because the training pattern keeps `v`
-  * asserted with valid parity, so [[LinkRx]] will decode garbage packets from it.
-  */
+/** ASIC-side link adapter between the pins and Borg's ports. Only the flit stream crosses:
+  * `gpuMem.ready` and `waccept` are generated locally, and a burst is drained into `vBuf` before
+  * it is sent, since a [[LinkTx]] packet cannot stall once started. */
 class BorgLinkSlave(val p: LinkParams) extends Module {
   val io = IO(new BorgLinkSlaveIO(p))
 
@@ -80,28 +45,9 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   val tx     = Module(new LinkTx(p))
   val rx     = Module(new LinkRx(p, isDn = true))
 
-  // Pad inputs are pre-registered on the falling edge before clkgen/rx's own
-  // (unmodified) rising-edge capture. The far side launches on the same
-  // clock, so a bare rising-edge capture races it: the capture flop's clock
-  // arrives ~10 ns late through the clock tree while the data needs none
-  // (2026-09-23, run holdscope: hold failed by up to 0.68 ns on exactly
-  // these pins, named `slave.clkgen.inD`/`slave.rx.inD`/`slave.rx.inP`).
-  // `.d`/`.v`/`.p` must stay on ONE shared delay profile: `rx`'s own
-  // parityOk/framing logic compares them against each other every beat, so
-  // staging some and not others desyncs that comparison against itself,
-  // independent of anything about narrow mode (found by trying it: an
-  // intermediate version staged `.d`/`.p` but not `.v`, which is internally
-  // inconsistent regardless of what it did to any test). `.d` also has to
-  // match clkgen.io.rxPins.d specifically -- clkgen's phase-lock only reads
-  // `.d`, so a mismatched delay there leaves beatEn positioned correctly for
-  // one consumer and a full cycle wrong for the other.
-  //
-  // Moving the training phase this way exposed a latent LinkRx bug, not a
-  // pre-stage one: a valid idle beat did not clear a half-assembled narrow
-  // flit left over from decoding the training pattern, so narrow mode only
-  // worked when training happened to stop on an even sub-beat -- a coin
-  // flip on silicon. Fixed in LinkRx's sIdle
-  // (chip_link_tb.test_narrow_strap_round_trip).
+  // Falling-edge pre-register: the far side launches on the same clock, so a rising-edge capture
+  // behind the clock tree fails hold. d/v/p share one delay: rx compares them every beat, and
+  // clkgen's phase lock reads d.
   private val fallClock = (!clock.asBool).asClock
   private val dnPinsIn  = withClock(fallClock)(RegNext(io.dnPins))
 
@@ -121,26 +67,10 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   rx.io.pins   := dnPinsIn
   io.upPins    := tx.io.pins
 
-  // Received traffic -- packets and errors alike -- only counts from a defined
-  // resynchronization point: the first idle beat after link_up. Until then the
-  // receiver is still decoding the master's training pattern, which carries v=1
-  // with valid parity: link_up rises here as soon as the phase locks, but the
-  // master keeps training until farLinkUp has propagated back. The inverting
-  // training word decodes alternately as a 1-flit header (0xA5A5) and a 3-flit
-  // M.A write header (0x5A5A), so where training happens to stop decides whether
-  // the receiver is left mid-packet. Without this gate that was visible two ways
-  // on the gate-level netlist, where the stopping point differs from RTL: a
-  // spurious sticky link_err, and a training "write" that parked the MMIO FSM in
-  // sMCollect so it swallowed the first real request as data.
-  //
-  // `synced` is set on the receiver's OWN beat, from the same registered pin
-  // capture LinkRx decodes, and only by a parity-valid idle (a floating or
-  // stuck line is not a gap). Deriving it from a per-cycle flag instead made the
-  // outcome depend on which core cycle the beat falls in, a phase silicon does
-  // not control. At that beat LinkRx aborts any half-finished training packet
-  // (io.err) while `synced` is still false, so the abort is not latched, and
-  // every later beat is judged normally. BorgLinkMaster guarantees that idle
-  // beat by holding its link_up until a gap has gone out after training.
+  // Received traffic counts only from the first parity-valid idle beat after link_up: training
+  // carries v=1 with valid parity and decodes as packet headers, so where it stops can leave the
+  // receiver mid-packet. LinkRx aborts that packet on this beat, before `synced` is set.
+  // BorgLinkMaster sends the idle beat by holding its link_up until a gap has gone out.
   val synced = RegInit(false.B)
   when(linkUp && rx.io.idle) { synced := true.B }
 
@@ -154,7 +84,6 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   io.dbgRxParity  := rx.io.errParity
   io.dbgTxBusy    := tx.io.busy
 
-  // -- Receive demux ---------------------------------------------------------
   val rxFire  = rx.io.out.valid && linkUp && synced
   val rxHdr   = rx.io.hdr
   val rxIsM   = rxHdr.chan === LinkChan.M // M.A request from the FPGA
@@ -163,9 +92,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   val rxFlit  = rx.io.out.bits.flit
   val rxIdx   = rx.io.out.bits.idx
 
-  // ==========================================================================
-  // MMIO path: M.A in on DN, drive Borg, M.D out on UP
-  // ==========================================================================
+  // MMIO path: M.A in on DN, drive Borg, M.D out on UP.
   val sMIdle :: sMCollect :: sMReq :: sMResp :: sMSend :: Nil = Enum(5)
   val mState = RegInit(sMIdle)
 
@@ -181,7 +108,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   io.mmio.req.bits.data  := mData
   io.mmio.req.bits.write := mWrite
   io.mmio.req.bits.size  := mSize
-  // Hazard 3: hold ready high so the only observable event is a fire.
+  // resp.valid can be withdrawn mid-flight (autoRunStall); with ready held high only a fire counts.
   io.mmio.resp.ready     := mState === sMResp
 
   val mCredRet = RegInit(false.B)
@@ -243,17 +170,14 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   when(mState === sMSend && tx.io.d.fire) {
     when(tx.io.d.bits.last) {
       mState := sMIdle
-      // Return the M.A credit only now: the adapter holds exactly one request,
-      // so it must not invite another until this one is fully retired.
+      // The adapter holds one request, so the credit returns only once it retires.
       mCredRet := !mCredRet
     }.otherwise {
       mFlit := mFlit + 1.U
     }
   }
 
-  // ==========================================================================
-  // gpuMem path: Borg's requests out as V.A on UP, V.D responses back on DN
-  // ==========================================================================
+  // gpuMem path: Borg's requests out as V.A on UP, V.D responses back on DN.
   val sVIdle :: sVDrain :: sVSend :: sVWait :: Nil = Enum(4)
   val vState = RegInit(sVIdle)
 
@@ -268,24 +192,13 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
 
   val vWords = (1.U << vWlenLog2).asUInt
 
-  // Hazard 1: generated locally, never transported.
   io.gpuMem.ready := vReady
   io.gpuMem.data  := vData
-  // Hazard 4: pulled locally, one word per cycle, entirely on this side.
-  // Gated on an actual burst to match MemoryController, whose `waccept` is
-  // `burst && backend.accept` with `burst := wlen > 1`: a single-word write
-  // pulls nothing there.  The distinction matters because Borg routes
-  // `waccept` to BorgTileFlusher unconditionally (Borg.scala), so a pulse
-  // emitted during someone else's single-word write (BorgBinner, the
-  // sequencer store) would advance the flusher's burst pointer behind its
-  // back.  Draining still works without it: a 1-word packet spends exactly
-  // one cycle in sVDrain and captures `wdata` from the bus directly.
+  // Bursts only, as MemoryController: Borg routes `waccept` to the flusher unconditionally, so a
+  // pulse during another unit's single-word write would advance the flusher's burst pointer.
   io.gpuMem.waccept := (vState === sVDrain) && (vWords > 1.U)
 
-  // upCred was never in the measured hold-violator list (only clkgen.inD and
-  // rx.inD/inV/inP were), and CreditCounter's Sync2 is already a 2-flop
-  // synchronizer with its own built-in margin -- left unregistered here on
-  // purpose rather than fixing a violation that hasn't actually been observed.
+  // No falling-edge stage: CreditCounter already synchronizes upCred.
   val credit = Module(new CreditCounter(p.creditDepth))
   credit.io.returnPin := io.upCred
 
@@ -293,38 +206,10 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
 
   switch(vState) {
     is(sVIdle) {
-      // Hazard 2: level-sampled, exactly as MemoryController's sIdle does --
-      // and, just as importantly, with the same one-cycle grace after `ready`.
-      //
-      // Borg's gpuMem masters (BorgDMA's `sRead`, BorgBinner, the rasterizer,
-      // BorgTileFlusher) drive `req`/`wr` as a pure function of FSM state, so
-      // the request stays asserted *through* the ready cycle with the old
-      // address still on the bus; only on the next cycle does the address
-      // advance or the request drop.  MemoryController is immune to that
-      // because it pulses `ready` from `sRespond` and re-arbitrates only in
-      // `sIdle`, one cycle later.  Sampling here while `vReady` is high would
-      // instead re-issue the request that just completed, then answer the
-      // master's *next* request with the duplicate's stale data -- shifting
-      // every subsequent word by one.  Observed on real hardware as a render
-      // that completes one frame and then wedges in the sequencer's DMA.
-      // Gated on `linkUp && synced`, the same condition `rxFire` uses on the
-      // receive side: before it, there is nowhere for a V.A to go -- the far
-      // side is still decoding the training pattern, not listening for
-      // packets, so a request accepted here would sit in sVWait forever
-      // waiting for a V.D that structurally cannot arrive. Borg's gpuMem
-      // masters hold `req`/`wr` as a pure function of their own FSM state
-      // (see the hazard-2 note below), so in normal operation nothing ever
-      // asserts them before the firmware/driver has itself observed link_up
-      // and started issuing real work -- this only guards the window before
-      // that, where a not-yet-reset unit's power-up/reset-lag state could
-      // otherwise glitch `req`/`wr` high for a cycle and wedge the adapter on
-      // a reply that never comes (found via BorgGpuMemWordTests.
-      // fp32_store_load_over_link: a 1-cycle testbench reset let the binner's
-      // undefined pre-reset state issue exactly such a glitch).
+      // Masters hold req/wr through the ready cycle, so skip that cycle as MemoryController does,
+      // or the finished request is issued twice. Before sync no V.D could ever answer a request.
       when(!vReady && linkUp && synced) {
-        // Priority matches MemoryController's sIdle (writes before reads), so
-        // a master that ever asserted both would be served identically with
-        // and without the link.
+        // Writes before reads, as MemoryController.
         when(io.gpuMem.wr) {
           vAddr     := io.gpuMem.addr
           vWrite    := true.B
@@ -334,10 +219,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
         }.elsewhen(io.gpuMem.req) {
           vAddr     := io.gpuMem.addr
           vWrite    := false.B
-          // Reads carry no burst length, but the field still goes out in the
-          // header -- pin it to 0 rather than leaking the previous write's
-          // value (which would arrive as a nonsense `gpuMem.wlen` on the far
-          // side and is uninitialized entirely before the first write).
+          // The header still carries the length field.
           vWlenLog2 := 0.U
           vFlit     := 0.U
           vState    := sVSend
@@ -345,10 +227,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
       }
     }
     is(sVDrain) {
-      // gpuMem.wdata carries only 16 meaningful bits, so one word is one flit.
-      // vCnt is sized to count up to maxBurst inclusive (as a completion check
-      // below), one bit wider than a bare index into the maxBurst-entry vBuf --
-      // truncate rather than let the dynamic index warn as oversized.
+      // One 16-bit word per flit; vCnt counts to maxBurst inclusive, so truncate the index.
       vBuf(vCnt(log2Ceil(p.maxBurst) - 1, 0)) := io.gpuMem.wdata(15, 0)
       vCnt       := vCnt + 1.U
       when(vCnt === (vWords - 1.U)) {
@@ -367,7 +246,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
               vState := sVIdle
             }
         }.otherwise {
-          // AccessAck: burst write complete.
+          // AccessAck
           vReady := true.B
           vState := sVIdle
         }
@@ -411,6 +290,5 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
       "encodes it as log2 so that packet length stays a pure function of the header"
   )
 
-  /** wlen is a power of two (and non-zero). */
   private def isPow2Wlen(wlen: UInt): Bool = (wlen & (wlen - 1.U)) === 0.U && wlen =/= 0.U
 }

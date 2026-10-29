@@ -25,8 +25,7 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeft: Vec[Bool],
   val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val z_outside  = RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B))))
-  // The raw values, for the per-sample tests. The ROM writes every plane of every lane before
-  // they are read, so they need no reset.
+  // Raw values for the per-sample tests; the ROM writes them all before any read, so no reset.
   val e_val = Option.when(cfg.samples > 1)(Reg(Vec(N, Vec(nPlanes, UInt(w.W)))))
 
   def ordered(x: UInt): UInt = Mux(x(w - 1), ~x, x | (1.U << (w - 1)))

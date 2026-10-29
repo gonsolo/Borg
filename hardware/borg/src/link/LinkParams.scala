@@ -6,27 +6,16 @@ package borg.link
 import chisel3._
 import chisel3.util._
 
-/** TileLink TL-UL opcode encodings, reused verbatim on the wire.
-  *
-  * Nothing here depends on rocket-chip -- these are just the numbers, copied so
-  * that a future thin adapter into a Chipyard/Rocket system does not have to
-  * translate.  TL-UL and TL-UH are wire-identical (A+D only, `hasBCE=false`);
-  * only TL-C adds the B/C/E channels, which this link does not carry.
-  *
-  * A- and D-channel opcode spaces overlap by design in TileLink (`PutFullData`
-  * and `AccessAck` are both 0).  They never collide here because each physical
-  * direction carries exactly one A-type and one D-type channel, and the header's
-  * `chan` bit says which:
-  *
-  *   - DN (FPGA→ASIC): chan M is A-type (MMIO request), chan V is D-type (VRAM response)
-  *   - UP (ASIC→FPGA): chan V is A-type (VRAM request),  chan M is D-type (MMIO response)
+/** TileLink TL-UL opcodes, verbatim on the wire so a Chipyard adapter need not translate.
+  * A and D opcodes overlap; the header's `chan` bit tells them apart: downstream M is A-type and
+  * V is D-type, upstream the reverse.
   */
 object TLOpcode {
-  // A-channel (request)
+  // A channel
   val PutFullData    = 0.U(3.W)
   val PutPartialData = 1.U(3.W)
   val Get            = 4.U(3.W)
-  // D-channel (response)
+  // D channel
   val AccessAck      = 0.U(3.W)
   val AccessAckData  = 1.U(3.W)
 }
@@ -39,42 +28,16 @@ object LinkChan {
 
 /** Chip-to-chip link configuration.
   *
-  * @param w            Data lanes per direction on the pins.  16 fills the 46-pad
-  *                     budget exactly; 8 is the `link_narrow` post-silicon recovery
-  *                     mode, which halves the pins and doubles `beatsPerFlit`.
-  *                     The 16-bit flit format is unchanged either way.
-  * @param narrowCapable Build the *runtime* w=16 -> w=8 mux, driven by the
-  *                     `link_narrow` strap, rather than fixing the width at
-  *                     elaboration.  This is what makes narrow mode a real
-  *                     recovery path: ASIC pins cannot be re-synthesized after
-  *                     tapeout, so a Scala-time `w = 8` is only a different
-  *                     build, not something silicon can be talked into.  The
-  *                     lanes stay physically 16 wide; narrow drives d[7:0] and
-  *                     ties d[15:8] low, takes two beats per flit (LSB slice
-  *                     first, matching the elaboration-time split), and
-  *                     computes parity over the ACTIVE lanes only -- covering
-  *                     the tied-off half would make a stuck-high unused lane
-  *                     indistinguishable from real data.
-  * @param creditDepth  Outstanding A-channel packets permitted per direction.  This
-  *                     '''must not exceed what the receiver can buffer'''.  Both
-  *                     adapters are single-outstanding by construction -- `HuttBus`
-  *                     is a single-outstanding req/resp bus and Borg holds `gpuMem`
-  *                     asserted until `ready` -- and they hold exactly one request,
-  *                     so 1 is the correct value.  Raising it without adding a
-  *                     receive queue would let a second packet arrive mid-service
-  *                     and be dropped.  It costs nothing here: the sender is
-  *                     waiting on the response anyway.
-  * @param maxBurstLog2 Largest gpuMem burst the link will carry, as a power of two.
-  *                     4 → 16 words, which is what BorgTileFlusher emits.  Bursts are
-  *                     encoded log2 so the packet length stays a pure function of the
-  *                     header (see [[LinkFlit.flitsUp]]).
-  * @param divLog2      Beat-rate divider at reset, as a power of two.  1 → ÷2, i.e.
-  *                     12.5 MHz beats from the 25 MHz core clock, which is what the
-  *                     hand-computed pad budget closes at with ~24 ns of margin.
-  *                     The `link_fast` strap selects 0 (÷1, 25 MHz) post-silicon.
-  * @param gapBeats     Idle beats forced between packets.  Must be ≥1: it is what
-  *                     makes the receiver self-resynchronizing after a framing error.
-  * @param trainBeats   Consecutive good training beats required before `link_up`.
+  * @param w             Data lanes per direction: 16, or 8 (two beats per 16-bit flit).
+  * @param narrowCapable Build the runtime 16 -> 8 lane mux on the `link_narrow` strap, a recovery
+  *                      path silicon can take. Narrow ties d[15:8] low and computes parity over the
+  *                      active lanes only, so a stuck-high unused lane is not mistaken for data.
+  * @param creditDepth   Outstanding A packets per direction; must not exceed what the receiver
+  *                      buffers. Both adapters hold one request, so 1.
+  * @param maxBurstLog2  Largest gpuMem burst, log2 so the packet length follows from the header.
+  * @param divLog2       Beat-rate divider at reset, log2; the `link_fast` strap selects 0.
+  * @param gapBeats      Idle beats between packets, at least 1: the receiver resynchronizes there.
+  * @param trainBeats    Consecutive good training beats required before `link_up`.
   */
 case class LinkParams(
     w: Int = 16,
@@ -92,13 +55,11 @@ case class LinkParams(
   require(maxBurstLog2 >= 0 && maxBurstLog2 <= 6, "gpuMem wlen is 7 bits, so log2 ≤ 6")
   require(gapBeats >= 1, "gapBeats must be ≥1 -- it is the resynchronization point")
 
-  /** Every flit is 16 bits; `w` only changes how many beats one takes. */
   val flitBits: Int = 16
   val beatsPerFlit: Int = flitBits / w
 
-  /** Largest burst in words, and the longest packet on the wire (a V.A write). */
   val maxBurst: Int = 1 << maxBurstLog2
-  val maxPacketFlits: Int = 3 + maxBurst
+  val maxPacketFlits: Int = 3 + maxBurst   // a V.A write
 
   val divCycles: Int = 1 << divLog2
 }

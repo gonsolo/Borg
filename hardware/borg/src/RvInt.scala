@@ -6,7 +6,7 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** ISA v2 step 1 (docs/B8_isa_v2.md): RISC-V OP, OP-IMM, LUI and AUIPC, decoded onto the v1 integer ALU. */
+/** ISA v2 (docs/B8_isa_v2.md): RISC-V encodings decoded onto the v1 integer ALU. */
 class RvInt(instr: UInt) {
   private val opc = instr(6, 0); private val f3 = instr(14, 12); private val f7 = instr(31, 25)
   val op    = opc === Opcodes.OPCODE_ADD.U
@@ -33,12 +33,12 @@ class RvInt(instr: UInt) {
   val sws   = (instr & Opcodes.MASK_SWS.U(32.W)) === Opcodes.MATCH_SWS.U(32.W)
   val store = opc === Opcodes.OPCODE_SW.U && f3 === 2.U || sws
   val width = f3
-  /** Custom-1 (B8 step 11): TEX by descriptor address (rs3), TEXA, and TEXS (sampler address, control word). */
+  /** Custom-1: TEX by descriptor address (rs3), TEXA, and TEXS (sampler address, control word). */
   val custom1 = opc === Opcodes.OPCODE_TEXD.U
   val texd  = custom1 && f3 === 0.U && instr(26, 25) === 0.U
   val texad = custom1 && f3 === 0.U && instr(26, 25) === 1.U
   val texs  = custom1 && f3 === 1.U && f7 === 0.U
-  /** Custom-0..3 (B8 step 15): v1's special, attachment, geometry and control ops, same operand fields. */
+  /** Custom-0..3: v1's special, attachment, geometry and control ops, same operand fields. */
   private def is(m: Long, k: Long) = (instr & k.U(32.W)) === m.U(32.W)
   val frcp   = is(Opcodes.MATCH_FRCP_V2, Opcodes.MASK_FRCP_V2); val frsq = is(Opcodes.MATCH_FRSQ_V2, Opcodes.MASK_FRSQ_V2)
   val ddx    = is(Opcodes.MATCH_DDX_V2, Opcodes.MASK_DDX_V2); val ddy = is(Opcodes.MATCH_DDY_V2, Opcodes.MASK_DDY_V2)
@@ -48,12 +48,12 @@ class RvInt(instr: UInt) {
   val expop  = is(Opcodes.MATCH_EXPOP_V2, Opcodes.MASK_EXPOP_V2); val exany = is(Opcodes.MATCH_EXANY_V2, Opcodes.MASK_EXANY_V2)
   val barrier = is(Opcodes.MATCH_BARRIER_V2, Opcodes.MASK_BARRIER_V2)
   val fexp2  = is(Opcodes.MATCH_FEXP2, Opcodes.MASK_FEXP2); val flog2 = is(Opcodes.MATCH_FLOG2, Opcodes.MASK_FLOG2)
-  /** Zaamo AMO*.W and Zacas AMOCAS.W (B8 step 12) at rs1; AMOCAS compares with rd. */
+  /** Zaamo AMO*.W and Zacas AMOCAS.W at rs1; AMOCAS compares with rd. */
   val amo    = opc === Opcodes.OPCODE_AMOADD_W.U && f3 === 2.U
   val amoOp  = instr(31, 27)
   val amocas = amo && amoOp === 5.U
   val memImm = Mux(amo, 0.U(32.W), Mux(store, riscv.Rv.immS(instr, 12), riscv.Rv.immI(instr, 12)).asSInt.pad(32).asUInt)
-  /** Zmmul, Zicond and the Zbb subset (B8 step 3): MUL runs as IMUL, the rest by rvxOp. */
+  /** Zmmul, Zicond and the Zbb subset: MUL runs as IMUL, the rest by rvxOp. */
   val mul = op && f7 === 1.U && f3 === 0.U
   private val rs2f = instr(24, 20)
   private val rvxTable = Seq[(Bool, Int)](
@@ -72,7 +72,7 @@ class RvInt(instr: UInt) {
     (opImm && f7 === 0x30.U && f3 === 1.U && rs2f === 2.U) -> RvInt.Cpop,
     (op && f7 === 0x30.U && f3 === 1.U) -> RvInt.Rol, ((op || opImm) && f7 === 0x30.U && f3 === 5.U) -> RvInt.Ror,
     (opImm && instr(31, 20) === 0x698.U && f3 === 5.U) -> RvInt.Rev8)
-  /** Zfinx and Zhinxmin (B8 step 4): FP32 in the x registers, RNE (other rounding modes are not built). */
+  /** Zfinx and Zhinxmin: FP32 in the x registers, RNE (other rounding modes are not built). */
   val opFp  = opc === Opcodes.OPCODE_FADD_S.U && instr(26, 25) === 0.U
   private val f5 = instr(31, 27)
   val fadd  = opFp && f5 === 0.U

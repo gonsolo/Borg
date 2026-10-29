@@ -16,7 +16,6 @@ object Instructions {
   }
   private def field(f: (Int, Int)) = BitField(f._1, f._2)
 
-  // @doc:isa-bitfields
   val BF_RS1    = field(FIELD_RS1)
   val BF_RS2    = field(FIELD_RS2)
   val BF_RS3    = field(FIELD_RS3)

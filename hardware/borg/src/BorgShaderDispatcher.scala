@@ -41,7 +41,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val autoRunStall = Output(Bool())     // from a quad's start until it is written
   val insideFlag   = Output(Bool())
   val phase        = Output(UInt(4.W))  // debug only
-  // Consumers test this, never a phase number: a narrower phase port once read a new state as idle.
+  // Consumers test this, never a phase number.
   val idle         = Output(Bool())
 
   val zTestReq   = Input(Bool())
@@ -70,7 +70,6 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val extWrite = if (cfg.hasBlend) Some(Output(UInt(32.W))) else None
 }
 
-/** SAMPLE_MASK_CFG. */
 class SampleMaskConfig(val samples: Int) extends Bundle {
   val mask        = UInt(samples.W)   // VkPipelineMultisampleStateCreateInfo::pSampleMask
   val alphaToCov  = Bool()            // alphaToCoverageEnable
@@ -115,7 +114,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val earlyDone   = RegInit(false.B)   // this quad's tests already ran
   val earlyPass   = Reg(Vec(N, Vec(cfg.samples, Bool())))
 
-  // log2Up: a wider counter is a wider index into the lanes' Vecs, which once blew up ABC9.
+  // log2Up: a wider counter is a wider index into the lanes' Vecs, which ABC9 handles badly.
   val laneCtr = RegInit(0.U(log2Up(N).W))
   val sampleCtr = Option.when(ops.perSample)(RegInit(0.U(log2Up(cfg.samples).W)))
   private val laneIdx: UInt = laneCtr

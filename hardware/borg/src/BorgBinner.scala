@@ -6,65 +6,34 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** IO bundle for [[BorgBinner]] (Step 32.1).
-  *
-  * The binner writes triangle indices into per-tile bin lists in DRAM.
-  * It is triggered once per triangle during the geometry pass and iterates
-  * over all tiles in the triangle's bounding box.
-  */
 class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWidth: Int = 9) extends Bundle {
-  // See BorgSequencer.SeqMmioIO's tileRowWidth comment -- same invariant,
-  // same formula, so this and BorgSequencer's tilesPerRow always agree in
-  // width when both are constructed from the same cfg.maxBinTiles.
+  // These widths must match SeqMmioIO and SeqBinnerIO in BorgSequencer.
   private val tileRowWidth = math.min(10, log2Ceil(maxTiles + 1))
-  // See BorgSequencer.SeqMmioIO's binRowBytesWidth comment -- same formula,
-  // so this and BorgSequencer's binRowBytes always agree in width when both
-  // are constructed from the same cfg.maxTrianglesPerTile.
   private val binRowBytesWidth = math.min(20, log2Ceil(maxTrianglesPerTile * 2 + 1))
-  // Same math.min-guarded narrowing as SeqBinnerIO (BorgSequencer.scala) --
-  // must agree with it since BorgSequencer drives these ports directly.
   private val countAddrWidth = math.min(13, log2Ceil(maxTiles))
   private val countWidth     = math.min(10, log2Ceil(maxTrianglesPerTile + 1))
-  // --- Trigger interface ---
-  /** One-cycle pulse to start binning a triangle. */
   val start       = Input(Bool())
-  /** High while the binner is processing tiles. */
   val busy        = Output(Bool())
-  /** One-cycle pulse when all tiles for this triangle have been written. */
   val done        = Output(Bool())
 
-  // --- Triangle metadata ---
-  /** Index of the current triangle (0..SEQ_MAX_TRI-1), written as uint16 to DRAM. */
   val triIndex    = Input(UInt(16.W))
-  /** Tile-aligned bounding box: {minX, minY, maxX, maxY} in pixel coordinates.
-    * minX/minY are inclusive; maxX/maxY are exclusive (one past the last pixel).
-    * All values must be 4-pixel-aligned (tile size = 4×4). */
+  /** Pixel coordinates, 4-aligned; max is exclusive. */
   val bbox        = Input(new Bbox(coordWidth))
 
-  // --- DRAM layout parameters ---
-  /** GPU memory byte address of the bin list region base (from tbr_bin_base). */
   val binBase     = Input(UInt(GpuMemIO.AddrBits.W))
-  /** Bin list row size in bytes: 2 per entry, so a tile holds binRowBytes / 2
-    * triangles (more set `full`). */
+  /** 2 bytes per entry; a tile holds binRowBytes / 2 triangles. */
   val binRowBytes = Input(UInt(binRowBytesWidth.W))
-  /** Number of tiles per framebuffer row (= fb_width / 4). */
   val tilesPerRow = Input(UInt(tileRowWidth.W))
   val tileRows    = Input(UInt(tileRowWidth.W))   // the window's tile rows (y clamp)
 
-  // --- DRAM write port ---
   val gpuMem      = new GpuMemIO
 
-  // --- Per-tile count reset (for frame start) ---
-  /** One-cycle pulse to zero all per-tile counters. Assert once per frame
-    * before the first triangle is binned. */
+  /** Zero all per-tile counts, once per frame before binning. */
   val clearCounts = Input(Bool())
 
-  // --- Step 32.3: External count read port (for Pass 2 tile render) ---
-  /** Tile index to read the triangle count for. */
+  /** Pass 2's count read, data one cycle later. */
   val countReadAddr = Input(UInt(countAddrWidth.W))
-  /** Read enable — assert for one cycle; data valid on next cycle. */
   val countReadEn   = Input(Bool())
-  /** Triangle count for the tile addressed by countReadAddr (1-cycle latency). */
   val countReadData = Output(UInt(countWidth.W))
 
   /** A tile's bin was full: the triangle stopped there, and is binned again once the
@@ -73,38 +42,14 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWi
   val full = Output(Bool())
 }
 
-/** BorgBinner — per-tile bin list writer (Step 32.1).
-  *
-  * For each tile in the triangle's bounding box, the binner:
-  *   1. Reads the current count for that tile from on-chip SRAM.
-  *   2. Computes the DRAM byte address: `binBase + tile_index * binRowBytes + count * 2`.
-  *   3. Writes the 16-bit triangle index to DRAM via `GpuMemIO`.
-  *   4. Increments and stores the updated count back to SRAM.
-  *
-  * Per-tile counts are stored in a small `SyncReadMem` (maxTiles entries × 10 bits).
-  * 10 bits supports up to 1023 triangles per tile (more than SEQ_MAX_TRI).
-  *
-  * FSM:
-  * {{{
-  *   sIdle → sReadCount → sWaitCount → sWriteDram → sStoreCount → sNextTile → ...
-  *   sNextTile → sReadCount (more tiles) | sIdle (bbox exhausted)
-  * }}}
-  *
-  * The module is gated behind `hasBinner: Boolean` in [[BorgConfig]] and is
-  * invisible to FPGA iCE40 targets.
-  *
-  * @param maxTiles Maximum number of tiles (default 1024 = 32×32 for 128×128 @ 4×4).
-  * @param maxTrianglesPerTile Upper bound on `binRowBytes` (see BorgConfig's doc
-  *   comment) -- default 256 matches software/borg/borg_layout.h's SEQ_MAX_TRI.
-  */
+/** Per-tile bin list writer: for each tile in a triangle's bounding box, appends
+  * the triangle index at `binBase + tile * binRowBytes + count * 2` and bumps
+  * the tile's on-chip count. */
 class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, val coordWidth: Int = 9) extends Module {
   val io = IO(new BorgBinnerIO(maxTiles, maxTrianglesPerTile, coordWidth))
 
-  // Same math.min-guarded narrowing as BorgBinnerIO (must agree with it).
   private val countWidth = math.min(10, log2Ceil(maxTrianglesPerTile + 1))
 
-  // --- Per-tile count SRAM ---
-  // countWidth-bit count per tile: supports up to maxTrianglesPerTile triangles.
   val countMem = SyncReadMem(maxTiles, UInt(countWidth.W))
 
   // Entries a bin row holds, bounded by what the count can represent.
@@ -116,45 +61,31 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
   val fullReg = RegInit(false.B)
   io.full := fullReg
 
-  // --- FSM ---
   val sIdle :: sReadCount :: sWaitCount :: sWriteDram :: sStoreCount :: sNextTile :: Nil = Enum(6)
   val state = RegInit(sIdle)
 
-  // --- Tile iteration registers ---
-  val tileX = RegInit(0.U(coordWidth.W))   // current tile column (pixel coord, 4-aligned)
-  val tileY = RegInit(0.U(coordWidth.W))   // current tile row (pixel coord, 4-aligned)
+  val tileX = RegInit(0.U(coordWidth.W))   // pixel coords, 4-aligned
+  val tileY = RegInit(0.U(coordWidth.W))
 
-  // Latched bbox (stable for the duration of one triangle's binning)
   val bboxMinX = RegInit(0.U(coordWidth.W))
   val bboxMinY = RegInit(0.U(coordWidth.W))
   val bboxMaxX = RegInit(0.U(coordWidth.W))
   val bboxMaxY = RegInit(0.U(coordWidth.W))
 
-  // Latched triangle index
   val triIdxReg = RegInit(0.U(16.W))
 
-  // Current tile's count (read from SRAM)
   val curCount = RegInit(0.U(countWidth.W))
 
-  // Current tile index (linear: tileRow * tilesPerRow + tileCol). Chisel's
-  // generic width inference for the multiply/add gives a worst-case width
-  // wider than any value curTileIndex can actually take -- it's used
-  // exclusively to address countMem (SyncReadMem(maxTiles, ...)), so by
-  // construction it never needs to represent a value >= maxTiles. Narrowing
-  // to that real bound doesn't change behaviour (an out-of-range value would
-  // already be misindexing the same memory at the wider width) but lets
-  // synthesis drop the now-provably-unused high bits from every downstream
-  // user (notably the tileLinear * binRowBytes multiply below).
+  // Narrowed to the countMem index so synthesis drops the high bits of the
+  // binRowBytes multiply.
   private val tileIndexWidth = log2Ceil(maxTiles)
   val curTileIndex = (((tileY >> 2) * io.tilesPerRow) + (tileX >> 2))(tileIndexWidth - 1, 0)
 
-  // --- Count clear logic ---
-  // When clearCounts is pulsed, zero all entries over multiple cycles.
+  // clearCounts zeroes one entry per cycle.
   val clearIdx  = RegInit(0.U(log2Ceil(maxTiles + 1).W))
   val clearing  = RegInit(false.B)
 
-  // Pending start: latched when start fires during clearing.
-  // Auto-starts binning once clearing finishes.
+  // A start during clearing is latched and runs once clearing ends.
   val pendingStart = RegInit(false.B)
   val pendBboxMinX = Reg(UInt(coordWidth.W))
   val pendBboxMinY = Reg(UInt(coordWidth.W))
@@ -166,7 +97,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     clearIdx := 0.U
     clearing := true.B
     fullReg := false.B
-    pendingStart := false.B  // new frame — cancel any stale pending
+    pendingStart := false.B
     if (BorgDebug.trace) printf("[BIN] clearCounts pulse\n")
   }
   when(clearing) {
@@ -175,7 +106,6 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     }.otherwise {
       clearIdx := clearIdx + 1.U
     }
-    // Latch start during clearing
     when(io.start) {
       pendingStart := true.B
       pendBboxMinX := io.bbox.min.x
@@ -188,12 +118,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     }
   }
 
-  // --- Single-write-port count SRAM write ---
-  // Merge clearing and increment into one write() call so firtool emits a single
-  // write port. Two separate write() calls produce two write ports, which prevents
-  // Yosys from inferring DP16KD BRAM and forces a costly LUT-based implementation.
-  // Clearing takes priority; simultaneous firing only occurs if clearCounts arrives
-  // mid-binning, which is out-of-spec (sequencer clears at frame start before binning).
+  // One write() call: two write ports stop Yosys inferring DP16KD BRAM.
   val countMemWriteEn   = clearing || (state === sStoreCount)
   val countMemWriteAddr = Mux(clearing, clearIdx, curTileIndex)
   val countMemWriteData = Mux(clearing, 0.U(countWidth.W), curCount + 1.U)
@@ -201,13 +126,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     countMem.write(countMemWriteAddr, countMemWriteData)
   }
 
-  // --- SRAM read port ---
-  // SyncReadMem: issue the read in sReadCount; data is valid in sWaitCount.
-  // The enable is gated to sReadCount so we don't issue spurious reads.
-  // Step 32.3: External read port shares the same SyncReadMem read port.
-  // During binning (state != sIdle), the binner's internal tile index drives reads.
-  // When idle, the external countReadAddr/countReadEn drives the read port
-  // so the sequencer can query per-tile counts for Pass 2.
+  // One read port: the tile walk while binning, Pass 2's reads when idle.
   val extReadEn = io.countReadEn && state === sIdle && !clearing
   val intReadEn = state === sReadCount
   val readAddr  = Mux(intReadEn, curTileIndex, io.countReadAddr)
@@ -218,16 +137,12 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     if (BorgDebug.trace) printf("[BIN] extRead addr=%d state=%d clearing=%d pending=%d\n",
       io.countReadAddr, state, clearing, pendingStart)
   }
-  // Log the data one cycle later (SyncReadMem has 1-cycle latency)
   val extReadEn_d = RegNext(extReadEn)
   when(extReadEn_d) {
     if (BorgDebug.trace) printf("[BIN] extRead data=%d\n", countReadData)
   }
 
-  // --- Output defaults ---
-  // Include pendingStart in busy: prevents a 1-cycle !busy gap between
-  // clearing and the auto-start, which would cause the sequencer to
-  // skip ahead before binning begins.
+  // pendingStart counts as busy: no !busy gap before the auto-start.
   io.busy := state =/= sIdle || clearing || pendingStart
   io.done := false.B
 
@@ -235,32 +150,21 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
   io.gpuMem.addr  := 0.U
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
-  io.gpuMem.wlen  := 1.U   // binner writes single 16-bit indices
+  io.gpuMem.wlen  := 1.U
 
-  // --- FSM ---
   switch(state) {
 
     is(sIdle) {
-      // Accept start from either direct pulse or pending (latched during clear).
       val doStart = (io.start && !clearing) || (pendingStart && !clearing)
       when(doStart) {
-        // Select the live or pending-latched bbox/triIdx.
         val rawMinX = Mux(pendingStart, pendBboxMinX, io.bbox.min.x)
         val rawMinY = Mux(pendingStart, pendBboxMinY, io.bbox.min.y)
         val rawMaxX = Mux(pendingStart, pendBboxMaxX, io.bbox.max.x)
         val rawMaxY = Mux(pendingStart, pendBboxMaxY, io.bbox.max.y)
         val triId   = Mux(pendingStart, pendTriIdx,   io.triIndex)
 
-        // --- SAFETY CLAMP to the framebuffer tile grid ---
-        // A degenerate/garbage triangle (e.g. a bad vertex transform projecting
-        // every vertex to the FP16 saturation corner ~1023) yields a bbox that
-        // spans the whole 1024-pixel coordinate space.  Unclamped, the tile walk
-        // would iterate ~(1024/4)² tiles per triangle — effectively a hang, with
-        // out-of-range tile indices clobbering the count SRAM / bin DRAM.  Clamp
-        // the bbox to the real grid so the walk is always bounded and in-range,
-        // regardless of upstream bugs.  Square fb (width==height) is assumed, as
-        // on every current target; the bound is the fb width in pixels.
-        // The window may be taller or shorter than it is wide.
+        // Clamp to the window so a garbage bbox cannot walk out-of-range tiles
+        // and clobber the counts and bins.
         val fbDim   = (io.tilesPerRow << 2).asUInt        // window width in pixels (exclusive max)
         val fbDimY  = (io.tileRows << 2).asUInt           // window height in pixels
         def lastTl(d: UInt) = Mux(d >= 4.U, d - 4.U, 0.U) // first pixel of the last tile
@@ -287,13 +191,10 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
       }
     }
 
-    // Cycle 0: SyncReadMem read is issued (via countReadData above).
-    // Data will be available next cycle.
     is(sReadCount) {
       state := sWaitCount
     }
 
-    // Cycle 1: SyncReadMem data is now valid. Capture it.
     is(sWaitCount) {
       curCount := countReadData
       // A bin with no room at all drops the entry, so a full one can always be emptied.
@@ -307,9 +208,6 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
       }
     }
 
-    // Write triangle index to DRAM:
-    //   addr = binBase + tileIndex * binRowBytes + count * 2
-    // The 16-bit triangle index is zero-extended to 32 bits for the write.
     is(sWriteDram) {
       val dramAddr = io.binBase +
         (curTileIndex * io.binRowBytes) +
@@ -318,27 +216,25 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := dramAddr
-      io.gpuMem.wdata := triIdxReg  // zero-extended uint16 → uint32
+      io.gpuMem.wdata := triIdxReg
 
       when(io.gpuMem.ready) {
         state := sStoreCount
       }
     }
 
-    // Write incremented count back to SRAM (handled by single-port write above).
+    // The count write itself is the shared write port above.
     is(sStoreCount) {
       if (BorgDebug.trace) printf("[BIN] sStoreCount tile=%d count=%d->%d\n", curTileIndex, curCount, curCount + 1.U)
       state := sNextTile
     }
 
-    // Advance to next tile in bbox. Row-major order: X increments first.
     is(sNextTile) {
       val nextX = tileX + 4.U
       when(nextX >= bboxMaxX) {
         tileX := bboxMinX
         val nextY = tileY + 4.U
         when(nextY >= bboxMaxY) {
-          // All tiles processed
           io.done := true.B
           state   := sIdle
         }.otherwise {

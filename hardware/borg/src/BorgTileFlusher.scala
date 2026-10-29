@@ -6,19 +6,11 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** IO bundle for [[BorgTileFlusher]].
-  *
-  * Directions are from the flusher's perspective (master).
-  */
 /** Colour attachment formats the flusher can write (FLUSH_FORMAT.format).
   *
-  * The first three are fixed-function UNORM8: blended by BorgBlend and
-  * resolved by averaging. The RAW formats hold the fragment shader's out_c0
-  * word as bytes (byte 0 at the lowest address): any colour format the
-  * compiler packs into 1, 2 or 4 bytes. They are neither blended nor
-  * resolved in hardware -- the shader blends through TLD, and a 4x RAW
-  * attachment is stored per sample (ATTACH_MS). In the tile the word rides
-  * the UNORM8 channels unchanged: byte k is channel k (R, G, B, alpha). */
+  * The first three are UNORM8, blended by BorgBlend and resolved by averaging. RAW formats hold
+  * the shader's out_c0 word as bytes (byte k in channel k), never blended or resolved in hardware:
+  * the shader blends through TLD and a 4x RAW attachment is stored per sample. */
 object FlushFormat {
   val RGB565 = 0   // VK_FORMAT_R5G6B5_UNORM_PACK16: 2 bytes/pixel, 32 bytes/tile
   val RGBA8  = 1   // VK_FORMAT_R8G8B8A8_UNORM:      4 bytes/pixel, 64 bytes/tile
@@ -26,25 +18,19 @@ object FlushFormat {
   val RAW32  = 3   // bytes 0-3:                     4 bytes/pixel, 64 bytes/tile
   val RAW16  = 4   // bytes 0-1:                     2 bytes/pixel, 32 bytes/tile
   val RAW8   = 5   // byte 0:                        1 byte/pixel,  16 bytes/tile
-  /** Two words, co-resident in the tile (word 1 in its extension plane):
-    * out_c0 then out_c1, 8 bytes/pixel, 128 bytes/tile. */
+  // out_c0, out_c1 (word 1 in the extension plane): 8 bytes/pixel, 128 bytes/tile
   val RAW64  = 6
-  /** Four words, 16 bytes/pixel, rendered in two passes (slices) of two
-    * words each: a 256-byte tile whose first 128 bytes hold bytes 0-7 of its
-    * 16 pixels and the next 128 bytes 8-15 (docs/B2_texture_unit.md). Each
-    * slice flushes and loads like RAW64. Vulkan requires no blending of a
-    * 128-bit format, which is what allows the split. */
+  // 16 bytes/pixel in two RAW64 slices: bytes 0-7 of the 16 pixels, then 8-15.
+  // Vulkan never blends a 128-bit format, which allows the split.
   val RAW128 = 7
   val Bits   = 3
-  /** 4 bytes per pixel: the tile is twice as large in memory. */
   def isWide(f: UInt): Bool = f === RGBA8.U || f === BGRA8.U || f === RAW32.U
-  /** 1 byte per pixel: the tile is half as large. */
   def isByte(f: UInt): Bool = f === RAW8.U
   def is128(f: UInt): Bool = f === RAW128.U
-  /** Two words resident in the tile: RAW64, or one slice of RAW128. */
+  // RAW64, or one slice of RAW128
   def is64(f: UInt): Bool = f === RAW64.U || f === RAW128.U
   def isRaw(f: UInt): Bool = f >= RAW32.U
-  /** A tile offset in 32-byte (2 bytes/pixel) units, scaled to the format. */
+  // A tile offset in 32-byte (2 bytes/pixel) units, scaled to the format.
   def scaleTile(f: UInt, offset32: UInt): UInt =
     Mux(is128(f), offset32 << 3, Mux(is64(f), offset32 << 2,
       Mux(isWide(f), offset32 << 1, Mux(isByte(f), offset32 >> 1, offset32))))
@@ -56,162 +42,47 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
                         val hasStencil: Boolean = false,
                         val zBits: Int = 16,
                         val hasExt: Boolean = false) extends Bundle {
-  // Trigger interface
-  val start     = Input(Bool())    // one-cycle pulse to begin flush
-  val busy      = Output(Bool())   // high while flushing
+  val start     = Input(Bool())    // one-cycle pulse
+  val busy      = Output(Bool())
 
-  // Tile SRAM read port (flusher drives idx/en, reads data)
   val read      = new TileReadIO(dataBits, samples, zBits)
 
-  // DRAM write port
   val gpuMem    = new GpuMemIO
 
-  // Tile base address: absolute DRAM byte address of this tile's region.
-  // Layout (RGB565): 16 entries × 2 bytes = 32 bytes per tile.
-  //   word[i] = RGB565(entry[i])   (R[15:11] | G[10:5] | B[4:0])
-  // Layout (RGBA8/BGRA8): 16 entries × 4 bytes = 64 bytes per tile, the
-  // Vulkan byte order (R8G8B8A8: byte 0 = R ... byte 3 = A).
-  // tileBase = fbBase + tile_index * (32 or 64)
-  //   where tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
+  // DRAM byte address of the tile: fbBase + ((ty >> 2) * tilesPerRow + (tx >> 2)) * tile size,
+  // 16 pixels in Vulkan byte order.
   val tileBase  = Input(UInt(GpuMemIO.AddrBits.W))
 
-  // Colour attachment format, see [[FlushFormat]]. Sampled at the start pulse.
+  // Sampled at the start pulse.
   val format    = Input(UInt(FlushFormat.Bits.W))
   val srgb      = Input(Bool())          // encode R, G, B linear -> sRGB (formats 1 and 2)
-  // Destination alpha per sample, valid alongside `read.data` (the tile
-  // buffer's alpha plane shares its read index and latency). Absent when the
-  // build has no alpha plane, in which case the 32-bit formats write opaque.
+  // Same timing as `read.data`; without an alpha plane the 32-bit formats write opaque.
   val alpha     = if (hasAlpha) Some(Input(Vec(samples, UInt(8.W)))) else None
-  // The tile's extension word (RAW64's word 1), same timing as `read.data`.
+  // RAW64's word 1, same timing as `read.data`.
   val ext       = if (hasExt) Some(Input(Vec(samples, UInt(32.W)))) else None
 
-  // Stencil attachment write-out (S8_UINT, 16 bytes per tile), after the
-  // depth burst. Without it the stencil plane never left the chip, so no
-  // stencil attachment could be stored for a later render pass or read back.
-  // The plane data comes with the same timing as `read.data`; at MSAA the
-  // stored value is sample 0's, the same resolve depth uses.
+  // S8_UINT, 16 bytes per tile, after the depth burst; resolved to sample 0 like depth.
   val stencil     = if (hasStencil) Some(Input(Vec(samples, UInt(8.W)))) else None
   val stencilBase = if (hasStencil) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   val stencilEn   = if (hasStencil) Some(Input(Bool())) else None
 
-  // Depth attachment format (DEPTH_FORMAT): false = D16_UNORM (16 x 2 bytes
-  // per tile), true = D32_SFLOAT (16 x 4 bytes, two bursts). D32 needs FP32
-  // tile depth, so it exists only with zBits = 32.
+  // D32_SFLOAT (16 x 4 bytes, two bursts) instead of D16_UNORM; needs FP32 tile depth.
   val depthD32 = if (hasDepthFlush && zBits == 32) Some(Input(Bool())) else None
 
-  // Multisampled attachments stored per sample (ATTACH_MS) instead of
-  // resolved. Vulkan requires 4x colour/depth/stencil attachments and 4x
-  // sampled images, so a stored 4x attachment must keep every sample.
-  // Each sample of the tile goes to its own region, `sample x tile size`
-  // past the tile base (colour 32/64, depth 32/64, stencil 16 bytes).
+  // ATTACH_MS: store every sample instead of resolving, each `sample x tile size` past its base.
   val msStore  = if (samples > 1) Some(Input(Bool())) else None
 
-  // Optional depth-attachment write-out (Step 50 item 14 groundwork; absent
-  // unless hasDepthFlush). Historically Z was NEVER written to DRAM -- the
-  // TBR renders each tile fully on-chip, so nothing downstream needed the
-  // depth value, which is exactly why `D16_UNORM` (a mandatory Vulkan
-  // format) had no path to exist as a real, readable image. These ports
-  // give the flusher a second burst target for the tile's Z plane,
-  // quantized FP16 -> UNORM16 via DepthQuantize.
-  //
-  // Layout mirrors the colour burst: 16 entries x 2 bytes = 32 bytes per
-  // tile, word[i] = UNORM16(entry[i].z). depthBase is the absolute DRAM
-  // byte address of this tile's depth region (firmware computes it the same
-  // way as tileBase, from its own depth-buffer base).
+  // Depth tile region, computed like tileBase from the depth-buffer base.
   val depthBase = if (hasDepthFlush) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
-  // Runtime gate: even in a hasDepthFlush build, a draw with no depth
-  // attachment bound skips the second burst entirely (straight to sIdle),
-  // costing only the state check.
+  // No depth attachment bound: skip the depth burst.
   val depthEn   = if (hasDepthFlush) Some(Input(Bool())) else None
   // No colour attachment: skip the colour burst (the fill still stages depth and stencil).
   val colorOff  = Input(Bool())
 }
 
-/** BorgTileFlusher -- bulk DMA from tile SRAM to DRAM, one burst per tile.
-  *
-  * RGB565 streams all 16 tile-buffer entries as ONE 16-halfword burst. The
-  * 32-bit formats (RGBA8/BGRA8) need 32 halfwords per tile; they are written
-  * as TWO 16-halfword bursts of 8 pixels each, reusing the same 16-entry
-  * staging vector. That keeps the burst length -- and with it the link's
-  * burst buffer (LinkParams.maxBurst = 16) -- unchanged, at the cost of a
-  * second fill/burst round per tile only in the wide formats.
-  *
-  * Phases (sFill/sBurst run twice per tile in the wide formats):
-  *   sFill  -- read the burst's tile entries (pipelined), convert to the
-  *             attachment format, stash into rgbVec.  The 2-cycle TileBuffer
-  *             read latency is hidden by issuing one read per cycle and
-  *             capturing 3 cycles later.
-  *   sBurst -- stream the 16 staged halfwords as one burst.  rgbVec is
-  *             a plain register read (no latency), so the word for the next beat
-  *             is ready the cycle after `waccept` -- exactly when the controller
-  *             samples it.  No burst-time read race.
-  *
-  * io.read.en/idx are REGISTERED outputs (set one cycle before they appear on
-  * the wire) so arcilator can evaluate them from the state array without
-  * circular combinational dependencies through the tile instance.
-  *
-  * Fill pipeline (mirrors the 3-cycle issue->data latency):
-  *   cycle N:   readEnReg := true (register set; wire goes high next cycle)
-  *   cycle N+1: io.read.en=1 visible; SyncReadMem latches address
-  *   cycle N+2: SyncReadMem output travels through readDataHeld (cycle 2 of 2)
-  *   cycle N+3: io.read.data valid; capture RGB565 into rgbVec
-  */
-/** @param hasDepthFlush Adds a second DRAM burst that writes the tile's Z
-  *                      plane (quantized FP16 -> UNORM16 via [[DepthQuantize]])
-  *                      to a separate depth-buffer region, for `D16_UNORM`
-  *                      depth-attachment support. Default false: a disabled
-  *                      build elaborates no zVec, no depthBaseReg and no
-  *                      extra ports, and is cycle-identical to before this
-  *                      parameter existed -- same compile-time-branch
-  *                      discipline the `samples` parameter already uses
-  *                      below. (Precisely: the sBurstZ and sBurstS enum
-  *                      values and their switch arms ARE still elaborated,
-  *                      because Chisel's switch macro won't accept a
-  *                      conditionally-present is() arm -- but nothing
-  *                      transitions into them, so they are unreachable and
-  *                      fold away in synthesis.)
-  *
-  *                      Deliberately folded into this module rather than
-  *                      built as a separate depth flusher: sFill already
-  *                      reads all 16 tile entries for the colour burst, and
-  *                      each entry carries its own `.z` alongside r/g/b, so
-  *                      the depth path costs one extra staging vector and one
-  *                      extra burst state -- NOT a second read pass over the
-  *                      tile SRAM, which would double the flush's read
-  *                      traffic for no reason.
-  *
-  *                      At samples>1 the depth flush resolves by taking
-  *                      SAMPLE 0. Averaging really is the wrong operation for
-  *                      depth, but "take sample zero" is the settled answer,
-  *                      not an open question: Vulkan's depth/stencil resolve
-  *                      (VK_KHR_depth_stencil_resolve, core since 1.2)
-  *                      defines SAMPLE_ZERO / AVERAGE / MIN / MAX, every Mesa
-  *                      driver advertises SAMPLE_ZERO, and v3dv -- the
-  *                      tile-based renderer closest to this design --
-  *                      supports ONLY VK_RESOLVE_MODE_SAMPLE_ZERO_BIT for
-  *                      depth and stencil. V3D's tile-store hardware spells
-  *                      the same three-way choice as `decimate_mode`
-  *                      (ALL_SAMPLES / 4X-average / SAMPLE_0) and routes the
-  *                      depth resolve to SAMPLE_0.
-  *
-  *                      Until 2026-09-15 a `require` made hasDepthFlush +
-  *                      samples>1 a build error, because the MSAA branch
-  *                      below genuinely had no depth path -- the staging,
-  *                      the sBurst -> sBurstZ hand-off and the sBurstZ arm
-  *                      all existed only in the samples==1 branch. Both
-  *                      branches now carry it; the MSAA one stages
-  *                      `pendingSamples(0).z` as each pixel's colour resolve
-  *                      retires, which is the same sample-zero rule the
-  *                      single-sample branch gets for free from
-  *                      `io.read.data(0).z`.
-  *
-  *                      What is still NOT supported is a true multisampled
-  *                      depth ATTACHMENT (V3D's ALL_SAMPLES mode): storing
-  *                      every sample's Z costs 4x the depth memory and a
-  *                      wider burst. Sample-zero resolve is what the resolve
-  *                      path needs and is a strict prerequisite for that
-  *                      larger feature, not a detour around it.
-  */
+/** Bulk DMA from tile SRAM to DRAM: colour, then depth and stencil bursts of at most 16 halfwords
+  * (LinkParams.maxBurst), so wide formats take one fill/burst round per 32-byte part.
+  * Depth and stencil resolve to sample 0 (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, as v3dv). */
 class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
                       val hasDepthFlush: Boolean = false,
                       val hasAlpha: Boolean = false,
@@ -223,21 +94,15 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val sIdle :: sFill :: sBurst :: sBurstZ :: sBurstS :: sNextSample :: Nil = Enum(6)
   val state = RegInit(sIdle)
 
-  // 16 staged halfwords (256 FFs): 16 RGB565 pixels, or 8 RGBA8 pixels as
-  // low/high halfword pairs.
+  // 16 RGB565 pixels, or 8 RGBA8 pixels as low/high halfword pairs.
   val rgbVec   = Reg(Vec(16, UInt(16.W)))
-  // 16 UNORM16 depth values, staged from the SAME sFill read pass as rgbVec
-  // (another 256 FFs, only when hasDepthFlush).
-  // Staged raw (the tile's own depth width) and converted to the attachment
-  // format per burst beat: one converter instead of one per captured entry.
+  // Staged raw from the same read pass, converted per burst beat: one converter, not 16.
   val zVec     = if (hasDepthFlush) Some(Reg(Vec(16, UInt(zBits.W)))) else None
-  val d32Reg   = RegInit(false.B)      // D32_SFLOAT, latched at start
+  val d32Reg   = RegInit(false.B)
   val zHalf    = RegInit(false.B)      // D32: which 8-entry half is bursting
+  // Addresses are latched: the sequencer's inputs are only valid at the start pulse.
   val baseReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
-  // Latched alongside baseReg for the same reason: the sequencer's address
-  // inputs are only valid at the start pulse, not for the whole flush.
   val depthBaseReg = if (hasDepthFlush) Some(RegInit(0.U(GpuMemIO.AddrBits.W))) else None
-  // 16 stencil bytes, staged in the same fill pass (only with hasStencil).
   val sVec           = if (hasStencil) Some(Reg(Vec(16, UInt(8.W)))) else None
   val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(GpuMemIO.AddrBits.W))) else None
   val formatReg = RegInit(FlushFormat.RGB565.U(FlushFormat.Bits.W))
@@ -250,7 +115,6 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val wide      = FlushFormat.isWide(formatReg)
   val byteFmt   = FlushFormat.isByte(formatReg)
   val fmt64     = FlushFormat.is64(formatReg)
-  /** Bytes of one colour tile (one sample's, per-sample). */
   val tileBytes = Mux(FlushFormat.is128(formatReg), 256.U, Mux(fmt64, 128.U, Mux(wide, 64.U, Mux(byteFmt, 16.U, 32.U))))
   // Which 32-byte part of the colour tile is being staged/burst: the two
   // 8-pixel halves of a 4-byte format, the four 4-pixel quarters of RAW64.
@@ -260,12 +124,10 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val capIdx   = RegInit(0.U(5.W))  // next entry to capture into rgbVec (0..16)
   val burstIdx = RegInit(0.U(5.W))  // entry currently being streamed (0..15)
 
-  // Registered read-port outputs: set one cycle early so arcilator reads them
-  // from the state array (always up-to-date), avoiding comb ordering issues.
+  // Registered so arcilator sees no combinational loop through the tile buffer.
   val readEnReg  = RegInit(false.B)
   val readIdxReg = RegInit(0.U(4.W))
 
-  // Default outputs
   io.busy := (state =/= sIdle) || io.start
 
   io.read.en  := readEnReg
@@ -277,38 +139,17 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   io.gpuMem.wdata := 0.U
   io.gpuMem.wlen  := 1.U
 
-  // Auto-clear the read-enable register each cycle; overridden below when needed.
   readEnReg := false.B
 
-  // FP16 [0,1] -> unsigned N-bit channel (top N bits of an 8-bit conversion).
-  // Clamps negatives to 0 and >= 1.0 to all ones.
-  //
-  // The 8-bit conversion is ColorQuantize.quantize8, round(v * 255) -- what
-  // Vulkan's float-to-UNORM conversion specifies. This used to be its own
-  // shifter that kept floor(v * 256): every stored value landing just above
-  // a UNORM8 step (0.953125 = 243.05/255, say) flushed one step high, so an
-  // RGBA8 attachment could not be stored, sampled back and stored again
-  // unchanged. quantize8 had the same x256 error and was fixed on its own.
-  //
-  // Real hardware, not a cheap function -- which is why the MSAA resolve
-  // below instantiates ONE of these per channel and time-shares it across
-  // samples rather than one per (channel, sample) pair (+1,312 cells at
-  // samples=4 for the per-pair version, measured with yosys `stat`).
+  // Top N bits of round(v * 255), Vulkan's float-to-UNORM conversion. Not cheap: the MSAA resolve
+  // time-shares one per channel across samples.
   def fp16ToUnorm(fp16: UInt, bits: Int): UInt = ColorQuantize.quantize8(fp16)(7, 8 - bits)
 
-  /** Destination alpha of sample `s`, or opaque without an alpha plane. */
   def alphaOf(s: Int): UInt = io.alpha.map(_(s)).getOrElse(255.U(8.W))
 
-  /** Stage one finished pixel, given as UNORM8 channels, for tile entry `idx`.
-    *
-    * RGB565 keeps the top bits of each channel -- exactly what converting
-    * straight to 5/6/5 bits produced before the wide formats existed. The
-    * 32-bit formats occupy two consecutive halfword slots, little-endian, so
-    * the byte order in memory is Vulkan's: R8G8B8A8 is R,G,B,A from byte 0,
-    * B8G8R8A8 is B,G,R,A. Only the low 3 bits of `idx` pick the slot pair,
-    * because a wide tile is staged 8 pixels at a time. RAW32 is RGBA8's byte
-    * order; RAW16 keeps bytes 0-1, one pixel per halfword; RAW8 byte 0, two
-    * pixels per halfword (the whole tile is one 8-beat burst). */
+  /** Stage one pixel, as UNORM8 channels, for tile entry `idx`, little-endian in Vulkan byte order.
+    * A wide tile is staged 8 pixels at a time, so only idx(2, 0) picks its slot pair; RAW8 packs
+    * two pixels per halfword. */
   def stagePixel(idx: UInt, r8: UInt, g8: UInt, b8: UInt, a8: UInt, ext: UInt): Unit = {
     when(fmt64) {
       val slot = Cat(idx(1, 0), 0.U(2.W))
@@ -331,22 +172,17 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }
   }
 
-  // Fill-pipeline valid tracking: a read issued this cycle yields data 3 cycles
-  // later.  issueValid marks the issue; v3 marks the matching data-valid cycle.
+  // A read issued this cycle returns data 3 cycles later, at v3.
   val issueValid = WireDefault(false.B)
   val v1 = RegNext(issueValid, false.B)
   val v2 = RegNext(v1, false.B)
   val v3 = RegNext(v2, false.B)
 
-  // Whether sFill may issue its next read this cycle. The single-sample path
-  // issues one per cycle; the MSAA resolve below must drain first.
+  // The MSAA resolve must drain before the next read issues.
   val issueGate = WireDefault(true.B)
 
-  // Stencil rides the fill like depth: the read that returns an entry's
-  // colour returns its stencil too. capIdx still names that entry at vCap on
-  // both paths (the MSAA path advances it only when the resolve retires).
-  // Resolved: sample 0, as depth. Per sample: the sample being flushed.
-  // vCap: the single-sample path captures two cycles after v3, behind the sRGB encoder's tables.
+  // Stencil rides the colour read; capIdx still names that entry at vCap on both paths.
+  // The single-sample path captures two cycles after v3, behind the sRGB encoder's tables.
   val capLat = if (samples == 1) 2 else 0
   def late[T <: Data](x: T): T = ShiftRegister(x, capLat)
   val vCap = ShiftRegister(v3, capLat, false.B, true.B)
@@ -355,52 +191,23 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     when(vCap) { v(capIdx(3, 0)) := s }
   }
 
-  /** After the depth burst (or the colour burst, without depth). */
   def afterDepth: UInt =
     if (hasStencil) Mux(io.stencilEn.get, sBurstS, sNextSample) else sNextSample
 
   if (samples == 1) {
-    // Single-sample path (the ULX3S cube build): one fp16ToUnorm or sRGB
-    // encoder per channel, fully pipelined issuance.
     val e = io.read.data(0)
     def enc(h: UInt): UInt = Mux(srgbReg, SrgbCodec.encode(h, piped = true), fp16ToUnorm(late(h), 8))
     val (r8, g8, b8) = (enc(e.r), enc(e.g), enc(e.b))
     val (a8, ext, z) = (late(alphaOf(0)), late(io.ext.map(_(0)).getOrElse(0.U(32.W))), late(e.z))
     when(vCap) {
       stagePixel(capIdx(3, 0), r8, g8, b8, a8, ext)
-      // Depth rides the same capture: io.read.data(0) is already valid here
-      // for the colour conversion, and .z is simply another field of it, so
-      // this adds a quantizer and a register write -- no extra read, no
-      // extra cycle, no change to the colour path's timing.
-      //
-      // `data` is indexed by SAMPLE, so at samples>1 taking (0) here IS the
-      // depth resolve: VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, the only depth
-      // resolve mode v3dv supports and the one V3D's tile-store hardware
-      // selects (decimate_mode = SAMPLE_0). See the class doc comment.
       zVec.foreach(_(capIdx(3, 0)) := z)
       capIdx := capIdx + 1.U
     }
   } else {
-    // MSAA resolve, SERIALIZED across samples: one shared fp16ToUnorm per
-    // channel (3 total, not samples*3), fed one sample per cycle. Averaging
-    // is done in the same UNORM INTEGER domain as before (sum of `samples`
-    // 8-bit conversions, shifted right by log2(samples)) -- only the timing
-    // changed, not the arithmetic or the result. Alpha is already UNORM8 in
-    // the tile buffer, so it is averaged the same way with no converter.
-    //
-    // Correctness requires the read pipeline to fully drain (issue -> v3 ->
-    // samples-cycle resolve -> capIdx write) before the NEXT read is issued:
-    // the tile buffer's read port can have at most one outstanding request's
-    // result live at a time, and resolving now takes longer than the 3-cycle
-    // issue-to-v3 latency, so without this the pipeline would overtake itself
-    // and read N+1's data would land on top of read N's before it finished
-    // resolving. `pipelineBusy` enforces that: set at issue, held through the
-    // entire resolve, cleared only when the resolved pixel is written to
-    // rgbVec. This trades the original pipelined ~19-cycle fill phase for a
-    // fully sequential ~16*(3+samples) cycles -- a real but small cost
-    // against a frame's DRAM burst time, in exchange for not needing a
-    // multi-pixel queue (which would have eaten back much of the area this
-    // is meant to save).
+    // MSAA resolve, one sample per cycle through one shared converter per channel, averaged in the
+    // UNORM integer domain. The resolve outlasts the 3-cycle read latency, so pipelineBusy holds
+    // the next read until the pixel is staged.
     val sampleBits = log2Ceil(samples)
     val accBits    = 16 + sampleBits         // UNORM8 << 8, or an sRGB attachment's linear UNORM16
 
@@ -409,8 +216,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     val resolveSample  = RegInit(0.U(sampleBits.W))
     val pendingSamples = Reg(Vec(samples, new ColorZ(dataBits, zBits)))
     val pendingAlpha   = io.alpha.map(_ => Reg(Vec(samples, UInt(8.W))))
-    // RAW64's word 1: raw formats are stored per sample, never averaged, so
-    // only the sample being stored is kept.
+    // RAW64's word 1: raw formats are never averaged, so only the stored sample is kept.
     val pendingExt     = io.ext.map(_ => Reg(UInt(32.W)))
     val accR = RegInit(0.U(accBits.W))
     val accG = RegInit(0.U(accBits.W))
@@ -461,12 +267,6 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           colour(bSum, bTerm, s.b),
           aSum.map(a => pick(a, Cat(aOne.get, 0.U(8.W)))).getOrElse(255.U(8.W)),
           pendingExt.getOrElse(0.U(32.W)))
-        // Depth resolves by taking SAMPLE ZERO, not this average: averaging
-        // depth is meaningless across a triangle edge, and sample-zero is
-        // the resolve mode Vulkan requires (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)
-        // and the only one v3dv offers for depth. pendingSamples still holds
-        // every captured sample here, so (0) is sample zero directly -- the
-        // colour accumulators are untouched by this.
         zVec.foreach(_(capIdx(3, 0)) := pendingSamples(Mux(msReg, sampleIdx, 0.U)).z)
         if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved from %d samples\n",
           capIdx, samples.U)
@@ -483,8 +283,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }
   }
 
-  // Entries staged per burst: the whole tile for the 1- and 2-byte formats,
-  // half of it for the 4-byte ones, a quarter for RAW64 (see the class doc).
+  // Entries staged per burst: the whole tile, half for 4-byte formats, a quarter for RAW64.
   val fillEnd = Mux(fmt64, Cat(part +& 1.U, 0.U(2.W)), Mux(wide && part === 0.U, 8.U, 16.U))
 
   val colorOffReg = RegInit(false.B)
@@ -501,7 +300,6 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         formatReg := io.format
         srgbReg   := io.srgb
         colorOffReg := io.colorOff
-        // Per sample: every sample in turn.
         val ms = io.msStore.getOrElse(false.B)
         msReg      := ms
         if (samples > 1) { sampleSel := 0.U; lastSample := !ms }
@@ -512,8 +310,6 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         state     := sFill
       }
     }
-    // Issue reads for the entries of this burst; captures land via v3 above.
-    // Advance to the burst once they are all captured.
     is(sFill) {
       when(issueIdx < fillEnd && issueGate) {
         readEnReg  := true.B
@@ -531,7 +327,6 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }
     is(sBurst) {
       io.gpuMem.wr    := true.B
-      // Each part of a tile follows the previous 32 bytes.
       io.gpuMem.addr  := baseReg + (part << 5) + sampleIdx * tileBytes
       io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
       io.gpuMem.wlen  := Mux(byteFmt, 8.U, 16.U)
@@ -543,31 +338,18 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       when(io.gpuMem.ready) {
         burstIdx := 0.U
         when(!lastPart) {
-          // Back to sFill for the next pixels; issueIdx/capIdx carry on.
+          // issueIdx/capIdx carry on into the next part.
           part  := part + 1.U
           state := sFill
         }.otherwise {
-          // With depth disabled (or not built at all) this is the historical
-          // sBurst -> sIdle edge, unchanged.
           state := afterColor
         }
       }
     }
-    // Second burst: the tile's Z plane as 16 UNORM16 words, to the
-    // depth-buffer region. Structurally identical to the colour burst
-    // above -- same 16-beat wlen, same waccept/ready handshake -- just a
-    // different staging vector and base address. zVec was staged from
-    // sample zero as each pixel was captured.
-    //
-    // The `is()` arm itself is unconditional because Chisel's switch macro
-    // rejects any block that doesn't begin with is(); only the BODY varies
-    // at elaboration. In a hasDepthFlush=false build nothing ever
-    // transitions into sBurstZ (sBurst exits straight to sIdle above), so
-    // this arm is unreachable and folds away in synthesis.
+    // Chisel's switch needs every arm unconditionally; without hasDepthFlush this one is unreachable.
     is(sBurstZ) {
       if (hasDepthFlush) {
-        // D16_UNORM: one converted value per beat. D32_SFLOAT: the raw FP32,
-        // low halfword first, 8 entries per burst.
+        // D32_SFLOAT: the raw FP32, low halfword first, 8 entries per burst.
         val z = zVec.get
         val d16 = if (zBits == 32) DepthQuantize.quantize16Fp32(z(burstIdx(3, 0)))
                   else DepthQuantize.quantize16(z(burstIdx(3, 0)))
@@ -594,7 +376,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         state := sIdle
       }
     }
-    // Third burst: the stencil plane, two S8 values per halfword beat.
+    // Two S8 values per halfword beat.
     is(sBurstS) {
       if (hasStencil) {
         io.gpuMem.wr    := true.B
@@ -608,9 +390,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         state := sIdle
       }
     }
-    // One sample's colour/depth/stencil bursts are out. Per sample with more
-    // to go: the same tile again for the next sample, whose regions sit one
-    // tile size further on.
+    // Per sample: the same tile again for the next sample.
     is(sNextSample) {
       when(msReg && !lastSample) {
         sampleSel  := sampleSel + 1.U

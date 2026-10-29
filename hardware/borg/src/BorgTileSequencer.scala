@@ -6,33 +6,14 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgTileSequencer — Pass 2 of BorgSequencer's two-pass triangle-batch
-  * render (see BorgSequencer's own class doc for the split's rationale).
-  *
-  * Reloads the fragment shader, then walks every tile in the framebuffer:
-  * reads the tile's triangle bin list and per-triangle records back from DRAM
-  * (written by BorgDrawWalker's Pass 1, via a small 2-way associative cache
-  * over the two uniform pages), rasterizes, and flushes. Never reads
-  * Pass 1's live registers -- only DRAM and `curBufIdx` (owned by the
-  * top-level BorgSequencer wrapper, since it must persist across whole
-  * frames, not just this one pass).
-  *
-  * FSM (18 states): sIdle -> sWaitDMA (frag shader reload) -> sStartPass2 ->
-  * per tile: sReadBinCount -> sClearTile -> (if the tile has triangles)
-  * sReadBinEntry -> sWaitDMA -> sLoadTriSetup -> [sWaitDMA -> sLoadCovDelta ->
-  * sWaitDMA, on a setup-cache miss] -> sEnqueueTile -> sIteratePixels ->
-  * sWaitRast -> (repeat sReadBinEntry.. for each triangle in the bin) ->
-  * sWaitFlush -> sWaitFlushSync -> sNextRenderTile -> (repeat sReadBinCount..
-  * for each tile, or pulse `done` and return to sIdle once the whole
-  * framebuffer is covered).
-  */
+/** Pass 2 of BorgSequencer: walks every tile, reads its bin list and the
+  * per-triangle records Pass 1 wrote to DRAM (through a 2-way setup cache over
+  * the uniform pages), rasterizes, and flushes. */
 class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val start = Input(Bool())
   val done  = Output(Bool())
   val busy  = Output(Bool())
-  // Which framebuffer is being rendered this frame -- owned by the wrapper
-  // (toggled once per whole frame, on its own done), read-only here since
-  // this pass's per-buffer dirty-bit arrays are indexed by it.
+  // Toggled by the wrapper once per frame; indexes the per-buffer dirty bits.
   val curBufIdx = Input(UInt(1.W))
 
   val mmio    = new SeqMmioIO(cfg)
@@ -43,32 +24,23 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
 
   val covDelta = if (cfg.samples > 1)
     Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
-  // Per-triangle facing, inverted at the source so downstream consumers
-  // (BorgStencil's frontFacing param) can use it directly without an
-  // inverter of their own.
   val frontFacingOverride = Output(Bool())
-  // Pass 2's current triangle (its index in the draw's triangle list). Only
-  // advances once the triangle's pixels have drained (sWaitRast ->
-  // sReadBinEntry), so it names the triangle every tested fragment belongs to.
+  // Advances only once the triangle's pixels have drained, so it names the
+  // triangle every tested fragment belongs to.
   val curTriIndex = Output(UInt(16.W))
-  // Draw front end: the current triangle's varyings in its record (word 48),
-  // for FATTR. The dispatcher drains before the next triangle is selected,
-  // so every fragment of a triangle sees its own record.
+  // The current triangle's varyings (record word 48), for FATTR.
   val attrBase = Output(UInt(GpuMemIO.AddrBits.W))
-  // Draw mode: which of the current triangle's edges are top or left edges
-  // (inward normal (a, b) with a > 0, or a == 0 and b > 0). A sample exactly
-  // on an edge belongs to the triangle only for those -- the tie rule that
-  // makes a shared edge covered exactly once.
+  // Top or left edges (inward normal (a, b): a > 0, or a == 0 and b > 0) own
+  // samples exactly on them, so a shared edge is covered once.
   val topLeft = Output(Vec(3, Bool()))
-  // Multiple colour attachments: the tile is rendered once per attachment,
-  // each pass clearing or loading that attachment and flushing to it.
+  // The tile renders once per colour attachment.
   val attPass = Output(UInt(3.W))
 
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 
-  // Render lists: a triangle whose state block (its record's meta word) is
-  // not the one in the registers has it played before it is rasterized.
+  // Render lists: a triangle whose state block (record meta word) differs from
+  // the registers' has it played before it is rasterized.
   val listMode = Input(Bool())
   // A partial render (docs/B11_partial_render.md) draws only the triangles below this.
   val triLimit = Input(UInt(17.W))
@@ -93,50 +65,34 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
-  // Which colour attachment this pass of the tile renders. Depth, stencil
-  // and the occlusion count are the same every pass; Borg.scala stores the
-  // former only in the last pass and counts the latter only in the first.
+  // Depth, stencil and the occlusion count are the same every pass; Borg.scala
+  // stores the former only in the last pass and counts the latter in the first.
   val attPass = RegInit(0.U(3.W))
-  // Draw mode: which uniform page the fragment constant window goes to next.
+  // Which uniform page the fragment constant window goes to next.
   val constPage = RegInit(0.U(1.W))
 
   val tileX = RegInit(0.U(cfg.coordWidth.W))
   val tileY = RegInit(0.U(cfg.coordWidth.W))
 
-  val binTriIdx    = RegInit(0.U(10.W))  // current index into tile's bin list
-  val binTriCount  = RegInit(0.U(10.W))  // number of triangles in current tile's bin
-  val binEntryData = RegInit(0.U(16.W))  // triangle index read from DRAM bin list
-  // writeIdx: sClearTile's own 0-18 clear-cycle counter. (Named independently
-  // of Pass 1's uniform-staging writeIdx -- the two counters are unrelated,
-  // reusing one flat register across both was a pre-split economy that no
-  // longer applies once each pass is its own module.)
+  val binTriIdx    = RegInit(0.U(10.W))
+  val binTriCount  = RegInit(0.U(10.W))
+  val binEntryData = RegInit(0.U(16.W))  // triangle index read from the bin list
   val clearCounter = RegInit(0.U(5.W))
 
-  // setupLoadIdx: tracks DMA word count during sLoadTriSetup (for the has_uvs
-  // snoop) and is reused for the covDelta snoop in sLoadCovDelta.
+  // Word count of the record snoop, reused for the covDelta snoop.
   val setupLoadIdx = RegInit(0.U(6.W))
 
-  // 2-entry associative setup cache over the two uniform pages. Each tile
-  // this frame re-reads every covering triangle's 128B setup once; tagReg(p)
-  // = the triangle index resident in page p (0xFFFF=invalid), cacheVictim =
-  // round-robin replacement pointer (2-way == LRU). Reset when this pass starts (io.start), not at the top-level
-  // frame-idle boundary -- Pass 1 doesn't use this cache at all, so there is
-  // no reason for its reset to live outside this module.
-  //
-  // One entry per uniform page the core really has: a 32-uniform build
-  // (Wafer) drops the page bit on uniform read AND write, so a second tag
-  // would name page 1 while its DMA overwrote page 0 -- and a later hit on
-  // the first tag would shade that triangle with the other one's uniforms.
+  // Setup cache: tagReg(p) is the triangle resident in uniform page p
+  // (0xFFFF = invalid), cacheVictim the round-robin victim (2-way == LRU).
+  // A 32-uniform build (Wafer) drops the page bit on uniform read and write,
+  // so it gets one entry: a second tag would alias page 0.
   private val setupPages = if (cfg.maxUniforms > 32) 2 else 1
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
-  /** Two MSAA sample deltas per stored coverage plane. */
   private val covDeltaWords = 2 * cfg.coveragePlanesStored
-  // Per-page cached facing flag (the record's meta word, bit 1), restored on
-  // a cache hit.
+  // Per-page facing flag (meta word bit 1), restored on a cache hit.
   val backFacingReg = RegInit(VecInit(Seq.fill(2)(false.B)))
-  // Render lists: each page's triangle's state block (word address), the
-  // selected triangle's, and the one the registers and the fragment shader
-  // hold now (0 = none yet this render).
+  // Render lists: state block word address per page, of the selected
+  // triangle, and of what the registers hold now (0 = none yet).
   private val stateBits = GpuMemIO.AddrBits - 2
   val stateCache = Reg(Vec(2, UInt(stateBits.W)))
   val triState   = RegInit(0.U(stateBits.W))
@@ -146,41 +102,23 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val cacheVictim = RegInit(0.U(1.W))
   val covDeltaCache = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))))) else None
-  // covDeltaCache(uniformPage) is only safe to read AT SELECTION TIME: the
-  // triangle actually in flight through the downstream pixel pipeline
-  // (BorgIterator/BorgShaderDispatcher) can still be draining pixels for
-  // several cycles after this sequencer has already moved on to the next
-  // triangle and changed uniformPage. A live Mux on uniformPage would then
-  // serve the wrong triangle's covDelta to those in-flight pixels.
-  // covDeltaActive is latched exactly once per triangle selection (hit:
-  // immediately in handleLoadTriSetup; miss: as each word arrives from the
-  // DMA snoop) and held stable until the next selection -- same pattern as
-  // triIsBackFacing, a real register instead of a live backFacingReg(page)
-  // read.
-  // Top-left flags per setup-cache page, and for the triangle being shaded
-  // (latched at selection, like covDeltaActive). Taken from the edge planes'
-  // a and b as the record image arrives.
+  // Pixels of the previous triangle still drain after uniformPage changes, so
+  // the *Active registers are latched once per triangle selection instead of
+  // read live from the per-page caches.
   val topLeftCache  = Reg(Vec(2, Vec(3, Bool())))
   val topLeftActive = RegInit(VecInit(Seq.fill(3)(true.B)))
   val planeA = Reg(Vec(3, UInt(2.W)))   // a: {negative, zero}
   val covDeltaActive = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))) else None
 
-  // Per-triangle facing flag for the triangle currently selected by
-  // handleLoadTriSetup -- restored from backFacingReg on a cache hit, or from
-  // its record's meta word (bit 1) on a miss. Vulkan conformance item 10's
-  // remaining piece: two-sided stencil needs this to pick front vs back ops
-  // (BorgStencil.evaluate's frontFacing param), not just configurable cull
-  // mode to let back-facing fragments through at all.
+  // Two-sided stencil picks front or back ops with it.
   val triIsBackFacing = RegInit(false.B)
 
   val uniformPage = RegInit(0.U(1.W))
 
-  // Registered tileComplete: breaks the combinational loop
-  //   advance -> tileComplete (comb) -> iteratePixels -> advance.
-  // One cycle lag is harmless: the pipeline takes >>1 cycles per pixel.
+  // Registered tileComplete breaks the loop advance -> tileComplete ->
+  // iteratePixels -> advance; a pixel takes many cycles, so the lag is harmless.
   val clearTileComplete = RegInit(false.B)
-  // sLoadTile: the loader's start pulse has been issued for this tile.
   val loadStarted = RegInit(false.B)
   val tileCompleteLatch = RegInit(false.B)
   when(clearTileComplete) {
@@ -190,32 +128,18 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     tileCompleteLatch := io.iter.complete
   }
 
-  // Per-tile dirty bits for the skip-empty-tile flush optimisation, one per
-  // tile per framebuffer: did the tile have content the last time this
-  // buffer was rendered? A RAM, not registers: the tile loop visits every
-  // tile once per render, and that visit reads the tile's bit and overwrites
-  // it (sReadBinCount), so nothing ever touches all tiles at once. The old
-  // pair of register arrays, rotated in one cycle at Pass-2 start, cost
-  // 4 x maxBinTiles flip-flops plus maxBinTiles-way decoders and muxes:
-  // 16K flip-flops and ~29K ECP5 LUTs at 4096 tiles, which pushed the ULX3S
-  // build past the device.
-  //
-  // No reset contents: lastClearColorBuf's ~0 sentinel sets colorChanged on
-  // the first render of each buffer, and that flushes every tile whatever
-  // the RAM holds.
+  // Skip-empty-tile flush: did the tile have content the last time this buffer
+  // was rendered? A RAM, since each tile's bit is read and rewritten once per
+  // render; as registers the 4096-tile array does not fit the ECP5. No reset
+  // contents needed: the ~0 colour sentinel flushes every tile on first use.
   private val dirtyAddrBits = log2Ceil(cfg.maxBinTiles)
   val tileDirtyMem  = SyncReadMem(2 * cfg.maxBinTiles, Bool())
   val dirtyReadAddr = WireDefault(0.U((dirtyAddrBits + 1).W))
   val dirtyReadEn   = WireDefault(false.B)
   val dirtyReadData = tileDirtyMem.read(dirtyReadAddr, dirtyReadEn)
-  // The current tile: had content last time, or the clear colour changed
-  // since then. Latched in sReadBinCount.
   val tileWasDirty  = RegInit(true.B)
-  // This render's clear colour differs from the one this buffer was last
-  // rendered with: every empty tile needs the new colour. Set at Pass-2 start.
+  // The clear colour differs from this buffer's last render: flush every tile.
   val colorChanged  = RegInit(true.B)
-  // lastClearColorBuf(b): clear colour used when buffer b was last rendered;
-  // sentinel ~0 forces a full-flush on the first render of each buffer.
   val lastClearColorBuf = RegInit(VecInit(Seq.fill(2)(~0.U(64.W))))
 
   val dmaDescReg = RegInit(0.U.asTypeOf(new DMADescriptor))
@@ -259,16 +183,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.iter.iterate       := false.B
     io.flusher.trigger    := false.B
     io.flusher.loadStart  := false.B
-    // tileOffset = the framebuffer tile index * 32: the window's tile plus
-    // its origin, in rows FB_PITCH tiles long.
-    // (16 pixels x 2 bytes: an RGB565 or D16 tile; Borg.scala adds the
-    // attachment base and scales for 4-byte colour formats)
+    // Tile index * 32 bytes (16 RGB565/D16 pixels); Borg.scala adds the
+    // attachment base and scales for 4-byte formats.
     val tileIndex = (((tileY >> 2) +& io.mmio.fbOriginY) * io.mmio.fbPitch) + ((tileX >> 2) +& io.mmio.fbOriginX)
     io.flusher.tileOffset := tileIndex << 5
 
-    // Not used by this sub-FSM: BorgDrawWalker owns the write side of
-    // SeqBinnerIO. Tied off rather than split into a bespoke bundle, to keep
-    // this restructuring's diff mechanical and reviewable.
+    // BorgDrawWalker owns the write side of SeqBinnerIO.
     io.binner.start       := false.B
     io.binner.triIndex    := 0.U
     io.binner.bbox.min.x  := 0.U
@@ -309,12 +229,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
   private def handleIdle(): Unit = {
     when(io.start) {
-      tagReg(0)   := "hFFFF".U    // invalidate 2-entry setup cache for new frame
+      tagReg(0)   := "hFFFF".U
       tagReg(1)   := "hFFFF".U
       cacheVictim := 0.U
       curState    := 0.U
       resumeTri   := false.B
-      // A render list loads each state's fragment shader when its first triangle comes up.
+      // A render list loads each state's fragment shader at its first triangle.
       state       := Mux(io.listMode, sStartPass2, sLoadRastShader)
     }
   }
@@ -326,10 +246,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleLoadRastShader(): Unit = {
-    // The rasterizer edge-test shader is a permanent hardware ROM
-    // (BorgRasterRom, fetched directly by BorgCore) -- it no longer lives in
-    // the writable IMEM, so there is nothing to DMA here. Go straight to
-    // loading the fragment shader.
+    // The raster shader is a ROM (BorgRasterRom); nothing to load.
     state := sLoadFragShader
   }
 
@@ -348,9 +265,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     state        := sWaitDMA
   }
 
-  /** Draw mode: the fragment shader's constant window, into every uniform
-    * page the setup cache can select, once per render. The record DMA below
-    * only writes the words beneath it. */
+  /** The fragment constant window, into every uniform page the setup cache can
+    * select, once per render; the record DMA only writes the words below it. */
   private def handleLoadFsConst(): Unit = {
     val first = BorgSetupRom.Record.FsConstFirst
     val desc = Wire(new DMADescriptor)
@@ -377,23 +293,18 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     tileX := 0.U
     tileY := 0.U
     if (BorgDebug.trace) printf("[SEQ] Pass2 start buf=%d\n", io.curBufIdx)
-    // If the clear colour changed vs the last time THIS buffer was rendered,
-    // treat every tile as dirty so every empty tile picks up the new colour.
     val clearColor = io.mmio.clearColorHi ## io.mmio.clearColorLo
     colorChanged := clearColor =/= lastClearColorBuf(io.curBufIdx)
     lastClearColorBuf(io.curBufIdx) := clearColor
-    readTile(0.U)                   // tile (0,0) = tile index 0
+    readTile(0.U)
     state := sReadBinCount
   }
 
   private def handleReadBinCount(): Unit = {
     attPass := 0.U
-    // SyncReadMem data is valid NOW (1 cycle after read was issued in
-    // sStartPass2/sNextRenderTile). Capture it immediately -- the output
-    // goes undefined on the next cycle when readEn drops.
+    // SyncReadMem data is valid only this cycle, while readEn was high.
     binTriCount := io.binner.countReadData
-    // The tile's dirty bit, read with its count: latch last render's value,
-    // then record this render's (the tile has content iff it has triangles).
+    // Latch last render's dirty bit, write this render's.
     val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
     tileWasDirty := dirtyReadData || colorChanged
     // TILE_LOAD.keep: an empty tile keeps what its attachments hold, so it is
@@ -410,11 +321,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     state         := Mux(keepTile, sNextRenderTile, sClearTile)
   }
 
-  /** Load the tile's attachments (BorgTileLoader), then continue as a clear
-    * would -- except that an empty tile is always flushed. The dirty-tile
-    * skip below assumes DRAM already holds the clear colour, which is not
-    * what a render with a cleared (not loaded) aspect wants either; flushing
-    * a loaded tile writes back exactly what was loaded plus the clears. */
+  /** Load the tile's attachments (BorgTileLoader), then continue as a clear,
+    * except that an empty tile always flushes: the dirty-tile skip assumes
+    * DRAM already holds the clear colour. */
   private def handleLoadTile(): Unit = {
     clearTileComplete := true.B
     when(!loadStarted) {
@@ -431,11 +340,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleClearTile(): Unit = {
-    // Pulse iter.clear for exactly one cycle (clearCounter=0), then wait for
-    // BorgTileBuffer to finish its 16-cycle BRAM clear sequence.
-    // Total wait: 1 (pulse) + 16 (BRAM writes) + 1 (register pipeline) = 18 cycles.
-    // Keep clearTileComplete high throughout to suppress any stale
-    // tileComplete from the previous tile's iterator.
+    // 1 pulse + 16 BRAM clear writes + 1 register = 18 cycles; clearTileComplete
+    // stays high to mask the previous tile's stale tileComplete.
     clearTileComplete := true.B
     when(clearCounter === 0.U) {
       io.iter.clear := true.B
@@ -443,27 +349,21 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     }.elsewhen(clearCounter < 18.U) {
       clearCounter := clearCounter + 1.U
     }.elsewhen(io.mmio.tileLoad) {
-      // loadOp = LOAD: the clear just gave every aspect its clear value;
-      // now bring back the aspects that load. See handleLoadTile.
+      // loadOp = LOAD: the clear set every aspect; now load the ones that load.
       clearTileComplete := true.B
       loadStarted       := false.B
       state             := sLoadTile
     }.otherwise {
       clearTileComplete := false.B
-      // After clear: if this tile has triangles, start the inner bin loop.
-      // Otherwise, only flush the clear colour if the tile was dirty last
-      // frame (had rendered content) -- clean empty tiles already hold the
-      // right value in DRAM, so we can skip the 64-word SDRAM write entirely.
+      // A clean empty tile already holds the clear colour in DRAM.
       when(binTriCount === 0.U) {
-        // Every colour attachment flushes, empty or not.
+        // Multiple colour attachments always flush.
         when(io.mmio.attCount > 1.U || tileWasDirty) {
-          state := sWaitFlush        // was dirty: must write clear colour to DRAM
+          state := sWaitFlush
         }.otherwise {
-          state := sNextRenderTile   // already clean: skip flush
+          state := sNextRenderTile
         }
       }.otherwise {
-        // Read first bin entry (triangle index) from DRAM
-        // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
         state := sReadBinEntry
       }
     }
@@ -471,18 +371,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
   private def handleReadBinEntry(): Unit = {
     val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
-    // Truncated to DMADescriptor.baseAddr's fixed 25-bit/32MB GPU address
-    // space (same constant used throughout this file). Unlike mmioAddr/
-    // w_addr in BorgLane, this bound isn't provable from the RTL alone -- it
-    // relies on firmware keeping the triangle-bin table within the 32MB
-    // budget. Chisel's generic width growth through the multiply/add chain
-    // conservatively exceeds 25 bits even though real addresses stay in
-    // range; unchanged from this design's behavior before this file split.
+    // Firmware keeps the bin table inside the GPU address space.
     val entryAddr  = (io.mmio.binBase + (tileLinear * io.mmio.binRowBytes) + (binTriIdx << 1))(GpuMemIO.AddrBits - 1, 0)
     val desc = Wire(new DMADescriptor)
     desc.baseAddr := entryAddr
-    desc.length   := 1.U  // 1 word (bin entry = uint16, stored in low half of 32b word)
-    desc.dest     := 2.U  // snoop only -- data captured in DMA snoop handler below
+    desc.length   := 1.U  // uint16 entry in the low half
+    desc.dest     := 2.U  // snoop only
     desc.offset   := 0.U
 
     dmaDescReg   := desc
@@ -498,12 +392,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleLoadTriSetup(): Unit = {
-    // 2-entry associative setup cache: if this triangle's setup is resident
-    // in either uniform page, point the frag at that page (uniformPage
-    // drives the core's uniform read page while this sequencer is busy) and
-    // skip the DMA. This catches the tile-major A,B,A interleaving a 1-entry
-    // cache would miss. On a miss, DMA into the round-robin victim page and
-    // update its tag.
+    // A hit points the core's uniform read page at the resident setup and skips
+    // the DMA; two entries catch the tile-major A,B,A interleaving.
     when(binEntryData === tagReg(0)) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page0 triIdx=%d\n", binEntryData)
       uniformPage := 0.U
@@ -522,26 +412,21 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       state       := sEnqueueTile
     }.otherwise {
       val victim = if (setupPages > 1) cacheVictim else 0.U
-      // The record's uniform image goes to the real, capacity-limited
-      // on-chip uniform memory (BorgDMA's destIdx is truncated to 5 bits,
-      // exactly 32 slots), so covDelta -- consumed only by this sequencer,
-      // never by the shader core -- is fetched by a SEPARATE, second,
-      // snoop-only transfer (sLoadCovDelta) instead of being appended here,
-      // where it would alias onto and corrupt the edge-plane uniforms.
+      // covDelta comes in a second snoop-only transfer: BorgDMA's uniform
+      // destination is 5 bits, so appending it would alias the edge planes.
       val desc = Wire(new DMADescriptor)
       desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift)
-      // The record's 16-word uniform image, meta last -- the fragment
-      // shader's constant window lives above it.
+      // 16-word uniform image, meta last; the constant window is above it.
       desc.length   := BorgSetupRom.Record.Image.U
-      desc.dest     := 1.U   // uniform write; page = uniformPage(:=victim) via DMA
+      desc.dest     := 1.U   // uniforms, page = uniformPage
       desc.offset   := 0.U
 
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup MISS triIdx=%d -> page%d addr=0x%x\n",
         binEntryData, victim, io.mmio.setupBase + (binEntryData << setupStrideShift))
 
       tagReg(victim) := binEntryData
-      uniformPage    := victim        // frag reads from the victim page
-      cacheVictim    := ~victim       // round-robin replacement (2-way == LRU)
+      uniformPage    := victim
+      cacheVictim    := ~victim
       dmaDescReg     := desc
       io.dma.desc    := desc
       io.dma.start   := true.B
@@ -551,15 +436,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     }
   }
 
-  /** Record stride, from DRAW_CFG. */
   private def setupStrideShift: UInt = io.mmio.recordShift
 
-  /** Second, snoop-only DMA transfer fetching covDelta (6 words) for the
-    * triangle just loaded by handleLoadTriSetup's miss path. Only reached
-    * when cfg.samples > 1 (nextAfterDMA only ever targets this state in that
-    * case). dest=2 means BorgDMA does not write any destination memory -- the
-    * data is captured purely via the general io.dma.snoop tap below,
-    * avoiding the capacity-limited uniform buffer entirely. */
+  /** MSAA only: the missed triangle's covDelta, snooped (dest=2) past the
+    * uniform buffer. */
   private def handleLoadCovDelta(): Unit = {
     val desc = Wire(new DMADescriptor)
     desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift) + 128.U  // word 32 = byte 128
@@ -577,9 +457,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
   private def handleEnqueueTile(): Unit = {
     when(io.listMode && triState =/= curState) {
-      // Another draw's state: play its block into the registers, then load
-      // its fragment shader and constant window, and come back here. The
-      // dispatcher is idle (sNextBinTri waited), so nothing reads the old state.
+      // Another draw's state: play its block, load its fragment shader and
+      // constants, come back. sNextBinTri drained the dispatcher first.
       io.playReq := true.B
       curState   := triState
       savedPage  := uniformPage
@@ -607,17 +486,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleNextBinTri(): Unit = {
-    // Wait for dispatcher pipeline to drain before loading next triangle's
-    // uniforms. The last pixel of the previous triangle may still be
-    // executing in the shader pipeline, reading from the uniform buffer. If
-    // the DMA overwrites uniforms now, the shader gets corrupted data
-    // ("slot 15 race").
+    // The last pixel may still read the uniforms the next DMA overwrites.
     when(io.iter.dispatcherIdle) {
       val nextBinIdx = binTriIdx + 1.U
       when(nextBinIdx < binTriCount) {
         binTriIdx := nextBinIdx
         clearTileComplete := true.B
-        // Don't re-clear tile buffer -- fragments accumulate on top of clear color
         state := sReadBinEntry
       }.otherwise {
         state := sWaitFlush
@@ -626,10 +500,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleWaitFlush(): Unit = {
-    // Wait for dispatcher pipeline to drain (last pixel may still be in
-    // flight) before triggering the flusher. This prevents the race where
-    // the flusher reads slot 15 before the dispatcher writes it (the "last
-    // pixel race").
+    // The last pixel may still be in flight to the tile buffer.
     when(io.iter.dispatcherIdle) {
       io.flusher.trigger := true.B
       state := sWaitFlushSync
@@ -666,10 +537,6 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       tileX := 0.U
       val nextTileY = (tileY >> 2) + 1.U
       when(nextTileY >= io.mmio.fbHeightTiles) {
-        // Whole framebuffer covered. Pulses `done` combinationally in the
-        // same cycle (matches the original design's overall completion
-        // timing -- see BorgSequencer's wrapper for why the exact cycle
-        // count here has no external observer), then returns to sIdle.
         io.done := true.B
         state   := sIdle
       }.otherwise {
@@ -685,17 +552,11 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def wireSnoops(): Unit = {
-    // --- Snoop bin entry data ---
     when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sWaitBinEntry) {
       binEntryData := io.dma.snoop.bits(15, 0)
     }
 
-    // --- Snoop the record's uniform image ---
-    // During sLoadTriSetup -> sWaitDMA, the first (dest=1) transfer writes the
-    // image to the uniform buffer. Track the word count via setupLoadIdx and
-    // recover the facing flag from the meta word. At samples>1 this
-    // transfer's nextAfterDMA target is sLoadCovDelta (not sEnqueueTile) --
-    // covDelta itself is fetched by a separate dest=2 transfer, see below.
+    // The record's uniform image: top-left flags, facing and state block.
     val firstTransferTarget = if (cfg.samples > 1) sLoadCovDelta else sEnqueueTile
     when(io.dma.uniformSnoop.en && state === sWaitDMA && nextAfterDMA === firstTransferTarget) {
       setupLoadIdx := setupLoadIdx + 1.U
@@ -715,32 +576,21 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
         triIsBackFacing := io.dma.uniformSnoop.data(1)
         triState := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
         stateCache(uniformPage) := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
-        // Remember the facing for the page just loaded (= current
-        // uniformPage) so a later cache hit restores it without a reload.
         backFacingReg(uniformPage) := io.dma.uniformSnoop.data(1)
         if (BorgDebug.trace) printf("[SEQ] pass2 meta triIdx=%d backFacing=%d\n",
           binEntryData, io.dma.uniformSnoop.data(1))
       }
     }
 
-    // --- Snoop covDelta (6 words) from the second, snoop-only (dest=2)
-    // transfer issued by handleLoadCovDelta ---
-    // dest=2 never touches io.dma.uniformSnoop (that signal is wired
-    // directly from the destination uniformWrite port, which dest=2 never
-    // drives) -- must read the general io.dma.snoop tap instead, which fires
-    // for every DMA read regardless of destination. setupLoadIdx is reused
-    // as a fresh 0-5 counter here (reset by handleLoadCovDelta).
+    // covDelta: dest=2 never drives uniformSnoop, so read the general snoop tap.
     covDeltaCache.foreach { cache =>
       when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sEnqueueTile &&
            setupLoadIdx < covDeltaWords.U) {
-        // The datapath's full width: covDelta is an FP32 value on an FP32
-        // build. The FP16-era (15, 0) slice kept only the low half, which
-        // made every sample threshold ~0 -- 4x MSAA rasterized with the
-        // pixel-centre test on every FP32 build, Wafer included.
+        // Full datapath width: a 16-bit slice zeroes FP32 sample thresholds.
         val data = io.dma.snoop.bits(cfg.totalBits - 1, 0)
         val idx  = setupLoadIdx(2, 0)
-        cache(uniformPage)(idx) := data  // persist for future hits
-        covDeltaActive.get(idx) := data  // and use immediately for this triangle
+        cache(uniformPage)(idx) := data
+        covDeltaActive.get(idx) := data
         setupLoadIdx := setupLoadIdx + 1.U
         if (BorgDebug.trace) printf("[SEQ] pass2 covDelta triIdx=%d word=%d data=0x%x\n",
           binEntryData, setupLoadIdx, data)

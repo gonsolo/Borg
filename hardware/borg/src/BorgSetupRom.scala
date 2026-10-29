@@ -3,9 +3,8 @@
 
 package borg
 
-/** BorgSetupRom -- triangle setup for the draw front end, as a program on the
-  * shader core baked into ROM, the same way BorgRasterRom bakes the per-pixel
-  * edge test. See docs/B1_geometry_front_end.md.
+/** Triangle setup for the draw front end, a shader-core program in ROM
+  * (docs/B1_geometry_front_end.md).
   *
   * 2D homogeneous rasterization (Olano and Greer, 1997). With the viewport
   * folded into the clip coordinates,
@@ -25,44 +24,36 @@ package borg
   *   u12, u13 viewport scale sx, sy     u14, u15 viewport offset ox, oy
   *   u16, u17 depth scale, depth offset (FragCoord.z = z_ndc*scale + offset)
   *   u18      1.0
-  *   u19..u21 -0.125, -0.375, +0.375   (the standard 4x sample offsets;
-  *            all 0 for a single-sample render)
+  *   u19..u21 -0.125, -0.375, +0.375   (4x sample offsets; 0 for one sample)
   *   u22, u23 depth bias slope and constant factors (FP32)
   *   u24      r's floor: 2^-15 for D16, 0 for D32_SFLOAT
   *
-  * The inputs are read as CSRs uniform0..24. Outputs:
-  *   setup_screen0..5  screen x, y of corners 0..2 (the bounding box; meaningless
-  *            when some W <= 0, where the walker bins the whole viewport)
+  * Outputs:
+  *   setup_screen0..5  screen x, y of corners 0..2 (meaningless when some W <= 0,
+  *            where the walker bins the whole viewport)
   *   setup_det         det M (the walker culls on its sign and on zero)
-  *   record   via SOUT, stride 1 (see [[BorgSetupRom.Record]])
+  *   record   via SOUT (see [[BorgSetupRom.Record]])
   */
 private[borg] object BorgSetupRom {
-  /** Record word indices (SOUT indices; the record's first 32 words are what
-    * pass 2 DMAs into the uniform bank for the raster ROM). */
+  /** SOUT indices of the setup record. */
   object Record {
     def plane(k: Int): Int = 3 * k   // a, b, c of E0..E2 at 0..8, Zn at 9..11
     val DepthScale  = 12
     val DepthOffset = 13
     val One         = 14
-    /** Written by the draw walker: bit 1 = back-facing. Pass 2 snoops it. */
-    val Meta        = 15
-    /** |1/det M|: turns the edge planes' sum into FragCoord.w = 1/w. */
-    val InvDet      = 16
-    /** The depth plane's two MSAA sample deltas in framebuffer depth
-      * (times DEPTH_SCALE): sample depths are FragCoord.z + {d0, d1, -d1, -d0}. */
+    val Meta        = 15     // written by the draw walker: bit 1 = back-facing
+    val InvDet      = 16     // |1/det M|: turns the edge planes' sum into FragCoord.w = 1/w
+    // Sample depths are FragCoord.z + {d0, d1, -d1, -d0}, in framebuffer depth.
     val SampleDepth = 17
-    /** Words 0 .. Image-1 are what pass 2 DMAs into the uniform bank. */
-    val Image       = 20
-    /** The uniform window a stage's own constants live in (DRAW_VS_CONST,
-      * DRAW_FS_CONST): above the hardware's per-triangle words. */
+    val Image       = 20     // words 0 .. Image-1 are what pass 2 DMAs into the uniform bank
+    // First uniform of DRAW_VS_CONST / DRAW_FS_CONST, above the hardware's per-triangle words.
     val VsConstFirst = 25    // above the setup ROM's inputs
     val FsConstFirst = Image // above the record image
-    /** MSAA sample deltas of plane k (E0..E2, Zn): d0 at 32 + 2k, d1 after. */
+    // MSAA sample deltas of plane k (E0..E2, Zn): d0 at 32 + 2k, d1 after.
     def covDelta(k: Int): Int = 32 + 2 * k
     val Words = 40
   }
 
-  // Uniform inputs.
   val uX = Seq(0, 4, 8); val uY = Seq(1, 5, 9); val uZ = Seq(2, 6, 10); val uW = Seq(3, 7, 11)
   val uSx = 12; val uSy = 13; val uOx = 14; val uOy = 15
   val uDepthScale = 16; val uDepthOffset = 17; val uOne = 18
@@ -89,11 +80,9 @@ private[borg] object BorgSetupRom {
     def ldAdd(rd: Int, k: Int): Unit = { ld(uu, k); p += FADD_S(rd, uu, 0) }
     def seq(rd: Int, a: Int, b: Int): Unit = { p += XOR(rd, a, b); p += SLTIU(rd, rd, 1) }
 
-    // 1/x: the ~11-bit FRCP estimate plus Newton steps, r = r*(2 - x*r),
-    // written r + r*(1 - x*r) so it needs only 1.0. One step gives ~22 bits
-    // (the bounding box); two give FP32 (det M, which scales the depth
-    // plane: one step left a flat z = 0.5 some 2^-20 low, more than a
-    // D32_SFLOAT ulp). tmp must differ from negX when steps > 1.
+    // 1/x: the ~11-bit FRCP estimate plus Newton steps r + r*(1 - x*r). One step gives ~22 bits
+    // (the bounding box), two give FP32 (det M scales the depth plane, D32_SFLOAT needs an ulp).
+    // tmp must differ from negX when steps > 1.
     def rcp(x: Int, negX: Int, r: Int, tmp: Int, steps: Int = 1): Unit = {
       p += FRCP(rs1 = x, rd = r)
       for (_ <- 0 until steps) {
@@ -113,17 +102,11 @@ private[borg] object BorgSetupRom {
       delta(a, b, 1); p += SOUT(rs2 = t, index = Record.covDelta(k) + 1)
     }
 
-    // Depth bias, Vulkan's o = m * slope + r * constant, folded into the
-    // triangle's depth offset so every sample of every pixel carries it.
-    // m = max(|dz/dx|, |dz/dy|) of FragCoord.z (the approximation the spec
-    // allows); r = 2^-15 for D16, and for D32_SFLOAT 2^(e - 23), e the
-    // exponent of the triangle's largest |depth| -- exactly ulp(max z),
-    // computed as asFloat(bits + 1) - z. The largest depth is the Zn plane at
-    // the three corners, or the far plane 1.0 when a corner is behind the eye
-    // (its screen position is meaningless). There is no float max or abs:
-    // non-negative floats order like unsigned integers, and |x| clears the
-    // sign bit. With both factors 0 (reset) the offset is unchanged, since m
-    // and r are clamped finite (z to 1.0, so r <= 2^-23).
+    // Depth bias, Vulkan's o = m * slope + r * constant, folded into the triangle's depth offset.
+    // m = max(|dz/dx|, |dz/dy|) (the approximation the spec allows); r = 2^-15 for D16, and for
+    // D32_SFLOAT ulp(max |z|) = asFloat(bits + 1) - z, the far plane 1.0 when a corner is behind
+    // the eye. No float max or abs: non-negative floats order like unsigned integers. m and r are
+    // clamped finite, so zero factors leave the offset unchanged.
     val rBiasedOffset = 26
     def depthBias(): Unit = {
       val (c1, maxFin, m, zmax, a, b, c, d, rr) = (12, 13, 14, 15, 16, 17, 18, 19, 20)
@@ -186,18 +169,10 @@ private[borg] object BorgSetupRom {
     }
     for (k <- 0 until 3) p += FNEG(rs1 = rW(k), rd = rNW(k))
 
-    // Edge plane k = (column i) x (column j), i and j the other two corners,
-    // with its sign flipped when det M < 0 so that inside is always >= 0.
-    //
-    // NOT divided by det M, and every component is round(p) - round(q) of
-    // two separately rounded products (no FMA): a triangle sharing the edge
-    // computes (column j) x (column i), and round(q) - round(p) is then the
-    // exact negation. With the per-pixel evaluation and the MSAA deltas also
-    // sign-symmetric, the two triangles' edge values are exact opposites at
-    // every sample -- which is what makes the tie rule on exact zeros
-    // watertight (no sample in both triangles, none in neither). Dividing
-    // by each triangle's own det M rounded the two sides differently. The
-    // barycentrics do not need the division: E_k / sum(E) cancels it.
+    // Edge plane k = (column i) x (column j), sign-flipped when det M < 0 so inside is >= 0.
+    // Not divided by det M and no FMA: each component is round(p) - round(q), so a triangle
+    // sharing the edge gets the exact negation and the tie rule on zeros is watertight.
+    // The barycentrics E_k / sum(E) cancel the missing division.
     for (k <- 0 until 3) {
       val i = (k + 1) % 3; val j = (k + 2) % 3
       p += MUL(rs1 = rY(i), rs2 = rW(j), rd = ra)                   // Yi*Wj - Wi*Yj
@@ -246,11 +221,8 @@ private[borg] object BorgSetupRom {
     }
     for (r <- 0 until 6) p += CSRRW(0, rS(r), Csr.SetupScreen0 + r)
 
-    // A primitive IN the far plane (Z = W at every corner: a skybox) gets
-    // the exact plane Zn = 1. Rebuilt from rounded coefficients it came out
-    // 1 +- an ulp with tiny per-sample slopes, so samples failed Zf >= 0 --
-    // though Vulkan passes such a primitive unchanged -- and a D32 depth of
-    // 1 + ulp failed LEQUAL against a 1.0 clear. (Z = 0 is exact already.)
+    // A primitive in the far plane (Z = W at every corner: a skybox) gets the exact plane Zn = 1:
+    // from rounded coefficients it misses Zf >= 0 and LEQUAL against a 1.0 clear by an ulp.
     locally {
       val (f, g, m) = (12, 13, 14)
       ld(uu, uZ(0)); seq(f, uu, rW(0))
@@ -267,8 +239,7 @@ private[borg] object BorgSetupRom {
       p += IAND(rs1 = g, rs2 = m, rd = g)
       p += IXOR(rs1 = zc, rs2 = g, rd = zc)
     }
-    // Flat depth (the same Z and the same W at every corner: a point's quad) gets the exact
-    // plane Zn = Z/W. Rebuilt from the edge planes, a one-pixel triangle came out 2^-20 off.
+    // Flat depth (the same Z and W at every corner: a point's quad) gets the exact plane Zn = Z/W.
     locally {
       val (f, g, m, z, r) = (12, 13, 14, 15, 16)
       ldAdd(z, uZ(0))

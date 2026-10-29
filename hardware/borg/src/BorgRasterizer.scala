@@ -6,124 +6,86 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgRasterizer — integration wrapper for iterator + shader dispatcher.
-  *
-  * After Step 25.3d, this module is a thin composition layer that wires:
-  *   - `BorgIterator`        (Step 25.3c) — bounding-box tile traversal
-  *   - `BorgShaderDispatcher` (Step 25.3d) — per-pixel shader chaining FSM
-  *
-  * The external IO (`BorgRasterizerIO`) is **unchanged** from before the
-  * extraction, so `Borg.scala` and all tests continue to work without
-  * modification.
-  *
-  * Tile-origin mode: each command specifies a 4×4 tile origin.
-  * The iterator walks all 16 pixels (x0..x0+3, y0..y0+3).
-  * frag_pc and uniform_page come from dedicated registers, not the command.
-  */
-
+/** Composes BorgIterator (walks a command's 4x4 tile) and BorgShaderDispatcher
+  * (per-pixel shader runs), and tests the scissor per lane. */
 class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
-  // Command pop interface (Step 13.3) — forwarded to BorgIterator
   val cmdPop      = Flipped(Decoupled(new BorgCommand(cfg.coordWidth)))
 
-  // Iterator advance (from MMIO write to BORG_ITER)
+  // MMIO write to BORG_ITER.
   val advance     = Input(Bool())
 
-  // The shaders' CSR writes (from BorgCore), per lane
   val csrWrite  = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
 
-  // Core state feedback (needed for stall clearing)
   val coreStatus = Flipped(new CoreStatusIO)
 
-  // Register-driven frag_pc and uniform_page (from dedicated MMIO registers)
   val fragPcReg       = Input(UInt(6.W))
-  // Step 50 item 11: depth-test state, forwarded to BorgShaderDispatcher.
   val depthCompareOp  = Input(UInt(3.W))
   val depthWriteEn    = Input(Bool())
   val depthUnorm      = Input(Bool())
-  // Step 50 item 9: blend state, forwarded to BorgShaderDispatcher. Present
-  // only in a cfg.hasBlend build, matching the dispatcher's own port.
   val blendCfg        = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
-  // Step 50 item 10: stencil state and the tile buffer's stencil plane,
-  // forwarded to BorgShaderDispatcher.
   val frontFacing     = if (cfg.hasStencil) Some(Input(Bool())) else None
   val stencilCfg      = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
   val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
   val stencilWriteMask = if (cfg.hasStencil) Some(Output(UInt(cfg.samples.W))) else None
-  // Step 50 item 9: the tile buffer's destination-alpha plane.
   val alphaRead       = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val alphaWrite      = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
   val alphaWriteMask  = if (cfg.hasBlend) Some(Output(Bool())) else None
-  // Step 50: scissor rectangle (SCISSOR_X/SCISSOR_Y). Tested here rather
-  // than in the dispatcher because this is where the per-lane screen
-  // coordinates are.
+  // Tested here, where the per-lane screen coordinates are.
   val scissor         = Input(new ScissorConfig)
   val pixelOrigin     = Input(new Coord(14))   // the render window's origin
   val uniformPageReg  = Input(UInt(1.W))
 
-  // Outputs
   val iter          = Output(new Coord(cfg.coordWidth))
   val shaderIter    = Output(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))  // per-lane pre-advance positions
   val insideFlag    = Output(Bool())
   val iterValid     = Output(Bool())
-  val uniformPage   = Output(UInt(1.W)) // Expose to BorgCore
+  val uniformPage   = Output(UInt(1.W))
   val autoRunStall  = Output(Bool())
-  val coreTrigger   = new CoreTriggerIO  // pulse: tells BorgCore to auto-run
+  val coreTrigger   = new CoreTriggerIO
 
-  // One-cycle pulse: all 16 pixels of the tile have been advanced (Step 25.3h)
+  // Pulse: all 16 pixels of the tile have been advanced.
   val tileComplete  = Output(Bool())
 
-  // Tile origin (top-left corner of the current 4×4 tile), valid when tileComplete fires
   val tileOrigin    = Output(new Coord(cfg.coordWidth))
 
-  // MSAA coverage deltas from BorgSequencer (Step 50.2); see the matching
-  // comment in BorgShaderDispatcherIO.  Absent at cfg.samples == 1.
   val covDelta = if (cfg.samples > 1)
     Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
-  // Draw front end: see BorgShaderDispatcherIO.drawMode.
   val drawMode = Input(Bool())
   val topLeft  = Input(Vec(3, Bool()))
   val sampleCfg    = Input(new SampleMaskConfig(cfg.samples))
   val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
   val srgbColor    = Input(Bool())                          // sRGB attachment: TLD reads linear FP16
-  val rawColor     = Input(Bool())                          // see the dispatcher's
+  val rawColor     = Input(Bool())
   val laneDst      = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
   val extRead      = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
   val extWrite     = if (cfg.hasBlend) Some(Output(UInt(32.W))) else None
 
-  // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO(cfg.samples, cfg.tileDepthBits)
-  // Step 25.5C: Tile Buffer read port for depth test
   val tileRead  = new TileReadIO(16, cfg.samples, cfg.tileDepthBits)
 
-  // ZTEST (see BorgShaderDispatcher) and per-lane side-effect suppression.
   val zTestReq   = Input(Bool())
   val zTestDone  = Output(Bool())
   val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
   val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
 
-  // Dispatcher FSM phase (exposed for sequencer pipeline drain)
+  // For the sequencer's pipeline drain.
   val dispatcherIdle  = Output(Bool())
 }
 
 class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgRasterizerIO(cfg))
 
-  // --- Sub-modules ---
   val iterator   = Module(new BorgIterator(cfg))
   val dispatcher = Module(new BorgShaderDispatcher(cfg))
 
-  // --- Wire BorgIterator ---
   iterator.io.cmdPop    <> io.cmdPop
-  // Gate advance on dispatcher idle: if the dispatcher is still processing
-  // the previous pixel (autoRunStall), ignore the firmware's iter write.
-  // The firmware retries because iterValid remains true.
+  // An advance during autoRunStall is dropped; firmware retries while iterValid.
   iterator.io.advance   := io.advance && !dispatcher.io.autoRunStall
   iterator.io.phaseIdle := dispatcher.io.idle
 
-  // --- Wire BorgShaderDispatcher inputs ---
   dispatcher.io.pixelReady     := iterator.io.pixelReady
-  dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex   // per-lane Vec
+  dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex
   dispatcher.io.csrWrite       <> io.csrWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
@@ -139,9 +101,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.alphaRead.foreach(_ := io.alphaRead.get)
   io.alphaWrite.foreach(_ := dispatcher.io.alphaWrite.get)
   io.alphaWriteMask.foreach(_ := dispatcher.io.alphaWriteMask.get)
-  // Scissor: one rectangle test per lane against its own pre-advance screen
-  // position -- the same coordinates that produce shaderTileIndex, so the
-  // result lines up with the tile slot the fragment will write.
+  // Each lane's pre-advance position, the one that produces shaderTileIndex.
   for (i <- 0 until cfg.fragLanes) {
     dispatcher.io.scissorPass(i) :=
       ScissorConfig.passes(io.scissor, iterator.io.shaderIter(i).x +& io.pixelOrigin.x,
@@ -158,7 +118,6 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.extRead.foreach(_ := io.extRead.get)
   io.extWrite.foreach(_ := dispatcher.io.extWrite.get)
 
-  // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger
   io.tileWrite    <> dispatcher.io.tileWrite
   io.tileRead     <> dispatcher.io.tileRead
@@ -170,14 +129,12 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.laneHelper        := dispatcher.io.laneHelper
   io.occSamples        := dispatcher.io.occSamples
 
-  // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter
-  io.shaderIter   := iterator.io.shaderIter      // per-lane Vec → BorgCore per-lane coords
+  io.shaderIter   := iterator.io.shaderIter
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
   io.tileOrigin   := iterator.io.tileOrigin
   io.dispatcherIdle := dispatcher.io.idle
 
-  // --- Passthrough ---
-  io.uniformPage  := io.uniformPageReg  // pass through from register
+  io.uniformPage  := io.uniformPageReg
 }

@@ -5,20 +5,8 @@ package borg
 
 import chisel3._
 
-/** Scissor rectangle state (SCISSOR_X / SCISSOR_Y).
-  *
-  * `x0`/`y0` are inclusive and `x1`/`y1` exclusive, so a `VkRect2D` maps
-  * straight across: `x1 = offset.x + extent.width`.
-  *
-  * The scissor test is core Vulkan -- every graphics pipeline carries a
-  * scissor rectangle, there is no feature bit and no way to opt out of the
-  * state -- and Borg had none: a fragment inside the triangle was always
-  * written.
-  *
-  * 13 bits per bound rather than 12: the bounds are half-open, so covering
-  * the full 4096-wide framebuffer Vulkan requires needs `x1 = 4096`, one past
-  * what 12 bits can hold.
-  */
+/** Scissor rectangle (SCISSOR_X / SCISSOR_Y), half-open like `VkRect2D`.
+  * 13 bits so that x1 = 4096 covers a 4096-wide framebuffer. */
 class ScissorConfig(val w: Int = 13) extends Bundle {
   val enable = Bool()
   val x0 = UInt(w.W)
@@ -28,12 +16,7 @@ class ScissorConfig(val w: Int = 13) extends Bundle {
 }
 
 object ScissorConfig {
-  /** Does pixel (x, y) survive the scissor test?
-    *
-    * Disabled means "everything passes", not "nothing passes" -- an empty
-    * rectangle and a disabled test are different states, and conflating them
-    * would blank the frame for firmware that never writes the register.
-    */
+  /** Disabled passes everything; an empty rectangle passes nothing. */
   def passes(cfg: ScissorConfig, x: UInt, y: UInt): Bool =
     !cfg.enable || (x >= cfg.x0 && x < cfg.x1 && y >= cfg.y0 && y < cfg.y1)
 }

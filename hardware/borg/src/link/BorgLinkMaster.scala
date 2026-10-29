@@ -10,10 +10,9 @@ import hutt.HuttBus
 
 class BorgLinkMasterIO(val p: LinkParams) extends Bundle with BorgMmioIf {
 
-  /** Deliberately identical to `BorgIO`'s `mmio`, so this is a drop-in for Borg. */
+  /** Identical to `BorgIO`'s `mmio` and `gpuMem`, so this is a drop-in for Borg. */
   val mmio = Flipped(new HuttBus(10))
 
-  /** Deliberately identical to `BorgIO`'s `gpuMem`, likewise. */
   val gpuMem = new GpuMemIO
 
   val dnPins = Output(new LinkPins(p.w))
@@ -26,8 +25,7 @@ class BorgLinkMasterIO(val p: LinkParams) extends Bundle with BorgMmioIf {
   val upCred = Output(Bool())
 
   val linkFast = Input(Bool())
-  /** `link_narrow` strap: halve the lanes at runtime. Only load-bearing when
-    * the build is narrowCapable; see LinkParams. */
+  /** `link_narrow` strap: halve the lanes at runtime (narrowCapable builds only). */
   val narrow   = Input(Bool())
 
   /** The ASIC's `link_up` pin. */
@@ -37,19 +35,10 @@ class BorgLinkMasterIO(val p: LinkParams) extends Bundle with BorgMmioIf {
   val linkErr = Output(Bool())
 }
 
-/** FPGA-side link adapter -- the mirror of [[BorgLinkSlave]].
+/** FPGA-side link adapter, the mirror of [[BorgLinkSlave]].
   *
-  * The single most useful property of this module is that its IO is '''identical
-  * to `BorgIO`'s''' `mmio` + `gpuMem`.  `Peripherals.scala` can therefore select
-  * between a local `Borg` and this adapter behind one `borgIf` handle, and the rest
-  * of the SoC -- address decode, arbitration, `wireGpuMem()`, HDMI scanout,
-  * firmware, `borgvk` -- cannot tell which is underneath.
-  *
-  * That is what makes the whole bridge testable on the ULX3S with Borg still on the
-  * FPGA, long before any silicon exists (rung A of the on-hardware ladder).
-  *
-  * It also defines the beat phase for the system: the master's divider free-runs and
-  * it drives a training pattern until the slave reports `link_up` on a pin.
+  * Its IO matches `BorgIO`, so the SoC cannot tell it from a local Borg. The master's
+  * divider sets the beat phase; it trains until the slave reports `link_up`.
   */
 class BorgLinkMaster(val p: LinkParams) extends Module {
   val io = IO(new BorgLinkMasterIO(p))
@@ -64,11 +53,8 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   clkgen.io.rxPins    := DontCare
 
   val beatEn = clkgen.io.beatEn
-  // Report link_up only once a full inter-packet gap has gone out after
-  // training stops. farLinkUp can arrive while the slave's receiver is inside a
-  // training "packet"; a request sent on the very next beat would be taken as
-  // its payload. The idle beats are also the slave's resynchronization point
-  // (BorgLinkSlave's `synced`), which it will not accept traffic without.
+  // Report link_up only after a full inter-packet gap: the slave may still be inside a
+  // training "packet", and the idle beats are where it resynchronizes (`synced`).
   val settle = RegInit(0.U(log2Ceil(p.gapBeats + 2).W))
   when(!clkgen.io.linkUp) { settle := 0.U }
     .elsewhen(beatEn && settle <= p.gapBeats.U) { settle := settle + 1.U }
@@ -84,9 +70,7 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   // Drive the training pattern until the far side reports it has locked phase.
   io.dnPins := Mux(clkgen.io.trainActive, clkgen.io.trainPins, tx.io.pins)
 
-  // Received traffic only counts from the first idle beat after link_up, judged
-  // on the receiver's own beat -- see BorgLinkSlave's `synced` for why both the
-  // resynchronization point and its beat alignment matter.
+  // Received traffic counts from the first idle beat after link_up (see BorgLinkSlave).
   val synced = RegInit(false.B)
   when(linkUp && rx.io.idle) { synced := true.B }
 
@@ -102,9 +86,7 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   val rxFlit  = rx.io.out.bits.flit
   val rxIdx   = rx.io.out.bits.idx
 
-  // ==========================================================================
   // MMIO path: SoC request -> M.A on DN, M.D back on UP -> SoC response
-  // ==========================================================================
   val sMIdle :: sMSend :: sMWait :: sMResp :: Nil = Enum(4)
   val mState = RegInit(sMIdle)
 
@@ -169,9 +151,7 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   io.mmio.resp.bits  := mResp
   when(io.mmio.resp.fire) { mState := sMIdle }
 
-  // ==========================================================================
   // gpuMem path: V.A in on UP -> replay on the local memory port -> V.D on DN
-  // ==========================================================================
   val sVIdle :: sVAddrLo :: sVAddrHi :: sVCollect :: sVIssue :: sVSend :: Nil = Enum(6)
   val vState = RegInit(sVIdle)
 
@@ -184,15 +164,13 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   val vData     = Reg(UInt(32.W))
 
   val vWords = (1.U << vWlenLog2).asUInt
-  // vCnt is sized to count up to maxBurst inclusive (as a completion check
-  // below), one bit wider than a bare index into the maxBurst-entry vBuf.
+  // vCnt counts to maxBurst inclusive, one bit wider than a vBuf index.
   val vCntIdx = vCnt(log2Ceil(p.maxBurst) - 1, 0)
 
   io.gpuMem.addr  := vAddr
   io.gpuMem.req   := (vState === sVIssue) && !vWrite
   io.gpuMem.wr    := (vState === sVIssue) && vWrite
-  // A header claiming wlenLog2 > maxBurstLog2 is already rejected by LinkRx's
-  // length check, so vWords cannot exceed maxBurst here.
+  // LinkRx rejects wlenLog2 > maxBurstLog2, so vWords fits.
   io.gpuMem.wlen  := vWords(6, 0)
   io.gpuMem.wdata := vBuf(vCntIdx)
 

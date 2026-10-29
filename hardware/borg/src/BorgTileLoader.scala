@@ -33,21 +33,16 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
   val format      = Input(UInt(FlushFormat.Bits.W))   // FlushFormat of the colour attachment
   val srgb        = Input(Bool())                       // its colour is sRGB-encoded
   val colorBase   = Input(UInt(GpuMemIO.AddrBits.W))       // this tile's colour data, as the flusher wrote it
-  // Present only in a build that can store the aspect (hasDepthFlush /
-  // hasStencil): there is nothing to load back otherwise.
   val depthBase   = if (hasDepth)   Some(Input(UInt(GpuMemIO.AddrBits.W))) else None  // 16 x D16_UNORM
   val stencilBase = if (hasStencil) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None  // 16 x S8_UINT
-  // D32_SFLOAT depth attachment (DEPTH_FORMAT), only with FP32 tile depth.
+  // D32_SFLOAT depth attachment, only with FP32 tile depth.
   val depthD32    = if (hasDepth && zBits == 32) Some(Input(Bool())) else None
-  // Per-sample attachments (ATTACH_MS), the flusher's layout: each sample of
-  // the tile in its own region, one tile size apart; every sample in turn,
-  // each written to its own plane only.
+  // Per-sample attachments (ATTACH_MS): each sample's region one tile size
+  // apart, each sample written to its own plane only.
   val msLoad   = if (samples > 1) Some(Input(Bool())) else None
 
-  // Values for aspects that are NOT loaded: the tile's clear values. Every
-  // loaded entry is written whole (colour, Z, alpha and stencil together),
-  // so an aspect that is cleared rather than loaded must be rewritten with
-  // what the clear just put there.
+  // Entries are written whole, so aspects that are not loaded get their
+  // clear values again.
   val clearColor   = Input(new ColorZ(16, zBits))
   val clearAlpha   = Input(UInt(8.W))
   val clearStencil = Input(UInt(8.W))
@@ -55,35 +50,12 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
 
   val gpuMem = new GpuMemIO                 // reads only
 
-  // Tile buffer write, every sample (a load has no per-sample coverage).
   val write = Output(new TileLoadWrite(zBits, samples))
 }
 
-/** Loads a tile's attachments back from DRAM into the tile buffer -- Vulkan's
-  * `VK_ATTACHMENT_LOAD_OP_LOAD`, the reverse of [[BorgTileFlusher]].
-  *
-  * Without it a render pass could only start from a clear. That also blocked
-  * everything that needs one render pass split into several renders (Borg's
-  * pass 2 runs one fragment shader and one occlusion-query window), since the
-  * second render had no way to continue from the first one's attachments.
-  *
-  * The data layout is exactly what the flusher writes, so a store followed by
-  * a load is lossless for colour (RGB565 is expanded to UNORM8 by bit
-  * replication, which quantizes back to the same 5/6/5 bits; quantize8
-  * inverts dequantize8 exactly) and for stencil. Depth is D16_UNORM in memory
-  * but FP16 in the tile buffer, so a loaded depth is the nearest FP16 -- the
-  * same precision every depth test on Borg already runs at.
-  *
-  * Entries go two at a time: one colour word holds two RGB565 pixels (a
-  * 32-bit format needs two words), one depth word holds two D16 values, and
-  * one stencil word holds four. Each pair is read, then written as two whole
-  * tile entries, so the staging is a few words, not a tile.
-  *
-  * Loaded content is written to every sample. That is exact for a
-  * single-sample attachment. A multisampled attachment is stored resolved
-  * (the flusher averages colour and takes depth/stencil from sample 0), so
-  * loading it back gives every sample the resolved value -- storing and
-  * loading all samples individually is not supported.
+/** VK_ATTACHMENT_LOAD_OP_LOAD: loads a tile's attachments back from DRAM in
+  * the flusher's layout, so store then load is lossless for colour and stencil.
+  * Entries go two at a time, so the staging is a few words, not a tile.
   */
 class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = true,
                      val zBits: Int = 16, val samples: Int = 1) extends Module {
@@ -130,7 +102,6 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   io.gpuMem.wdata := 0.U
   io.gpuMem.wlen  := 1.U
 
-  /** The first read the current pair needs, starting from `from`. */
   def firstRead(e: UInt, a: TileLoadAspects): UInt =
     Mux(a.color, sReadC0,
     Mux(a.depth, sReadZ,
@@ -140,7 +111,6 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   def afterDepth(): UInt = Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sLookup)
   def afterZ0(): UInt = Mux(d32, sReadZ1, afterDepth())
 
-  /** One read: present the address, and on `ready` capture and move on. */
   def read(addr: UInt, into: UInt, next: UInt): Unit = {
     io.gpuMem.req  := true.B
     io.gpuMem.addr := addr
@@ -170,12 +140,8 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
         state   := firstRead(0.U, a)
       }
     }
-    // Colour: the 2-byte formats pack entries e, e+1 in one word at +2e; the
-    // 32-bit formats take one word per entry at +4e (the flusher writes a
-    // wide tile as two 32-byte halves, which is the same contiguous
-    // layout); RAW8 holds entries e..e+3 in the word at +e, read aligned.
-    // RAW64 reads word 0 of e and e+1 like a 4-byte format, then their word
-    // 1s: entry e is at +8e.
+    // Entry e is at +2e (2-byte, two per word), +4e (32-bit), +e (RAW8, four
+    // per aligned word) or +8e (RAW64: word 0 of e and e+1, then their word 1s).
     is(sReadC0) {
       read(cSample + Mux(fmt64, entry << 3, Mux(wide, entry << 2, Mux(byteFmt, Cat(entry(3, 2), 0.U(2.W)), entry << 1))), cWord0,
            Mux(wide || fmt64, sReadC1, afterColor()))
@@ -208,8 +174,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
     }
   }
 
-  // --- The entry being written this cycle (sWrite0: `entry`, sWrite1: +1) --
-  /** The colour bytes of the pair's first (`second` false) or second entry. */
+  /** The colour bytes of the pair's first or second entry. */
   def rgba8(second: Bool): (UInt, UInt, UInt, UInt) = {
     val half   = Mux(second, cWord0(31, 16), cWord0(15, 0))    // RGB565 pixel
     val word   = Mux(second, cWord1, cWord0)                   // 32-bit pixel
@@ -224,8 +189,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
              Mux(raw16, half(7, 0), Mux(byteFmt, byte8, expand5(half(15, 11)))))
     val g8 = Mux(wide4, word(15, 8), Mux(raw16, half(15, 8), Mux(byteFmt, 0.U, expand6(half(10, 5)))))
     val b8 = Mux(wide4, Mux(bgra, word(7, 0), word(23, 16)), Mux(raw16 || byteFmt, 0.U, expand5(half(4, 0))))
-    // RGB565 has no alpha: a format without it reads as opaque. The narrow
-    // RAW formats' missing bytes read as 0.
+    // RGB565 reads as opaque; the narrow RAW formats' missing bytes as 0.
     val a8 = Mux(wide4, word(31, 24), Mux(raw16 || byteFmt, 0.U, 255.U(8.W)))
     (r8, g8, b8, a8)
   }

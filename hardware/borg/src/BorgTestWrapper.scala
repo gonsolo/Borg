@@ -6,29 +6,13 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** Test-only wrapper that exposes a word-addressed MMIO surface
-  * on top of [[Borg]] whose production IO is [[hutt.HuttBus]]
-  * Decoupled req/resp.  Lets the existing 130+ test pokes keep working
-  * unchanged while the production Borg presents a clean Decoupled bus.
+/** Test-only wrapper: a word-addressed MMIO surface over [[Borg]]'s Decoupled bus.
   *
-  * == Protocol translation ==
-  *
-  *  - Writes: rising edge from data_write_n=3 → data_write_n=2 issues one
-  *    Decoupled write request, combinationally same-cycle so the test's
-  *    immediate step(1) sees the write completed.
-  *
-  *  - Reads: level-triggered.  As long as data_read_n=2, keep re-issuing
-  *    read requests whenever no transaction is currently in flight.  This
-  *    matches the original level-sensitive `bus.is_reading = data_read_n === 2`
-  *    semantics where the CPU could poll a status register by sustaining the
-  *    read for many cycles.
-  *
-  *  - data_out: combinational pass-through of borg.resp.bits when a read
-  *    response is valid; otherwise holds the last captured value.  This lets
-  *    `peek()` immediately after step(1) observe the fresh read value.
-  *
-  *  - data_ready: 1 when no read is pending (data_read_n=3) OR when a read
-  *    response has completed in the current/previous cycle.
+  *  - Writes: the data_write_n 3 -> 2 edge issues one request, same cycle.
+  *  - Reads: level-triggered; while data_read_n = 2, re-issue whenever nothing is in flight,
+  *    so a test can poll a status register.
+  *  - data_out passes the response through combinationally, else holds the last value.
+  *  - data_ready: no read pending, or a read response has arrived.
   */
 class BorgTestWrapperIO(val cfg: BorgConfig) extends Bundle {
   val address        = Input(UInt(10.W))
@@ -42,12 +26,8 @@ class BorgTestWrapperIO(val cfg: BorgConfig) extends Bundle {
   val gpuMem         = new GpuMemIO
 }
 
-/** Anything presenting the legacy word-addressed MMIO surface.
-  *
-  * Lets one test scenario be driven against both this wrapper and the
-  * link-interposed one in `borg.link`, which is what the equivalence gate needs:
-  * identical stimulus, direct versus over the chip-to-chip bridge, compared for
-  * bit-identical output.
+/** Anything presenting this MMIO surface, so one test runs both directly and over the
+  * link in `borg.link` and compares the output.
   */
 trait HasLegacyBorgMmio {
   def io: BorgTestWrapperIO
@@ -58,23 +38,15 @@ class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module w
 
   val borg = Module(new Borg(cfg))
 
-  // Borg's own uo_out/user_interrupt were dead (tied to constants) and have
-  // been removed from BorgIO entirely; this wrapper's own io.uo_out/
-  // io.user_interrupt stay (the ~130+ legacy test pokes' interface is
-  // unrelated to Borg's real production IO), just tied off directly instead
-  // of forwarded.
   io.uo_out         := 0.U
   io.user_interrupt := false.B
   borg.io.gpuMem    <> io.gpuMem
 
-  // -- Edge / level detection -----------------------------------------------
   val writeNDel  = RegNext(io.data_write_n, 3.U(2.W))
   val writeEdge  = (io.data_write_n === 2.U) && (writeNDel =/= 2.U)
   val readActive = io.data_read_n === 2.U
 
-  // -- In-flight / pending state --------------------------------------------
-  // `inflightReq` covers the window between a request firing and its response
-  // firing.  `pendingReq` only matters if Borg back-pressures req.ready.
+  // `pendingReq` only matters if Borg back-pressures req.ready.
   val inflightReq    = RegInit(false.B)
   val inflightIsRead = RegInit(false.B)
 
@@ -83,9 +55,6 @@ class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module w
   val pendingData   = Reg(UInt(32.W))
   val pendingIsRead = Reg(Bool())
 
-  // Issue a new request when:
-  //   - a write edge fires, or read level is high, AND
-  //   - no request is already pending or in flight.
   val canIssueNew = !pendingReq && !inflightReq
   val newWriteReq = writeEdge  && canIssueNew
   val newReadReq  = readActive && canIssueNew
@@ -102,7 +71,6 @@ class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module w
   borg.io.mmio.req.bits.size  := 2.U
   borg.io.mmio.resp.ready     := true.B
 
-  // Latch into pendingReq only if Borg refuses to accept.
   when(newReq && !borg.io.mmio.req.fire) {
     pendingReq    := true.B
     pendingAddr   := io.address
@@ -118,23 +86,19 @@ class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module w
     inflightReq := false.B
   }
 
-  // -- Read data path -------------------------------------------------------
-  // Hold the most recent read value so `data_out` stays valid between reads.
   val dataOutReg = RegInit(0.U(32.W))
   when(borg.io.mmio.resp.fire && inflightIsRead) {
     dataOutReg := borg.io.mmio.resp.bits
   }
 
-  // Combinational pass-through during the resp.fire cycle so the test's
-  // `peek()` right after step(1) sees the fresh value, not the latched one.
+  // Pass through on resp.fire so a peek right after step(1) sees the fresh value.
   io.data_out := Mux(
     borg.io.mmio.resp.valid && inflightIsRead,
     borg.io.mmio.resp.bits,
     dataOutReg
   )
 
-  // Track whether a read response has completed (sticky until read_n
-  // deasserts) so the legacy data_ready signal matches the old contract.
+  // Sticky until read_n deasserts.
   val readGotData = RegInit(false.B)
   when(borg.io.mmio.resp.fire && inflightIsRead) { readGotData := true.B }
   when(!readActive) { readGotData := false.B }

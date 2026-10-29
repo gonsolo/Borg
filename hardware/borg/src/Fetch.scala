@@ -71,11 +71,8 @@ class Fetch(cfg: BorgConfig) extends Module {
   }
   wireICache()
 
-  /** IMEM word for program counter `pc`. Without the cache the PC only ever
-    * indexes IMEM. With it, IMEM is direct-mapped over the program: word `pc`
-    * lives in line `pc mod L` (L = the largest power of two within IMEM),
-    * except that every PC inside IMEM keeps its own word, so a 72-word IMEM
-    * still holds a 72-word program exactly where it always did. */
+  /** IMEM is direct-mapped over the program: word `pc` lives in line `pc mod L` (L = the largest
+    * power of two within IMEM), except that every PC inside IMEM keeps its own word. */
   private def imemIndex(pc: UInt): UInt = {
     val n  = cfg.maxInstructions
     val lb = cfg.icacheLinesLog2
@@ -83,31 +80,11 @@ class Fetch(cfg: BorgConfig) extends Module {
     else Mux(pc < n.U, pc(log2Ceil(n) - 1, 0), pc(lb - 1, 0))
   }
 
-  /** Shader instruction cache.
-    *
-    * IMEM is the cache's data array; this adds only bookkeeping. A line is
-    * invalid, NEAR -- holding the word of the PC equal to its own index, which
-    * is where the sequencer's DMA and MMIO writes put a program -- or FAR,
-    * holding the word of a PC past IMEM, identified by a tag. Only the low L
-    * lines can go far; lines L..N-1 (IMEM 64..71 of a 72-word build) are
-    * near or invalid.
-    *
-    * A fetch hits if the line is valid and holds the word of the PC being
-    * fetched (near for a PC inside IMEM, far with a matching tag past it).
-    * On a miss the core does not issue. The fill reads codeBase + 4*pc over
-    * the LOAD/STORE port (one 32-bit word), writes it into the line, marks
-    * it, and waits one cycle for IMEM's synchronous read to return the new
-    * word. Any PC can miss -- a near line far code evicted, or one the
-    * preload never reached -- so the whole program, not just its tail, must
-    * be in DRAM at codeBase. The sequencer's shader DMA arranges that
-    * automatically (Borg.scala).
-    *
-    * `icacheFlush` marks a program change and invalidates every line; the
-    * DMA/MMIO writes that follow make their lines near and valid, which is
-    * what makes a preload a prefill of this cache. Lines reset valid, so a
-    * program loaded without any flush -- every pre-cache use of IMEM --
-    * behaves exactly as before. An MMIO-loaded program longer than IMEM must
-    * write CODE_BASE (which flushes) BEFORE its IMEM words.
+  /** Shader instruction cache with IMEM as its data array. A line is invalid, near (the word of the
+    * PC equal to its index, where DMA and MMIO loads put it) or far (a PC past IMEM, tagged); only
+    * the low L lines go far. Any PC can miss, so the whole program must be in DRAM at codeBase.
+    * A flush invalidates every line and the loads that follow prefill it; lines reset valid. An
+    * MMIO-loaded program longer than IMEM must write CODE_BASE before its IMEM words.
     */
   private def wireICache(): Unit = {
     val pc      = rasterRomAddrReg
@@ -145,8 +122,7 @@ class Fetch(cfg: BorgConfig) extends Module {
     when(state === sSettle) { state := sIdle }
   }
 
-  /** Line state in flops, for a small IMEM: a flush clears it in one cycle.
-    * True if the line holds pc's word. */
+  /** Line state in flops, for a small IMEM. True if the line holds pc's word. */
   private def icacheLinesFlops(pc: UInt, inImem: Bool, fill: Bool, missPc: UInt): Bool = {
     val n       = cfg.maxInstructions
     val lb      = cfg.icacheLinesLog2
@@ -168,10 +144,7 @@ class Fetch(cfg: BorgConfig) extends Module {
         farTag(l) := missPc(cfg.pcBits - 1, lb)
       }
     }
-    // A flush starts a new program: nothing in IMEM belongs to it yet. The
-    // DMA/MMIO writes that follow each make their line near and valid. (A
-    // write in the same cycle as a flush wins: the flush pulses at DMA start,
-    // before its first word arrives, so they never actually coincide.)
+    // A load in the same cycle as a flush wins.
     when(io.flush) {
       valid.foreach(_ := false.B)
       isFar.foreach(_ := false.B)
@@ -183,12 +156,8 @@ class Fetch(cfg: BorgConfig) extends Module {
     hit
   }
 
-  /** Line state in a RAM read next to IMEM, for a large IMEM, where flops
-    * cost LUTs on the FPGA and per-cycle work in the simulator. A line is
-    * valid only in the epoch it was written in, so a flush bumps the epoch.
-    * A sweep rewrites every line after reset (valid, as the flops reset) and
-    * when the epoch wraps (invalid); a line it has not reached yet reads as
-    * what it will write. True if the line holds pc's word. */
+  /** Line state in a RAM, for a large IMEM. A line is valid only in the epoch it was written in, so
+    * a flush bumps the epoch; a sweep rewrites every line after reset and when the epoch wraps. */
   private def icacheLinesRam(pc: UInt, inImem: Bool, fill: Bool, missPc: UInt): Bool = {
     val n     = cfg.maxInstructions
     val lb    = cfg.icacheLinesLog2

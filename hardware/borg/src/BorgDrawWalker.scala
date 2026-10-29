@@ -31,9 +31,7 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val start = Input(Bool())
   val done  = Output(Bool())
   val busy  = Output(Bool())
-  // Render lists: the first draw of a render clears the bins and numbers its
-  // triangles from 0, a later one carries on; every triangle's record names
-  // its draw's state block.
+  // Render lists: the first draw clears the bins and numbers triangles from 0, later ones continue.
   val first     = Input(Bool())
   val stateAddr = Input(UInt(GpuMemIO.AddrBits.W))
   // A full bin pauses the walker on its triangle until the sequencer has rendered
@@ -56,19 +54,11 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val record = Output(new CoreRecordIO)
 }
 
-/** BorgDrawWalker -- Pass 1 of a draw (DRAW_CFG mode 1). See
-  * docs/B1_geometry_front_end.md.
+/** BorgDrawWalker: Pass 1 of a draw (docs/B1_geometry_front_end.md).
   *
-  * For every instance and every primitive: assemble the primitive's three
-  * vertex positions for the topology, turn them into VertexIndex values
-  * (reading the index buffer if there is one, and restarting strips and fans
-  * at a restart index), run the vertex shader once for all three corners --
-  * one per lane, or three times on a single-lane build -- run the setup ROM,
-  * cull, bin, and store the triangle's facing. The vertex shader and the
-  * setup ROM write the rest of the triangle's record themselves (SOUT).
-  *
-  * The triangle index counts every primitive assembled, culled or not, so
-  * record t always belongs to primitive t.
+  * Per instance and primitive: assemble the corners, fetch indices (with restart), run the
+  * vertex shader once for all three corners, run the setup ROM, cull, bin, store the facing.
+  * The triangle index counts every primitive, culled or not, so record t is primitive t.
   */
 class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgDrawWalkerIO(cfg))
@@ -108,7 +98,6 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val coreWasActive = RegNext(io.coreStatus.running || io.coreStatus.autoRunPending, false.B)
   private val coreFinished  = coreWasActive && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
-  // --- Defaults ---------------------------------------------------------
   io.busy := state =/= sIdle
   io.done := false.B
   io.paused := state === sPaused
@@ -160,7 +149,6 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     state        := sWaitDMA
   }
 
-  // --- Primitive assembly ------------------------------------------------
   private val isList = d.topology === 0.U
   private val isFan  = d.topology === 2.U
   private val odd    = prim(0)
@@ -199,8 +187,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     is(sLoadConst) {
-      // The vertex shader's constant window, once per draw: the setup ROM
-      // only ever writes the uniforms below it.
+      // The vertex shader's constants, once per draw; the setup ROM writes only below them.
       val first = BorgSetupRom.Record.VsConstFirst
       val desc = Wire(new DMADescriptor)
       desc.baseAddr := io.mmio.vsConstBase
@@ -270,16 +257,12 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
             12.U -> d.viewport(0), 13.U -> d.viewport(1), 14.U -> d.viewport(2), 15.U -> d.viewport(3),
             16.U -> d.depthScale, 17.U -> d.depthOffset,
             18.U -> "h3F800000".U,       //  1.0
-            // The standard 4x sample offsets, or all at the pixel centre
-            // for a single-sample render: coverage and depth then agree
-            // across the four samples and resolve exactly.
+            // 4x sample offsets, or all at the centre for single-sample so samples resolve exactly.
             19.U -> Mux(d.singleSample, 0.U, "hBE000000".U),   // -0.125
             20.U -> Mux(d.singleSample, 0.U, "hBEC00000".U),   // -0.375
             21.U -> Mux(d.singleSample, 0.U, "h3EC00000".U),   // +0.375
             22.U -> d.depthBiasSlope, 23.U -> d.depthBiasConst,
-            // r of D16: 2^-15, the spec's largest (2 x 2^-n): 2^-16 is a
-            // hair under one D16 step (1/65535), so a bias of 1 could fail
-            // to reach a distinct stored value.
+            // D16's r is 2^-15 (the spec's 2 x 2^-n): 2^-16 is under one D16 step.
             24.U -> Mux(d.depthD32, 0.U, "h38000000".U)))
         when(stageIdx === (BorgSetupRom.Uniforms - 1).U) { state := sRunSetup }
         stageIdx := stageIdx + 1.U
@@ -293,29 +276,24 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     is(sWaitSetup) {
       when(coreFinished) {
         // det M: zero is a degenerate triangle; its sign is the facing.
-        // With frontFaceInvert clear, front is Vulkan's counter-clockwise
-        // (positive area in framebuffer coordinates), where det < 0.
+        // det M: zero is degenerate, the sign is the facing; Vulkan's CCW front has det < 0.
         val degenerate = det(30, 0) === 0.U
         val back = !det(31) ^ io.mmio.frontFaceInvert
         isBack := back
         val culled = degenerate || Mux(back, io.mmio.cullMode(1), io.mmio.cullMode(0))
-        // A corner at or behind the eye has no screen position: bin the
-        // whole grid (the binner clamps it) and let the planes decide.
+        // A corner at or behind the eye has no screen position: bin the whole grid.
         def front(w: UInt) = !w(31) && w(30, 0) =/= 0.U
         val allFront = clip.map(c => front(c(3))).reduce(_ && _)
         def minOf(a: UInt, b: UInt) = Mux(ordered(a) <= ordered(b), a, b)
         def maxOf(a: UInt, b: UInt) = Mux(ordered(a) >= ordered(b), a, b)
         val xs = Seq(screen(0), screen(2), screen(4)); val ys = Seq(screen(1), screen(3), screen(5))
-        // Framebuffer pixels (up to 8191), then relative to the render window
-        // (FB_ORIGIN, SEQ_TILES_PER_ROW x SEQ_TILE_ROWS tiles).
+        // Framebuffer pixels (up to 8191), then relative to the render window.
         val G = 13
         val loX = PixelBox.toPixel(cfg, xs.reduce(minOf), G); val hiX = PixelBox.toPixel(cfg, xs.reduce(maxOf), G)
         val loY = PixelBox.toPixel(cfg, ys.reduce(minOf), G); val hiY = PixelBox.toPixel(cfg, ys.reduce(maxOf), G)
         val ox = Cat(io.mmio.fbOriginX, 0.U(2.W)); val oy = Cat(io.mmio.fbOriginY, 0.U(2.W))
         val wx = Cat(io.mmio.fbWidthTiles, 0.U(2.W)); val wy = Cat(io.mmio.fbHeightTiles, 0.U(2.W))
-        // One pixel of slack on the far side: the corners are ~22-bit
-        // reciprocals, and a pixel whose centre sits a rounding error
-        // inside must not be lost.
+        // One pixel of slack on the far side for the ~22-bit reciprocal corners.
         val outside = allFront && (hiX +& 1.U < ox || hiY +& 1.U < oy || loX >= ox +& wx || loY >= oy +& wy)
         def local(v: UInt, o: UInt, w: UInt) = Mux(v < o, 0.U, Mux(v - o >= w, w - 1.U, v - o))
         val full = ((1 << cfg.coordWidth) - 1).U
@@ -363,7 +341,6 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  // --- Snoops -------------------------------------------------------------
   /** Sign-magnitude float -> an unsigned key with the same order. */
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
@@ -399,8 +376,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
 /** Float screen coordinate -> integer pixel, for bounding boxes. */
 object PixelBox {
-  /** Truncates positive values to their integer part, clamps negatives to 0
-    * and anything past the coordinate range to its maximum. */
+  /** Truncates to the integer part; negatives clamp to 0, overflow to the maximum. */
   def toPixel(cfg: BorgConfig, fp: UInt, width: Int = 0): UInt = {
     val w        = if (width > 0) width else cfg.coordWidth
     val mantBits = cfg.sig - 1

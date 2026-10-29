@@ -5,11 +5,7 @@ package borg
 
 import chisel3._
 
-/** Core execution status (from BorgCore's perspective: Output).
-  * Use Flipped() in BorgRasterizerIO.
-  * Note: BorgCoreIO had `running/autoRunPending`;
-  *       BorgRasterizerIO had `coreRunning/coreAutoRunPending`. Unified here.
-  */
+/** BorgCore's execution status; Flipped on the rasterizer side. */
 class CoreStatusIO extends Bundle {
   val running        = Output(Bool())
   val autoRunPending = Output(Bool())

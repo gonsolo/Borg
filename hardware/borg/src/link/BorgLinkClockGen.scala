@@ -8,95 +8,35 @@ import chisel3.util._
 
 class BorgLinkClockGenIO(val p: LinkParams) extends Bundle {
 
-  /** `link_fast` strap: high selects N=1 (25 MHz beats) instead of the N=2 default. */
-  val linkFast = Input(Bool())
-  /** Runtime narrow strap; only consulted when `p.narrowCapable`. */
-  val narrow   = Input(Bool())
+  val linkFast = Input(Bool())    // N=1 (25 MHz beats) instead of the N=2 default
+  val narrow   = Input(Bool())    // only consulted when p.narrowCapable
 
-  /** Master only: the far side's `link_up` pin. */
-  val farLinkUp = Input(Bool())
+  val farLinkUp = Input(Bool())   // master only
+  val rxPins = Input(new LinkPins(p.w))   // slave only: to recover the beat phase from
 
-  /** Slave only: incoming pins, to recover the beat phase from. */
-  val rxPins = Input(new LinkPins(p.w))
-
-  /** Beat clock *enable* -- never a divided clock, so this stays one STA domain. */
+  // A clock enable, never a divided clock, so the link stays one STA domain.
   val beatEn = Output(Bool())
 
-  /** Link is trained and usable.  Traffic must be gated on this. */
-  val linkUp = Output(Bool())
+  val linkUp = Output(Bool())   // traffic must be gated on this
 
-  /** Master only: high while the training pattern should be driven instead of traffic. */
-  val trainActive = Output(Bool())
-
-  /** Master only: the pin values to drive while `trainActive`. */
+  val trainActive = Output(Bool())   // master only
   val trainPins = Output(new LinkPins(p.w))
 
-  /** Observability for the "silicon came back not training" case, where the
-    * only other evidence is link_up staying low. `trainGood` separates "no
-    * transitions are arriving at all" (stays 0) from "transitions arrive but
-    * the phase never locks" (counts up, then keeps getting reset) -- two faults
-    * with completely different causes that are otherwise indistinguishable from
-    * outside the package. Slave only; tied off on the master. */
+  // Slave only: trainGood stuck at 0 means no transitions arrive; counting up and
+  // resetting means the phase never locks.
   val dbgTrainGood = Output(UInt(log2Ceil(p.trainBeats + 1).W))
   val dbgChanged   = Output(Bool())
 }
 
-/** Beat-rate generator and link training.
+/** Beat-rate generator and link training. Both chips run the same 25 MHz clock; beats move
+  * at ÷N (N=2 by default for pad-timing margin, `link_fast` selects N=1). The master drives a
+  * word that inverts every beat; the slave oversamples, finds the transition and places its
+  * beat N/2 cycles later, mid-eye, then raises link_up after `trainBeats` good transitions.
+  * Training keeps `v` high, so receivers must ignore traffic while link_up is low.
   *
-  * == Rate ==
-  *
-  * The ASIC core clock '''is''' the ULX3S `sysClock`, 25 MHz, so the two chips form
-  * one synchronous system offset only by a fixed board delay (mesochronous).  Beat
-  * rate is decoupled from core rate by a clock *enable* at ÷N: the core computes at
-  * full 25 MHz while the pins move at a rate the off-chip path can actually meet.
-  *
-  * N=2 (12.5 MHz) at reset, because the hand-computed pad budget closes there with
-  * ~24 ns of margin against ~14.6/16 ns of path, whereas N=1 leaves only ~4-5 ns --
-  * too thin to bet a one-shot tapeout on.  The `link_fast` strap selects N=1 as a
-  * post-silicon lever.  Safe mode is the default, so a mis-strapped board degrades
-  * rather than bricking.
-  *
-  * == Training: find the transitions, not the beats ==
-  *
-  * [[LinkTx]] registers its pins on `beatEn`, so they are '''stable for the whole
-  * beat period'''.  Both sides run at the same period, so the slave samples each
-  * distinct pin value exactly once whatever its phase -- logical correctness does
-  * not actually depend on alignment.  What alignment buys is '''timing margin''':
-  * with N=2 one phase samples immediately after the pins change and the other
-  * samples ~40 ns later, in the middle of the eye.  Only the second is safe.
-  *
-  * So training cannot work by hunting for valid beats (a sparse `v` pattern would
-  * not survive the registered path, and a steady one carries no phase information).
-  * Instead the master drives a pattern that '''inverts every beat''', the slave
-  * oversamples at the core rate and detects where the data changes, and then places
-  * its beat `N/2` cycles after that transition -- as far into the eye as the divider
-  * resolution allows.
-  *
-  * After `trainBeats` consecutive transitions at the expected phase the slave raises
-  * `link_up`, which the master reads back on a pin before sending real traffic.  At
-  * N=1 there is only one phase and training degenerates to a no-op.
-  *
-  * Framing and parity would eventually catch a gross misalignment, but that makes
-  * bring-up a lottery and would leave a marginal-but-working phase undetected. This
-  * makes it deterministic, and testable in simulation from a deliberately wrong phase.
-  *
-  * '''Note''' the training pattern keeps `v` asserted, so a slave-side [[LinkRx]]
-  * will happily decode garbage packets during training.  Consumers must ignore
-  * received traffic while `link_up` is low.
-  *
-  * @param isMaster true for the FPGA side (defines the phase), false for the ASIC
-  *                 side (recovers it).
-  */
-/** @param dnPinsPreRegistered
-  *   True when `rxPins` has already been through one extra falling-edge
-  *   register ahead of this module (BorgLinkSlave's `dnPinsIn`, for ASIC
-  *   pad-to-flop hold margin -- ASIC/slave only, never the FPGA/master).
-  *   Shifts `expectedTransPhase`/`relockPhase` by the one extra cycle of
-  *   latency that stage adds between the pin and this module's own `inD`,
-  *   so the phase-lock FSM looks for the transition where it actually
-  *   arrives instead of one cycle early. Must default to false: getting this
-  *   wrong desyncs training silently (BorgGpuMemWordTests.
-  *   fp32_store_load_over_link, found the hard way).
+  * @param isMaster true for the FPGA side (defines the phase), false for the ASIC side.
+  * @param dnPinsPreRegistered `rxPins` passed one extra falling-edge register (the ASIC
+  *   slave's dnPinsIn); shifts the expected phase by that cycle, or training desyncs silently.
   */
 class BorgLinkClockGen(
     val p: LinkParams,
@@ -105,17 +45,12 @@ class BorgLinkClockGen(
 ) extends Module {
   val io = IO(new BorgLinkClockGenIO(p))
 
-  /** Alternating-bit seed, so a stuck or shorted lane fails to produce transitions. */
+  // Alternating bits, so a stuck or shorted lane fails to produce transitions.
   val trainWord: UInt = Fill(p.w / 8, "hA5".U(8.W))
-  // In narrow mode the reset value drives the dead half high for the single
-  // beat before the first beatEn re-derives it; the far side is not listening
-  // to those lanes and parity excludes them, so it cannot affect training.
 
-  // Divider limit is strap-selected: 0 => every cycle is a beat (N=1).
   val limit = Mux(io.linkFast, 0.U, (p.divCycles - 1).U)
 
   if (p.divCycles == 1) {
-    // Degenerate build: no divider, no phase to recover.
     io.beatEn := true.B
     io.linkUp := (if (isMaster) io.farLinkUp else true.B)
     io.trainActive := (if (isMaster) !io.farLinkUp else false.B)
@@ -127,7 +62,7 @@ class BorgLinkClockGen(
     io.beatEn := beat
 
     if (isMaster) {
-      // The master defines the phase; it just free-runs.
+      // The master defines the phase.
       phase := Mux(phase >= limit, 0.U, phase + 1.U)
       io.linkUp      := io.farLinkUp
       io.trainActive := !io.farLinkUp
@@ -137,37 +72,22 @@ class BorgLinkClockGen(
       val up   = RegInit(false.B)
       val good = RegInit(0.U(log2Ceil(p.trainBeats + 1).W))
 
-      // Capture flop, matching LinkRx's, so training observes the same samples the
-      // receiver will later decode.  Oversampled at the core rate.
+      // Same capture flop as LinkRx, so training sees the samples the receiver decodes.
       val inD  = RegNext(io.rxPins.d, 0.U(p.w.W))
       val prev = RegNext(inD, 0.U(p.w.W))
-      // Compare only the lanes carrying data: in narrow mode the tied-off half
-      // is constant, so including it is harmless for a clean link but would let
-      // a noisy floating lane fake transitions and train against nothing.
+      // Only the live lanes: a noisy floating lane could fake transitions.
       val changed =
         if (!p.narrowCapable) inD =/= prev
         else Mux(io.narrow, inD(7, 0) =/= prev(7, 0), inD =/= prev)
 
-      // Place the beat N/2 cycles after a transition.  Assigning `phase` at the
-      // transition cycle c makes cycle c+k carry phase (P + k - 1), so the beat
-      // (phase 0) lands at c + N/2 when P = (N/2 + 1) mod N.
-      //
-      // dnPinsPreRegistered adds one more cycle between the pin's actual
-      // transition and `changed` reading true (BorgLinkSlave's extra
-      // falling-edge pre-stage ahead of this module's own inD/prev) -- shift
-      // both constants by that one cycle so the FSM expects the transition
-      // where it now actually lands, rather than one cycle earlier.
+      // Setting phase P at transition cycle c puts phase 0 at c + N/2 when P = (N/2 + 1) mod N.
       val preRegShift = if (dnPinsPreRegistered) 1 else 0
       val relockPhase = ((p.divCycles / 2 + 1 + preRegShift) % p.divCycles).U
       // Once locked, transitions arrive N/2 cycles *before* each beat.
       val expectedTransPhase = ((p.divCycles / 2 + preRegShift) % p.divCycles).U
 
-      // With `link_fast` there is exactly one phase, so there is nothing to
-      // recover and nothing that could be misaligned.  Suppressing training here
-      // is not an optimisation: `phase` is pinned to 0 while `expectedTransPhase`
-      // is non-zero, so the slave would otherwise consider itself permanently
-      // misaligned, relock every cycle and never raise link_up -- which would
-      // make the strap useless on silicon, where it cannot be fixed.
+      // With link_fast phase stays 0 but expectedTransPhase is not, so the slave would
+      // relock forever and never raise link_up.
       val misaligned = changed && !io.linkFast && (phase =/= expectedTransPhase)
 
       when(!up && misaligned) {
@@ -178,11 +98,7 @@ class BorgLinkClockGen(
         when(!up && changed && good < p.trainBeats.U) { good := good + 1.U }
       }
 
-      // Fast mode still counts training transitions: it skips phase recovery,
-      // not training. Raising link_up straight out of reset let the slave's
-      // receiver resynchronize on an idle line BEFORE the master had trained,
-      // after which the training word decoded as real packets -- a spurious
-      // MMIO write to Borg (BorgLinkProtocolTests.bring_up_is_clean_at_every_wire_delay).
+      // Fast mode still trains: raising link_up early decodes the training word as packets.
       when(good >= p.trainBeats.U) { up := true.B }
 
       io.linkUp      := up
@@ -192,19 +108,13 @@ class BorgLinkClockGen(
     }
   }
 
-  // -- Training pattern (master) ---------------------------------------------
-  // Registered on beatEn exactly like LinkTx, so the training path and the data
-  // path have identical launch latency -- otherwise the slave would lock to a
-  // phase one cycle off from where real traffic actually lands.  The word inverts
-  // every beat so there is a transition for the slave to find.
+  // Master training pattern, registered on beatEn like LinkTx so both paths launch alike.
   val tD = RegInit(trainWord)
   val tV = RegInit(true.B)
   val tP = RegInit(LinkFlit.parity(trainWord, true.B))
 
   when(io.beatEn) {
-    // Invert only the live lanes: in narrow mode d[15:8] must stay low, or the
-    // dead half would toggle and the far side would see transitions on lanes it
-    // is not listening to.
+    // In narrow mode d[15:8] stays low.
     val nextD =
       if (!p.narrowCapable) ~tD
       else Mux(io.narrow, Cat(0.U((p.w - 8).W), ~tD(7, 0)), ~tD)

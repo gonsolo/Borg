@@ -6,7 +6,6 @@ package borg.link
 import chisel3._
 import chisel3.util._
 
-/** One received flit, with its position in the packet. */
 class LinkRxFlit(val maxFlits: Int) extends Bundle {
   val flit  = UInt(16.W)
   val first = Bool()
@@ -14,63 +13,34 @@ class LinkRxFlit(val maxFlits: Int) extends Bundle {
   val idx   = UInt(log2Ceil(maxFlits + 1).W)
 }
 
-/** Link receiver: flit deserializer + framing for one direction.
-  *
-  * A two-state FSM, which is only possible because packet length is a pure
-  * function of the header flit -- see [[LinkFlit.flitsDn]] / [[LinkFlit.flitsUp]]
-  * and the log2 burst encoding that makes it so.
-  *
-  * Error handling is detect-and-report, never retry.  There is no replay buffer
-  * and no sequence numbering; recovery is a link reset driven by the FPGA.  That
-  * is the right trade here because the link is short, parallel and slow, so the
-  * expected error rate is essentially zero -- errors mean a broken cable or a
-  * timing violation, neither of which a retry would fix.
-  *
-  *   - **Parity** is odd over `{d, v}` and is checked on '''every''' beat,
-  *     including idle ones.  A disconnected cable reads all-zero, which is even,
-  *     so it fails continuously and `link_up` can never assert.
-  *   - **Framing**: `v` dropping mid-packet aborts it.  Combined with the
-  *     transmitter's mandatory inter-packet gap, this makes the link
-  *     self-resynchronizing: after any error the receiver returns to idle and the
-  *     next gap re-establishes packet alignment.
-  *
-  * There is no backpressure -- bits arrive off a wire whether or not the consumer
-  * is ready -- so `out` is a [[Valid]].  Credit-based flow control upstream is
-  * what guarantees the adapter can always accept.
-  *
-  * @param isDn true for the ASIC-side receiver (decodes FPGA→ASIC packets: M.A and
-  *             V.D), false for the FPGA-side receiver (V.A and M.D).
-  */
 class LinkRxIO(val p: LinkParams) extends Bundle {
-  /** Runtime narrow strap; only consulted when `p.narrowCapable`. */
   val narrow = Input(Bool())
   val beatEn = Input(Bool())
   val pins   = Input(new LinkPins(p.w))
 
   val out = Valid(new LinkRxFlit(p.maxPacketFlits))
 
-  /** Header of the packet currently being received (valid from `first` on). */
-  val hdr = Output(new LinkHeader)
+  val hdr = Output(new LinkHeader)   // valid from `first` on
 
-  /** Single-cycle pulse on a parity or framing error. */
-  val err = Output(Bool())
+  val err = Output(Bool())           // parity or framing error pulse
 
-  /** Sticky-ish view for debug: last error was parity (vs framing). */
-  val errParity = Output(Bool())
+  val errParity = Output(Bool())     // the last error was parity, not framing
 
-  /** A beat carrying a valid idle (v=0, parity good): the resynchronization
-    * point the inter-packet gap guarantees. Any packet in progress is aborted
-    * on it, so traffic judged from the next beat on starts on a header. */
+  // A parity-good v=0 beat: any packet in progress aborts, the next beat starts on a header.
   val idle = Output(Bool())
 }
 
+/** Link receiver: flit deserializer and framing, a two-state FSM because packet length is a
+  * function of the header flit alone. Errors are reported, never retried: odd parity over {d, v}
+  * is checked every beat, so a disconnected cable (all zero) never comes up, and `v` dropping
+  * mid-packet aborts it. No backpressure: credits upstream guarantee the consumer accepts.
+  *
+  * @param isDn ASIC-side receiver (M.A, V.D) rather than FPGA-side (V.A, M.D).
+  */
 class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
   val io = IO(new LinkRxIO(p))
 
-  // -- Capture flops ----------------------------------------------------------
-  // The real off-chip capture registers.  Sampled every core cycle; the data is
-  // stable for a whole beat period, so whichever core edge lands inside the beat
-  // sees the same value.  Beat-phase alignment is BorgLinkClockGen's job.
+  // Sampled every core cycle: data is stable for a beat, BorgLinkClockGen aligns the phase.
   val inD = RegNext(io.pins.d, 0.U(p.w.W))
   val inV = RegNext(io.pins.v, false.B)
   val inP = RegNext(io.pins.p, true.B)
@@ -78,7 +48,6 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
   val parityOk = LinkFlit.parityW(inD, inV, io.narrow, p) === inP
   io.idle := io.beatEn && parityOk && !inV
 
-  // -- Flit assembly ----------------------------------------------------------
   val sIdle :: sPayload :: Nil = Enum(2)
   val state = RegInit(sIdle)
 
@@ -92,11 +61,10 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
     if (p.narrowCapable) Mux(io.narrow, subCnt === 1.U, true.B)
     else subCnt === (p.beatsPerFlit - 1).U
 
-  // Assemble LSB slice first, matching LinkTx's serialization order.
+  // LSB slice first, as LinkTx sends it.
   val assembled: UInt =
     if (p.narrowCapable) {
-      // Narrow: the live half is inD[7:0]; first beat is the LSB slice, second
-      // the MSB slice, matching LinkTx. Wide: the flit is the whole beat.
+      // Narrow: the live half is inD[7:0].
       val narrowAsm = Wire(UInt(16.W))
       narrowAsm := Mux(subCnt === 0.U, inD(7, 0), Cat(inD(7, 0), flitAcc(7, 0)))
       Mux(io.narrow, narrowAsm, inD)
@@ -107,7 +75,6 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
       shifted | flitAcc
     }
 
-  // -- Defaults ---------------------------------------------------------------
   io.out.valid     := false.B
   io.out.bits.flit := assembled
   io.out.bits.first := false.B
@@ -119,7 +86,6 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
   val errParityReg = RegInit(false.B)
   io.errParity := errParityReg
 
-  /** Abort the packet in progress and go back to hunting for a header. */
   def abort(isParity: Bool): Unit = {
     io.err       := true.B
     errParityReg := isParity
@@ -139,16 +105,11 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
         is(sIdle) {
           when(inV) {
             when(lastBeatOfFlit) {
-              // Header complete -- decode the packet length from it alone.
               val h   = LinkHeader.fromBits(assembled)
               val len = if (isDn) LinkFlit.flitsDn(h) else LinkFlit.flitsUp(h)
 
-              // A corrupted header can decode to a length this build never emits
-              // (the 3-bit wlenLog2 field spans up to 131 flits, `maxPacketFlits`
-              // is 19 at maxBurstLog2=4).  Treat that as a framing error rather
-              // than trusting it: it bounds how far one bad header can drag the
-              // receiver off alignment, and it is a real recovery path, not an
-              // assertion -- garbage headers are exactly what follows an error.
+              // A corrupted header can decode to a length this build never emits: a framing
+              // error, which bounds how far one bad header drags the receiver off alignment.
               val lenOk = len >= 1.U && len <= p.maxPacketFlits.U
 
               when(!lenOk) {
@@ -170,8 +131,7 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
                   flitIdx := 0.U
                 }.otherwise {
                   state   := sPayload
-                  // `len` is 2 bits on DN but up to 8 on UP, so pad before
-                  // slicing -- the raw slice over-indexes the narrow case.
+                  // `len` is 2 bits on DN but up to 8 on UP: pad before slicing.
                   remain  := (len - 1.U).pad(remain.getWidth)(remain.getWidth - 1, 0)
                   flitIdx := 1.U
                 }
@@ -181,12 +141,7 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
               flitAcc := assembled
             }
           }
-          // v=0 while idle is the inter-packet gap -- the resync point, so it
-          // must also discard a half-assembled narrow flit. Training keeps v
-          // high and is decoded as garbage, and wherever it happens to stop
-          // can leave subCnt=1; without this the first real header would be
-          // paired with that stale half and every packet after it shifted by
-          // one sub-beat (chip_link_tb.test_narrow_strap_round_trip).
+          // The gap also drops a half narrow flit, as training can stop on an odd sub-beat.
           when(!inV) {
             subCnt  := 0.U
             flitAcc := 0.U
@@ -195,7 +150,6 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
 
         is(sPayload) {
           when(!inV) {
-            // Valid dropped mid-packet: framing error.
             abort(false.B)
           }.otherwise {
             when(lastBeatOfFlit) {
