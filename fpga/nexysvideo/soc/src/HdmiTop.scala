@@ -17,11 +17,11 @@ class HdmiTop extends RawModule{
     val hdmi_tx_n = IO(Output(UInt(3.W)))
     val led = IO(Output(Bool()))
 
-    val clkWiz = Module(new clk_wiz_0)
-    clkWiz.clk_in1 := clk
-    clkWiz.resetn := cpu_resetn
-    led := clkWiz.locked
-    withClockAndReset(clkWiz.clk_out2, !clkWiz.locked) {
+    val clkGen = Module(new Clocks)
+    clkGen.io.clk100 := clk
+    clkGen.io.rst := !cpu_resetn
+    led := clkGen.io.locked
+    withClockAndReset(clkGen.io.clk125, !clkGen.io.locked) {
 
         val bars = Module(new HdmiColourBars)
 
