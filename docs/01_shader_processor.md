@@ -91,7 +91,7 @@ lookup and interpolation hardware with the FRSQ (reciprocal-sqrt) and FSRGB
 (linear→sRGB) ops via one `Fp16Special` instance, muxed by which op is
 latched active:
 
-{{snippet:hardware/borg/src/BorgLane.scala:frcp}}
+{{snippet:hardware/borg/src/SpecialFn.scala:frcp}}
 
 ### Inside the RCP Unit
 
