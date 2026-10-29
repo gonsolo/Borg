@@ -19,6 +19,7 @@ class CoreUnitIO(val cfg: BorgConfig) extends Bundle {
   private val N = cfg.fragLanes
   val issue  = Input(Valid(new IssuedInstr))
   val atOps  = Input(Bool())
+  val slot   = Input(UInt(cfg.slotBits.W))   // the slot of the instruction at the operands
   val mask   = Input(UInt(N.W))
   val a      = Input(Vec(N, UInt(cfg.totalBits.W)))
   val b      = Input(Vec(N, UInt(cfg.totalBits.W)))
@@ -26,9 +27,10 @@ class CoreUnitIO(val cfg: BorgConfig) extends Bundle {
   val finish = Output(Bool())
   val wb     = Vec(N, new MemWritePort(5, cfg.totalBits))
   val wbReady = Input(Bool())   // wb lands this cycle: the pipeline's write-back leaves the port free
+  val wbWant  = Output(Bool())  // a result waits for wbReady
 
   def idle(): Unit = {
-    finish := false.B
+    finish := false.B; wbWant := false.B
     wb.foreach { w => w.en := false.B; w.addr := 0.U; w.data := 0.U }
   }
 }

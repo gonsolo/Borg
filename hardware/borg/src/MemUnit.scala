@@ -84,6 +84,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
   io.mem.wdata := 0.U
   io.mem.wlen  := 1.U
   io.busy      := state =/= sIdle
+  io.wbWant    := state === sWB || state === sAttrWB
 
   when(io.atOps && state === sIdle && (isLoad || isStore)) {
     rd := regs.rd; lane := 0.U

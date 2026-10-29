@@ -24,9 +24,13 @@ class TexUnit(cfg: BorgConfig) extends Module {
   private val sampler = Module(new BorgSampler(cfg))
   sampler.io.invalidate := io.descWritten
 
-  private val auxW = Reg(Vec(N, UInt(32.W))); private val auxLod = Reg(Vec(N, UInt(32.W)))
-  private val auxRef = Reg(Vec(N, UInt(32.W)))
-  private val sAddr = RegInit(0.U(GpuMemIO.AddrBits.W)); private val sCtl = RegInit(0.U(32.W))
+  // TEXA's and TEXS's state, per quad slot.
+  private val S = cfg.quadSlots
+  private val auxW = Reg(Vec(S, Vec(N, UInt(32.W)))); private val auxLod = Reg(Vec(S, Vec(N, UInt(32.W))))
+  private val auxRef = Reg(Vec(S, Vec(N, UInt(32.W))))
+  private val sAddr = RegInit(VecInit(Seq.fill(S)(0.U(GpuMemIO.AddrBits.W))))
+  private val sCtl  = RegInit(VecInit(Seq.fill(S)(0.U(32.W))))
+  private val q = io.slot
   private val isTex = RegInit(false.B); private val isTexa = RegInit(false.B); private val isTexs = RegInit(false.B)
   private val rd = RegInit(0.U(5.W))
   when(io.issue.valid) {
@@ -49,23 +53,23 @@ class TexUnit(cfg: BorgConfig) extends Module {
 
   private def lead(ops: Vec[UInt]): UInt = PriorityMux(io.mask.asBools, ops)
   sampler.io.req.valid := false.B
-  sampler.io.req.bits.ctl := sCtl
+  sampler.io.req.bits.ctl := sCtl(q)
   sampler.io.req.bits.texAddr := lead(io.c)(GpuMemIO.AddrBits - 1, 0)
-  sampler.io.req.bits.sampAddr := sAddr
+  sampler.io.req.bits.sampAddr := sAddr(q)
   for (i <- 0 until N) {
     sampler.io.req.bits.active(i) := io.mask(i)
     val a = sampler.io.req.bits.lane(i)
-    a.u := io.a(i); a.v := io.b(i); a.w := auxW(i); a.lod := auxLod(i); a.dref := auxRef(i)
+    a.u := io.a(i); a.v := io.b(i); a.w := auxW(q)(i); a.lod := auxLod(q)(i); a.dref := auxRef(q)(i)
   }
   // Taken into respData at once: the sampler works on the next lane during the write-back.
   sampler.io.respReady := st === sWait
 
   when(io.atOps && isTexs) {
-    sAddr := lead(io.a); sCtl := lead(io.b)
+    sAddr(q) := lead(io.a); sCtl(q) := lead(io.b)
     finish()
   }
   when(io.atOps && isTexa) {
-    for (i <- 0 until N) { auxW(i) := io.a(i); auxLod(i) := io.b(i); auxRef(i) := io.c(i) }
+    for (i <- 0 until N) { auxW(q)(i) := io.a(i); auxLod(q)(i) := io.b(i); auxRef(q)(i) := io.c(i) }
     finish()
   }
   private val start = io.atOps && isTex && st === sIdle
@@ -93,6 +97,7 @@ class TexUnit(cfg: BorgConfig) extends Module {
   }
 
   io.busy := sampler.io.busy
+  io.wbWant := st === sWB
   sampler.io.gpuMem.data    := io.mem.data
   sampler.io.gpuMem.ready   := io.mem.ready && sampler.io.busy
   sampler.io.gpuMem.waccept := false.B

@@ -193,6 +193,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val issuing = decoding && fetchReady && fetchedInstruction =/= 0.U
   val redirecting = Wire(Bool())   // the PC goes to pcAfterThis
   val wbBusy = Wire(Bool())        // the pipeline writes back this cycle
+  val unitBusy = WireDefault(false.B)   // the fetched instruction's unit has one in flight
+  // A unit result waiting for write-back two cycles gets a free one: nothing issues for a cycle,
+  // and not again until that gap has reached write-back.
+  val wbWants = scala.collection.mutable.ArrayBuffer[Bool]()
+  val wbBubble = Wire(Bool())
   io.issueStats.issued := issuing && !opFlags.barrier
   locally {
     // info(k): the instruction in stage k, valid while at(k).
@@ -210,7 +215,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val emptyWait = stops && mine(2 to cfg.cBusyLoad)(_ => true.B)
     val behindBranch = mine(redirect to cfg.cBusyLoad)(_.branch)
     val unitWait = pending(issueSlot) =/= 0.U
-    canIssue := !hazard && !behindBranch && !unitWait && !emptyWait
+    canIssue := !hazard && !behindBranch && !unitWait && !emptyWait && !unitBusy && !wbBubble
     val waiting = running && fetchReady && !canIssue
     io.issueStats.waitReg    := waiting && hazard
     io.issueStats.waitBranch := waiting && !hazard && behindBranch
@@ -306,19 +311,30 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   attach(Module(new ExpLogUnit(cfg)).io, _.explog)
   locally {
+    val starved  = RegInit(0.U(2.W))
+    val holdOff  = RegInit(0.U(log2Ceil(cfg.cBusyLoad + 1).W))
+    val starving = wbWants.reduce(_ || _) && wbBusy
+    starved := Mux(starving, Mux(starved === 3.U, 3.U, starved + 1.U), 0.U)
+    wbBubble := starved >= 2.U && holdOff === 0.U
+    holdOff := Mux(wbBubble, (cfg.cBusyLoad - 1).U, Mux(holdOff === 0.U, 0.U, holdOff - 1.U))
+  }
+  locally {
     val issue = Mux(issuing && opFlags.unit, UIntToOH(issueSlot, cfg.quadSlots), 0.U)
     pending.zipWithIndex.foreach { case (p, s) =>
       p := (p + issue(s).asUInt - PopCount(unitDone.map { case (done, sl) => done && sl === s.U }.toSeq))(1, 0)
     }
   }
 
-  // The memory port: the sampler's while it runs, the instruction cache's while it fills, else
-  // the memory unit's. They never overlap: each runs only while the pipeline waits for it.
+  // The memory port: the sampler, the instruction cache, the memory unit, in that order; a request
+  // keeps the port until it is answered.
   locally {
-    val users = Seq(texUnit.io.busy -> texUnit.io.mem, fetch.io.filling -> fetch.io.mem, true.B -> memUnit.io.mem)
-    val grant = PriorityEncoderOH(users.map(_._1))
-    users.zip(grant).foreach { case ((_, m), g) => m.data := io.gpuMem.data; m.ready := io.gpuMem.ready && g; m.waccept := io.gpuMem.waccept && g }
-    def pick[T <: Data](f: GpuMemIO => T): T = Mux1H(grant, users.map(u => f(u._2)))
+    val users = Seq(texUnit.io.mem, fetch.io.mem, memUnit.io.mem)
+    val want  = VecInit(users.map(m => m.req || m.wr)).asUInt
+    val owner = RegInit(0.U(users.length.W))
+    val grant = Mux((owner & want).orR, owner, PriorityEncoderOH(want))
+    owner := Mux(io.gpuMem.ready, 0.U, grant)
+    users.zip(grant.asBools).foreach { case (m, g) => m.data := io.gpuMem.data; m.ready := io.gpuMem.ready && g; m.waccept := io.gpuMem.waccept && g }
+    def pick[T <: Data](f: GpuMemIO => T): T = Mux1H(grant, users.map(f))
     io.gpuMem.req   := pick(_.req)
     io.gpuMem.addr  := pick(_.addr)
     io.gpuMem.wr    := pick(_.wr)
@@ -464,6 +480,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     u.a := VecInit(lanes.map(_.io.recARaw)); u.b := VecInit(lanes.map(_.io.recBRaw)); u.c := VecInit(lanes.map(_.io.recCRaw))
     val unitSlot = RegEnable(issueSlot, issue)
     unitDone += (u.finish -> unitSlot)
+    u.slot := slotX
+    wbWants += u.wbWant
+    // One instruction per unit: another slot's waits until it finishes.
+    val occupied = RegInit(false.B)
+    when(issue) { occupied := true.B }
+    when(u.finish) { occupied := false.B }
+    when(mine(opFlags) && occupied) { unitBusy := true.B }
     lanes.zip(u.wb).foreach { case (l, w) =>
       when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := RegFileCopy.addr(cfg, unitSlot, w.addr); l.io.memWrite.data := w.data }
     }

@@ -42,6 +42,7 @@ class ExpLogUnit(cfg: BorgConfig) extends Module {
   }
   for (i <- 0 until N) when(arrive(i)) { res(i) := unit.io.out.bits }
   pend := Mux(io.wbReady, 0.U, want)
+  io.wbWant := want.orR
   when(active && unit.io.out.valid) { back := back + 1.U }
   private val allBack = back === N.U || (active && unit.io.out.valid && back === (N - 1).U)
   when(active && allBack && io.wbReady) {
