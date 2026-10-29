@@ -392,8 +392,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- TEX/TEXA: the descriptor-based texture unit, on the same port ---
   wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
 
-  // --- FEXP2/FLOG2: one unit, the lanes in turn, on the same port ---
-  wireExpLog(lanes.map(_.io.recARaw), lanes.map(_.io.memWrite))
+  attach(Module(new ExpLogUnit(cfg)).io)
 
   // --- Branch evaluation and execution mask ---
   wireBranch(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw))
@@ -880,44 +879,23 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  /** FEXP2 and FLOG2: freeze at the operands like TEX, feed the lanes to [[BorgExpLog]] one per
-    * cycle, write each result back through the lane's memory write port, then resume. */
-  private def wireExpLog(aOps: Seq[UInt], memWrites: Seq[MemWritePort]): Unit = {
-    val N = cfg.fragLanes
-    val unit = Module(new BorgExpLog)
-    val isOp = RegInit(false.B); val isLog = RegInit(false.B)
-    when(fma_start) {
-      val rv = RvInt(fetchedInstruction)
-      isOp := rv.fexp2 || rv.flog2; isLog := rv.flog2
+  /** Connects a multi-cycle unit: it holds the pipeline while it works; when it finishes, the
+    * stages are squashed and the PC steps past its instruction. */
+  private def attach(u: CoreUnitIO): Unit = {
+    u.issue.valid := fma_start
+    u.issue.bits.word := fetchedInstruction
+    u.issue.bits.regs := regs
+    u.atOps := at(cfg.cOperands)
+    u.mask  := execMask
+    u.a := VecInit(lanes.map(_.io.recARaw)); u.b := VecInit(lanes.map(_.io.recBRaw)); u.c := VecInit(lanes.map(_.io.recCRaw))
+    when(u.hold) { holdPipe := true.B }
+    when(u.finish) {
+      squashPipe := true.B
+      programCounter := programCounter + 1.U
+      texResumeDelay := true.B
     }
-    val active = RegInit(false.B)
-    val issue = RegInit(0.U(log2Up(N + 1).W)); val back = RegInit(0.U(log2Up(N + 1).W))
-    val rdReg = RegInit(0.U(5.W))
-    when(at(cfg.cOperands) && isOp && !active) {
-      active := true.B; issue := 0.U; back := 0.U; rdReg := regs.rd
-      holdPipe := true.B
-    }
-    unit.io.log := isLog
-    unit.io.in.valid := active && issue < N.U
-    unit.io.in.bits  := VecInit(aOps)(issue((log2Up(N) max 1) - 1, 0))
-    when(active) {
-      holdPipe := true.B
-      when(issue < N.U) { issue := issue + 1.U }
-    }
-    when(active && unit.io.out.valid) {
-      val r = unit.io.out.bits
-      memWrites.zipWithIndex.foreach { case (mw, i) =>
-        mw.en   := i.U === back && execMask(i)
-        mw.addr := rdReg
-        mw.data := r
-      }
-      back := back + 1.U
-      when(back === (N - 1).U) {
-        active := false.B; isOp := false.B
-        squashPipe := true.B
-        programCounter := programCounter + 1.U
-        texResumeDelay := true.B
-      }
+    lanes.zip(u.wb).foreach { case (l, w) =>
+      when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := w.addr; l.io.memWrite.data := w.data }
     }
   }
 
