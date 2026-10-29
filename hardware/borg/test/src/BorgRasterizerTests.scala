@@ -14,10 +14,10 @@ import utest._
   */
 object BorgRasterizerTests extends TestSuite {
 
-  // Single-sample, no optional tile-path hardware: this suite is the rasterizer FSM alone.
+  // Single-sample, no optional tile-path hardware, one quad slot: this suite is the rasterizer FSM alone.
   val config = BorgConfig.Test.copy(
     samples = 1,
-    hasBlend = false, hasStencil = false, hasDepthFlush = false)
+    hasBlend = false, hasStencil = false, hasDepthFlush = false, quadSlots = 1)
 
   /** Set all control inputs to idle (no clock step). */
   def pokeIdle(rast: BorgRasterizer): Unit = {

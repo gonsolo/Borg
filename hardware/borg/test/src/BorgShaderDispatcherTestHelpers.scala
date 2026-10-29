@@ -27,7 +27,8 @@ object BorgShaderDispatcherTestHelpers {
     */
   val BASE = BorgConfig.Default.copy(
     samples = 1,
-    hasBlend = false, hasStencil = false)
+    hasBlend = false, hasStencil = false,
+    quadSlots = 1)   // one quad's phases; several slots are the system tests'
 
   // FP16 constants: the tests think in FP16, `wide` and `fragOut` turn them into the FP32 the
   // datapath reads (edges, colour and alpha outputs; depth stays as is, see runPixelFull).
