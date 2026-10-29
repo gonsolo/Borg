@@ -197,6 +197,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // A unit result waiting for write-back two cycles gets a free one: nothing issues for a cycle,
   // and not again until that gap has reached write-back.
   val wbWants = scala.collection.mutable.ArrayBuffer[Bool]()
+  private val wbUnits = scala.collection.mutable.ArrayBuffer[CoreUnitIO]()
   val wbBubble = Wire(Bool())
   io.issueStats.issued := issuing && !opFlags.barrier
   locally {
@@ -310,6 +311,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   texUnit.io.descWritten := io.descWritten
 
   attach(Module(new ExpLogUnit(cfg)).io, _.explog)
+  // The lanes' write port, when write-back leaves it free, to one unit at a time.
+  locally {
+    val grant = PriorityEncoderOH(wbWants.toSeq)
+    wbUnits.zip(grant).foreach { case (u, g) => u.wbReady := !wbBusy && g }
+  }
   locally {
     val starved  = RegInit(0.U(2.W))
     val holdOff  = RegInit(0.U(log2Ceil(cfg.cBusyLoad + 1).W))
@@ -476,12 +482,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     u.issue.bits.regs := regs
     u.atOps := at(cfg.cOperands) && mine(flagsX)
     u.mask  := execMask
-    u.wbReady := !wbBusy
     u.a := VecInit(lanes.map(_.io.recARaw)); u.b := VecInit(lanes.map(_.io.recBRaw)); u.c := VecInit(lanes.map(_.io.recCRaw))
     val unitSlot = RegEnable(issueSlot, issue)
     unitDone += (u.finish -> unitSlot)
     u.slot := slotX
     wbWants += u.wbWant
+    wbUnits += u
     // One instruction per unit: another slot's waits until it finishes.
     val occupied = RegInit(false.B)
     when(issue) { occupied := true.B }
