@@ -1,6 +1,4 @@
-// Minimal SDRAM read/write test — no CPU, no GPU.
-// PLL + SdramBackend + test FSM + LEDs.
-// Writes 0xABCD to SDRAM addr 0, reads it back, shows results on LEDs.
+// Minimal SDRAM test, no CPU or GPU: writes 0xC3A5 to address 4, reads it back, shows it on LEDs.
 
 package memory
 
@@ -9,7 +7,7 @@ import chisel3.util._
 import chisel3.experimental.{Analog, attach}
 import _root_.circt.stage.ChiselStage
 
-/** ECP5 bidirectional buffer primitive — same as in ULX3S.scala */
+/** ECP5 bidirectional buffer primitive. */
 class Ecp5BiDirBufTest extends ExtModule {
   val I = IO(Input(Bool()))
   val T = IO(Input(Bool()))
@@ -20,11 +18,9 @@ class Ecp5BiDirBufTest extends ExtModule {
 
 class SdramTest extends RawModule {
 
-  // ── Board clock and reset ──
   val clk_25mhz = IO(Input(Clock()))
   val rst_n      = IO(Input(Bool()))
 
-  // ── SDRAM pins ──
   val sdram_clk  = IO(Output(Clock()))
   val sdram_cke  = IO(Output(Bool()))
   val sdram_csn  = IO(Output(Bool()))
@@ -36,11 +32,9 @@ class SdramTest extends RawModule {
   val sdram_dqm  = IO(Output(UInt(2.W)))
   val sdram_d    = IO(Vec(16, Analog(1.W)))
 
-  // ── LEDs and UART ──
   val led      = IO(Output(UInt(8.W)))
   val ftdi_rxd = IO(Output(Bool()))
 
-  // ── PLL: 25 → 125 MHz ──
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
     inHz   = 25_000_000L,
     out0Hz = 125_000_000L,
@@ -54,12 +48,10 @@ class SdramTest extends RawModule {
 
   val pllRst = !pllLocked
 
-  // ── SdramBackend ──
   val sdramBackend = withClockAndReset(sysClock, pllRst) {
     Module(new SdramBackend())
   }
 
-  // ── SDRAM physical pin wiring ──
   val pins = sdramBackend.io.sdramPins
   sdram_csn  := pins.cs_n
   sdram_rasn := pins.ras_n
@@ -80,7 +72,6 @@ class SdramTest extends RawModule {
   }
   pins.dq_in := dqIn.asUInt
 
-  // ── Hybrid Test: direct write to controller, then read via backend ──
   val testFsm = withClockAndReset(sysClock, pllRst) {
 
     val sWaitRdy = 0.U(4.W)
@@ -98,20 +89,13 @@ class SdramTest extends RawModule {
     val byte0 = RegInit(0.U(8.W))
     val byte1 = RegInit(0.U(8.W))
 
-    // Direct controller access for writes
     val ramRd = RegInit(false.B)
     val ramWr = RegInit(false.B)
     val ramAb = RegInit(0.U(24.W))
     val ramDi = RegInit(0.U(16.W))
 
-    // Access the internal SdramController through SdramBackend's sys interface
-    // For writes: drive sys interface directly
-    // For reads: use SdramBackend byte protocol
-    val sdramSys = sdramBackend.io  // need internal controller access
+    val sdramSys = sdramBackend.io
 
-    // Backend defaults — adapted to new 16-bit-word MemBackendIO (stub: this
-    // debug test isn't critical to ULX3SMinimal flow; functional fidelity
-    // not maintained here).
     sdramBackend.io.backend.startRead  := false.B
     sdramBackend.io.backend.startWrite := false.B
     sdramBackend.io.backend.byteEnIn   := "b11".U
@@ -155,11 +139,10 @@ class SdramTest extends RawModule {
       }
     }
 
-    // LED: [7]=heartbeat, [6]=pass, [5:0]=readWord low 6 bits
+    // When done: LED[7] heartbeat, [6] pass, [5:0] the low read byte.
     val hb = RegInit(0.U(27.W))
     hb := hb + 1.U
     val rw = sdramBackend.io.debug_readWord
-    // Expected: word = Cat(0xC3, 0xA5) = 0xC3A5
     val pass = (byte0 === 0xA5.U) && (byte1 === 0xC3.U)
     val debugLeds = Mux(state === sDone,
       Cat(hb(26), pass, byte0(5, 0)),

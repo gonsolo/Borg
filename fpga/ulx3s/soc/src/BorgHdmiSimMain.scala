@@ -5,13 +5,7 @@ package soc
 
 import borg.BorgConfig
 
-/** Verilog emission for the full-SoC-with-HDMI-scanout verilator sim.
-  *
-  * Run via: CLOCK_MHZ=25 mill fpga.ulx3s.soc.runMain soc.BorgHdmiSimMain
-  *
-  * Emits into out/hardware/borg/verilog_hdmi_sim/ (separate from BorgSimMain so
-  * the two never clobber each other).
-  */
+/** Verilog for the full SoC with HDMI scanout under Verilator, apart from BorgSimMain's. */
 object BorgHdmiSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
   val fbW = sys.env.getOrElse("FB_W", "128").toInt

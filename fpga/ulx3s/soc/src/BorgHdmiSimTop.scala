@@ -8,25 +8,9 @@ import chisel3.util._
 import memory.SdramBackendSim
 import borg.BorgConfig
 
-/** Verilator-only full-SoC top WITH the HDMI scanout in the loop.
-  *
-  * Identical SoC to [[BorgSimTop]] (CPU + Borg + MemoryController + behavioral
-  * SDRAM + dbg backdoor), but adds the real [[HdmiScanoutFp16]] display engine
-  * and the 640×480 VGA timing generator, arbitrated onto the shared gpuMem port
-  * exactly like the ULX3S board top.  The scanout's RGB8 output (the actual
-  * displayed pixel) plus the raster coordinates are exposed so the C++ harness
-  * can capture the frame the MONITOR would show — not the raw SDRAM contents.
-  *
-  * This closes the gap that hid the green corner pixel: the existing sim reads
-  * the framebuffer back through the SDRAM backdoor (always the correct address),
-  * so a scanout-side addressing bug is invisible.  Here the image goes through
-  * the scanout's own fbBase (firmware-programmed via PERI_SCANOUT_FB0/FB1), the
-  * fill FSM, the FP16→RGB8 conversion and the display read — the same path as HW.
-  *
-  * Single clock: on hardware the whole display path is 25 MHz (only the final
-  * TMDS serialization is 125 MHz and does not change pixel values), so one clock
-  * faithfully reproduces the displayed image.
-  */
+/** Verilator top: [[BorgSimTop]] plus the real HDMI scanout and VGA timing, so
+  * the harness captures the displayed pixels, scanout addressing included. One
+  * clock suffices: only TMDS serialization runs faster on hardware. */
 class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
     extends RawModule with SoCLogic {
   val ui_in   = IO(Input(UInt(8.W)))
@@ -35,14 +19,13 @@ class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
   val clk     = IO(Input(Clock()))
   val rst_n   = IO(Input(Bool()))
 
-  // Host backdoor into the behavioral SDRAM.
+  // Host backdoor into the SDRAM model.
   val dbg_we    = IO(Input(Bool()))
   val dbg_waddr = IO(Input(UInt(24.W)))
   val dbg_wdata = IO(Input(UInt(16.W)))
   val dbg_raddr = IO(Input(UInt(24.W)))
   val dbg_rdata = IO(Output(UInt(16.W)))
 
-  // Displayed-pixel outputs (what the monitor shows) + raster position.
   val disp_de    = IO(Output(Bool()))
   val disp_hcnt  = IO(Output(UInt(10.W)))
   val disp_vcnt  = IO(Output(UInt(10.W)))
@@ -59,13 +42,13 @@ class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
 
   override def BORG_CFG: BorgConfig = BorgConfig.Default
 
-  // ── HDMI scanout (declared before wireSoC so wireGpuMem can reference it) ──
+  // Before wireSoC, which calls wireGpuMem.
   val scanout = withClockAndReset(clk, !soc_rst_reg_n) {
     Module(new HdmiScanoutFp16(fbWidth = fbW, fbHeight = fbH))
   }
   override def scanoutCurBuf: Bool = scanout.io.curBuf
 
-  // ── gpuMem arbiter: Borg GPU has priority; scanout reads in the gaps ──
+  // Borg has priority; scanout reads in the gaps.
   override def wireGpuMem(): Unit = {
     val gpuActive   = peripherals.io.gpuMem.req || peripherals.io.gpuMem.wr
     val scanoutOwns = withClockAndReset(clk, !soc_rst_reg_n) { RegInit(false.B) }
@@ -90,7 +73,7 @@ class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
   val uo_out_val = wireSoC()
   uo_out := uo_out_val
 
-  // ── 640×480 @ 25 MHz VGA timing (every SoC cycle is a pixel) ──
+  // 640x480 VGA timing, one pixel per cycle.
   withClockAndReset(clk, !soc_rst_reg_n) {
     val hCount = RegInit(0.U(10.W))
     val vCount = RegInit(0.U(10.W))
@@ -110,9 +93,7 @@ class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
     scanout.io.fbBase   := scanoutFbBase0
     scanout.io.fbBase1  := scanoutFbBase1
 
-    // Expose the displayed pixel.  scanout RGB is registered (showD), valid one
-    // cycle after the raster coordinate is presented, so delay the position to
-    // match for a coherent (coord, colour) stream.
+    // Scanout RGB is registered: delay the position to match.
     disp_de   := RegNext(de, false.B)
     disp_hcnt := RegNext(hCount, 0.U)
     disp_vcnt := RegNext(vCount, 0.U)
@@ -121,7 +102,6 @@ class BorgHdmiSimTop(val CLOCK_MHZ: Int, fbW: Int = 128, fbH: Int = 128)
     disp_b    := scanout.io.blue
   }
 
-  // ── Behavioral SDRAM backend + host backdoor (as BorgSimTop) ──
   val sdram = withClockAndReset(clk, !soc_rst_reg_n) {
     Module(new SdramBackendSim(words = 0x1000000, rdDelay = 4, wrDelay = 2, dbg = true))
   }

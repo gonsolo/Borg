@@ -1,12 +1,8 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 //
-// CpuSdramHdmiTest — Hutt CPU + SDRAM + HDMI bring-up test.
-// FlashBootLoader copies firmware to SDRAM; Hutt runs sdram_fb (paints 64×64
-// red RGB565 framebuffer at 0x100000); HdmiScanoutRgb565 reads it back via
-// the MemoryController gpuMem port and outputs via TMDS.
-//
-// Expected result: solid red 64×64 square centered on a black 640×480 frame.
+// CpuSdramHdmiTest: Hutt + SDRAM + HDMI bring-up. Hutt runs sdram_fb, which paints a 64x64
+// red RGB565 framebuffer at 0x100000; HdmiScanoutRgb565 shows it centered on 640x480.
 // LEDs: [7]=PLL locked  [6]=boot done  [5:3]=flash FSM  [2]=SDRAM busy  [1]=UART TX
 
 package soc
@@ -20,7 +16,6 @@ import _root_.circt.stage.ChiselStage
 class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   val CLOCK_MHZ = 25
 
-  // ── Pins ──────────────────────────────────────────────────────────────────
   val clk_25mhz  = IO(Input(Clock()))
   val rst_n      = IO(Input(Bool()))
   val flash_csn  = IO(Output(Bool()))
@@ -40,7 +35,7 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   val gpdi_dp    = IO(Output(UInt(4.W)))
   val led        = IO(Output(UInt(8.W)))
 
-  // ── PLL: 25 → 25 MHz SoC + 25 MHz/90° SDRAM + 125 MHz HDMI ──────────────
+  // PLL: 25 MHz SoC, 25 MHz at 90 degrees for SDRAM, 125 MHz HDMI.
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
     inHz   = 25_000_000L,
     out0Hz = 25_000_000L,
@@ -56,7 +51,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
 
   val pllRst = !pllLocked
 
-  // ── FlashBootLoader ───────────────────────────────────────────────────────
   val flashBoot = withClockAndReset(sysClock, pllRst) { Module(new FlashBootLoader()) }
   val usrmclk = Module(new Usrmclk)
   usrmclk.USRMCLKI  := flashBoot.io.spi_clk.asClock
@@ -65,7 +59,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   flash_mosi := flashBoot.io.flash_mosi
   flashBoot.io.flash_miso := flash_miso
 
-  // ── MinimalSoCLogic abstract members ─────────────────────────────────────
   def soc_clk    = sysClock
   def soc_rst_n  = pllLocked && flashBoot.io.boot_done && rst_n
   lazy val soc_rst_reg_n: Bool = withClockAndReset((!sysClock.asBool).asClock, false.B) {
@@ -73,7 +66,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   }
   def soc_ui_in = 0.U(8.W)
 
-  // ── HdmiScanoutRgb565 via gpuMem ─────────────────────────────────────────
   val scanout = withClockAndReset(sysClock, pllRst) {
     Module(new HdmiScanoutRgb565(fbBase = 0x100000, fbWidth = 64, fbHeight = 64))
   }
@@ -89,7 +81,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
 
   val uo_out_val = wireSoC()
 
-  // ── SdramBackend ──────────────────────────────────────────────────────────
   val sdramBackend = withClockAndReset(sysClock, pllRst) { Module(new SdramBackend(25)) }
   val bootDone = flashBoot.io.boot_done
 
@@ -107,7 +98,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   flashBoot.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done,  false.B)
   flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy,  false.B)
 
-  // ── SDRAM physical pins ───────────────────────────────────────────────────
   val pins = sdramBackend.io.sdramPins
   sdram_cke  := pins.cke
   sdram_csn  := pins.cs_n
@@ -127,10 +117,9 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   }
   pins.dq_in := dqIn.asUInt
 
-  // ── UART TX ───────────────────────────────────────────────────────────────
   ftdi_rxd := uo_out_val(6)
 
-  // ── VGA timing (25 MHz = 1 pixel/clock, tick25 = always true) ────────────
+  // VGA timing: 25 MHz = 1 pixel per clock, tick25 always true.
   val hCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
   val vCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
   val hTotal = 800.U;  val vTotal = 525.U
@@ -152,7 +141,7 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   scanout.io.vCount := vCount
   scanout.io.de     := de
 
-  // ── CDC: latch RGB8 + sync from 25 MHz → 125 MHz ─────────────────────────
+  // CDC: register RGB8 and sync from 25 MHz into 125 MHz.
   val hdmiRst   = !pllLocked
   val hdmiRed   = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.red) }
   val hdmiGreen = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.green) }
@@ -167,7 +156,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
     when(hdmiTick25) { hdmiCount := 0.U }.otherwise { hdmiCount := hdmiCount + 1.U }
   }
 
-  // ── TMDS encoders + serializers (125 MHz domain) ─────────────────────────
   val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
   encB.io.en := hdmiTick25; encB.io.data := hdmiBlue
   encB.io.c  := Cat(hdmiVsync, hdmiHsync); encB.io.de := hdmiDe
@@ -187,7 +175,6 @@ class CpuSdramHdmiTest extends RawModule with MinimalSoCLogic {
   serClk.io.en := hdmiTick25; serClk.io.tmds := "b0000011111".U
   gpdi_dp := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
 
-  // ── LEDs ──────────────────────────────────────────────────────────────────
   led := Cat(pllLocked, bootDone, flashBoot.io.debug_state, sdramBackend.io.backend.busy, uo_out_val(6))
 }
 

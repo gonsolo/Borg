@@ -1,8 +1,5 @@
-// HdmiScanoutTiled — DIAGNOSTIC: Full-screen test + SDRAM overlay
-//
-// Full-screen coordinate-based test pattern (proven working).
-// Center 64×64 region reads RGB565 from SDRAM via gpuMem.
-// If the test pattern is clean but the center is garbled → SDRAM bug.
+// Diagnostic: a coordinate test pattern with a centred 64x64 RGB565 window read from SDRAM.
+// A clean pattern around a garbled centre points at the SDRAM path.
 
 package soc
 
@@ -27,10 +24,7 @@ class HdmiScanoutTiledIO extends Bundle {
 class HdmiScanoutTiled extends Module {
   val io = IO(new HdmiScanoutTiledIO)
 
-  // ══════════════════════════════════════════════════════════
-  // SDRAM overlay: 64×64 RGB565 rectangle in center
-  // ══════════════════════════════════════════════════════════
-  val fbBase  = 0x100000.U(25.W)  // proven working SDRAM address
+  val fbBase  = 0x100000.U(25.W)
   val fbWidth = 64.U(10.W)
   val startX  = ((640 - 64) / 2).U(10.W)  // 288
   val startY  = ((480 - 64) / 2).U(10.W)  // 208
@@ -40,7 +34,6 @@ class HdmiScanoutTiled extends Module {
   val inFbH = (io.hCount >= startX) && (io.hCount < endX)
   val inFbV = (io.vCount >= startY) && (io.vCount < endY)
 
-  // Line buffer for one 64-pixel scanline
   val lineBuffer = SyncReadMem(64, UInt(16.W))
 
   // Fetch next line during hblank
@@ -83,7 +76,6 @@ class HdmiScanoutTiled extends Module {
     }
   }
 
-  // Read from line buffer for overlay
   val rdAddr = io.hCount - startX
   val rdData = lineBuffer.read(rdAddr)
   val r5 = rdData(15, 11); val g6 = rdData(10, 5); val b5 = rdData(4, 0)
@@ -91,9 +83,6 @@ class HdmiScanoutTiled extends Module {
   val g8_fb = Cat(g6, g6(5, 4))
   val b8_fb = Cat(b5, b5(4, 2))
 
-  // ══════════════════════════════════════════════════════════
-  // Full-screen test pattern (coordinate-based, no SDRAM)
-  // ══════════════════════════════════════════════════════════
   val x = io.hCount
   val y = io.vCount
 
@@ -131,9 +120,6 @@ class HdmiScanoutTiled extends Module {
     b_pat := Mux(white, 255.U, 0.U)
   }
 
-  // ══════════════════════════════════════════════════════════
-  // Output mux: SDRAM overlay in center, test pattern elsewhere
-  // ══════════════════════════════════════════════════════════
   val useOverlay = inFbH && inFbV
 
   io.red   := Mux(io.de, Mux(useOverlay, r8_fb, r_pat), 0.U)

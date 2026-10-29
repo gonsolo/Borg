@@ -1,13 +1,8 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 //
-// Minimal ULX3S top — Hutt + MemoryController + DEBUG UART + HDMI scanout.
-// No Borg GPU.  Synthesis takes a fraction of the full borg.bit build and
-// is enough to exercise:
-//   * FlashBootLoader → SDRAM boot path
-//   * Hutt instruction fetch from SDRAM
-//   * uart_hello and similar firmware
-//   * HdmiScanoutFp16 reading FP16 tiled framebuffer from SDRAM
+// Minimal ULX3S top: Hutt + MemoryController + debug UART + HDMI scanout, no Borg.
+// Builds fast for boot, UART and scanout bring-up.
 
 package soc
 
@@ -18,18 +13,12 @@ import chisel3.experimental.{Analog, attach}
 import memory.{Ecp5PllParams, Ecp5PllWrapper, FlashBootLoader, SdramBackend, Usrmclk}
 import _root_.circt.stage.ChiselStage
 
-/** ULX3S top — minimal SoC variant.  Same pinout as `ulx3s_top`.
-  * Hutt + UART + HDMI scanout; no Borg GPU.
+/** ULX3S top, minimal SoC variant with the same pinout as `ulx3s_top`.
   *
-  * @param xlen 32 = RV32I (default, e.g. uart_hello bring-up), 64 = RV64I
-  *             with CLINT — used to test OpenSBI/Linux boot without Borg's
-  *             SDRAM contention and dense synthesis in the loop, isolating
-  *             whether a full-SoC timing-closure issue is the cause of a
-  *             hardware boot that's silent despite working in simulation.
+  * @param xlen 32 = RV32I, 64 = RV64I with CLINT (OpenSBI/Linux boot without Borg)
   */
 class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanoutOn: Boolean = true, fbSize: Int = 32,
                          override val borgCfg: Option[borg.BorgConfig] = None) extends RawModule with MinimalSoCLogic {
-  // ── Board pins (subset of full ULX3S) ─────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
   val rst_n     = IO(Input(Bool()))
 
@@ -56,7 +45,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
-  // ── PLL: 25 → 25 MHz SoC + 25 MHz/90° SDRAM + 125 MHz HDMI ──────────────
+  // PLL: SoC clock, SDRAM clock at 90 degrees, 125 MHz HDMI.
   val SOC_MHZ  = CLOCK_MHZ
   val HDMI_MHZ = 125
   // The SDRAM clock must be asked for what the primary really gets (e.g. 18.75, not 18 MHz).
@@ -72,13 +61,11 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   val pllLocked  = pll.io.locked
   val sysClock   = pll.io.clk_o(0)   // 25 MHz — CPU, SDRAM, scanout fill FSM
   val sdramClock = pll.io.clk_o(1)   // 25 MHz + 90° — SDRAM clock pin
-  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer AND (below,
-                                      // divided by 5) the video timing/display
+  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz: TMDS serializer, and video timing divided by 5
   sdram_clk := sdramClock
 
   val pllRst = !pllLocked
 
-  // ── FlashBootLoader ───────────────────────────────────────────────────────
   val flashBoot = withClockAndReset(sysClock, pllRst) {
     Module(new FlashBootLoader())
   }
@@ -90,7 +77,6 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   flashBoot.io.flash_miso := flash_miso
   flashBoot.io.warmBoot   := false.B   // minimal SoC: cold flash boot only
 
-  // ── MinimalSoCLogic abstract members ─────────────────────────────────────
   def soc_clk = sysClock
   def soc_rst_n = pllLocked && flashBoot.io.boot_done && rst_n
   lazy val soc_rst_reg_n: Bool = withClockAndReset((!sysClock.asBool).asClock, false.B) {
@@ -98,7 +84,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   }
   def soc_ui_in = Cat(0.U(1.W), btn, ftdi_txd)
 
-  // ── HDMI scanout: instantiate before wireSoC so wireGpuMem can connect ──
+  // Instantiated before wireSoC so wireGpuMem can connect it.
   val scanout = withClockAndReset(sysClock, pllRst) {
     Module(new HdmiScanoutFp16(fbWidth = fbSize, fbHeight = fbSize, separatePixelClock = true,
                                rgb565Store = borgCfg.isDefined, doubleBuffer = borgCfg.isEmpty))
@@ -151,7 +137,6 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
 
   val uo_out_val = wireSoC()   // calls wireGpuMem() above
 
-  // ── SdramBackend (real SDRAM, shared between FlashBootLoader and CPU) ────
   val sdramBackend = withClockAndReset(sysClock, pllRst) {
     Module(new SdramBackend(SOC_MHZ))
   }
@@ -174,7 +159,6 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy,   false.B)
   flashBoot.io.backend.accept  := Mux(!bootDone, sdramBackend.io.backend.accept, false.B)
 
-  // ── SDRAM physical pin wiring ──────────────────────────────────────────────
   val pins = sdramBackend.io.sdramPins
   sdram_cke  := pins.cke
   sdram_csn  := pins.cs_n
@@ -195,17 +179,10 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   }
   pins.dq_in := dqIn.asUInt
 
-  // ── UART out ──────────────────────────────────────────────────────────────
   ftdi_rxd := uo_out_val(6)
 
-  // ── VGA timing, at a real 25 MHz CADENCE inside the 125 MHz HDMI domain ──
-  // A divide-by-5 clock ENABLE (hdmiTick25), not a genuine dedicated pixel-
-  // clock PLL output -- mirrors ULX3S.scala's fix for the same reason: keep
-  // the historically reliable 3-output PLL structure and generate video
-  // timing inside the existing 125 MHz HDMI domain instead of adding a 4th
-  // output. The frame buffer's display-side read port is genuinely on
-  // hdmiClock (a real dual-clock BRAM crossing against the fill FSM's
-  // sysClock write side, via HdmiScanoutFp16's write-side toggle-sync CDC).
+  // VGA timing at a 25 MHz cadence: a divide-by-5 enable in the 125 MHz HDMI domain,
+  // which keeps the 3-output PLL (as in ULX3S.scala).
   val hdmiRst = !pllLocked
   val hdmiCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
   val hdmiTick25 = (hdmiCount === 4.U)
@@ -238,18 +215,8 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   scanout.io.tick25 := hdmiTick25
   scanout.io.pixClk.get := hdmiClock
   scanout.io.pixRst.get := hdmiRst
-  // Auto-enable after a boot delay instead of gating on btn(0) (no button
-  // needed) or being always-on from reset. Hutt's instr fetch is the
-  // LOWEST-priority requester in MemoryController, and scanout's gpuReq
-  // stays asserted essentially continuously once enabled (sReq/sWait cycle
-  // back to back) -- confirmed on real hardware that this genuinely starves
-  // instruction fetch badly enough to hang firmware bigger than a handful
-  // of instructions (a proven-working fill loop plus one extra, entirely
-  // unused `andi` never completed with scanout enabled from boot; the
-  // identical firmware ran fine immediately with scanout held off). A fixed
-  // delay before the first enable gives firmware a clear run at SDRAM
-  // during boot -- ~1M sysClock cycles (~42 ms @ 25 MHz) is generous for
-  // any of this harness's diagnostic firmware.
+  // Enable after ~1M cycles: instruction fetch has the lowest priority and a continuously
+  // requesting scanout starves it enough to hang firmware during boot.
   val scanoutBootDelay = withClockAndReset(sysClock, pllRst) { RegInit(0.U(21.W)) }
   val scanoutReady     = scanoutBootDelay(20)
   withClockAndReset(sysClock, pllRst) {
@@ -258,10 +225,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   // Off for Linux: scanout starves the boot copy and instruction fetch.
   scanout.io.enable := scanoutReady && scanoutOn.B && (borgCfg.isEmpty.B || borgWrote)
 
-  // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
-  // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
-  // feed the TMDS encoders directly.
-  // ── TMDS Encoders + Serializers (125 MHz domain) ─────────────────────────
+  // The scanout outputs are already in the hdmiClock domain; feed the TMDS encoders directly.
   val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
   encB.io.en := hdmiTick25; encB.io.data := scanout.io.blue
   encB.io.c  := Cat(vsync, hsync); encB.io.de := de
@@ -271,13 +235,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
   encR.io.en := hdmiTick25; encR.io.data := scanout.io.red
   encR.io.c  := 0.U; encR.io.de := de
-  // TmdsEncoder has 2 pipeline stages (q_m_reg, then the registered
-  // PopCount/diff added to pipeline the disparity computation -- see its
-  // own comment); delay serializer load by 2 cycles to match. (This was
-  // previously missing entirely -- serializers loaded on the same cycle
-  // the encoder's own `en` fired, one symbol behind the encoder's actual
-  // output. Invisible on a static test color, which is all this harness
-  // has rendered so far, but a real bug ULX3S.scala didn't have.)
+  // TmdsEncoder has 2 pipeline stages; delay the serializer load to match.
   val hdmiTick25D1 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25, false.B) }
   val hdmiTick25D2 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25D1, false.B) }
   val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
@@ -290,7 +248,6 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   serClk.io.en := hdmiTick25D2; serClk.io.tmds := "b0000011111".U
   gpdi_dp := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
 
-  // ── LEDs (same layout as full ULX3S for consistency) ─────────────────────
   led := Cat(pllLocked, bootDone,
              flashBoot.io.debug_state,
              sdramBackend.io.backend.busy,
@@ -309,15 +266,10 @@ object ULX3SMinimalMain extends App {
     firtoolOpts = Emit.firtoolOpts
   )
 
-  // Reuse the full pin definitions; unused pins are harmless to constrain.
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }
 
-/** Emit Verilog + LPF for the minimal ULX3S target, RV64 + CLINT — Hutt
-  * without Borg, for isolating whether a Linux/OpenSBI boot that's silent
-  * on real hardware (despite working in simulation) is caused by the full
-  * SoC's timing-closure margin rather than a logic bug.
-  */
+/** Emit Verilog + LPF for the minimal ULX3S target, RV64 + CLINT, no Borg. */
 object ULX3SMinimalLinuxMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
   val targetDir = "out/ulx3s_minimal_linux/verilog"
@@ -329,7 +281,6 @@ object ULX3SMinimalLinuxMain extends App {
     firtoolOpts = Emit.firtoolOpts
   )
 
-  // Reuse the full pin definitions; unused pins are harmless to constrain.
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }
 

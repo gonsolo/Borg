@@ -11,13 +11,7 @@ import borg.BorgConfig
 import memory.{Ecp5PllParams, Ecp5PllWrapper, FlashBootLoader, SdramBackend, Usrmclk}
 import _root_.circt.stage.ChiselStage
 
-/** ECP5 bidirectional buffer primitive (Lattice cell name: BB).
-  *
-  * Used for the SDRAM DQ bus — each bit can be driven (write phase) or
-  * sampled (read phase) depending on T:
-  *   T = 0 → drive I onto pad B
-  *   T = 1 → high-Z; pad voltage readable on O
-  */
+/** ECP5 bidirectional buffer (Lattice cell BB): T = 0 drives I onto B, T = 1 is high-Z with B on O. */
 class Ecp5BiDirBuf extends ExtModule {
   override def desiredName = "BB"  // must match the Lattice/nextpnr cell name
   val B = IO(Analog(1.W))
@@ -26,13 +20,8 @@ class Ecp5BiDirBuf extends ExtModule {
   val O = IO(Output(Bool()))
 }
 
-/** ULX3S (Lattice ECP5-85K) top-level — SDRAM + flash boot.
-  *
-  * Clock: 25 MHz oscillator → Ecp5Pll → 125 MHz system clock.
-  * Memory: onboard SDRAM (IS42S16160G) via SdramBackend.
-  * Boot: FlashBootLoader copies firmware from flash 0x400000 → SDRAM 0x0.
-  *       Hutt starts only after boot_done && pll_locked.
-  * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
+/** ULX3S (Lattice ECP5-85K) top: SDRAM, HDMI, UART on ftdi_rxd.
+  * FlashBootLoader copies firmware from flash 0x400000 to SDRAM 0x0; Hutt starts after boot_done.
   */
 class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect) extends RawModule with SoCLogic {
   // BORG_ULX_CFG: cube (default), stencil (the blend and stencil scenes) or
@@ -43,58 +32,23 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     case "stencil" => BorgConfig.Cube.copy(hasBlend = true, hasStencil = true)
     case other     => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
-  // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
-  // this used to override to no longer fits the ECP5-85K alongside FP32
-  // Borg (92,986 LUT4 at RV64, 111% of the device, even after fixing
-  // BorgTileSequencer's dirty-bit blowup -- see BorgConfig.scala's
-  // maxBinTiles=4096 comment and BorgTileSequencer's tileDirtyMem doc).
-  // RV32I alone measures 3,537 LUT4 against RV64's 13,401 -- the single
-  // biggest lever available without cutting a Borg feature. Costs the
-  // M extension (no hardware MUL/DIV: firmware falls back to libgcc's
-  // software routines) and the ULX3S OpenSBI/Linux goal on THIS
-  // bitstream -- that work continues on MinimalSocSimTop/
-  // MinimalSocRealSdramSimTop and their own borg-minimal-linux.bit,
-  // which stay RV64 and are untouched by this.
-  //
-  // hasSupervisorMode = false too, matching QspiSocTop: this is the same
-  // software/borg bare-metal firmware that comment describes -- never
-  // leaves M-mode, never sets mtvec, no ecall/mret/sret anywhere -- so
-  // every S-mode CSR and trap-delegation path Hutt elaborates is dead
-  // weight here too, not just on the ASIC/TT target.
-  //
-  // Measured (nextpnr, whole design): RV64 92,986 LUT4 -> RV32 84,580 ->
-  // RV32 without S-mode 84,232 of 83,640 (100.7%). Still does NOT place;
-  // the remaining ~4K needs the legacy draw path gone (see
-  // docs/B1_geometry_front_end.md's "Coexistence" section).
+  // RV32I without S-mode: RV64 does not fit the ECP5-85K next to FP32 Borg, and the
+  // bare-metal firmware never leaves M-mode. Linux work stays on the MinimalSoC harness.
   override def hasSupervisorMode: Boolean = false
   override def scanoutCurBuf: Bool = scanout.io.curBuf
-  // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the
-  // plan doc / BorgMode's own comment): BorgLoopback closes peripherals.io.link
-  // on a same-bitstream BorgLinkSlave + Borg pair via wireBorgLoopback() below,
-  // so every Borg access -- CPU-initiated MMIO and Borg-initiated gpuMem --
-  // travels the real link RTL with zero ASIC involvement. Default BorgDirect
-  // (today's behaviour, what the demo/talk bitstream ships) is unaffected;
-  // only ULX3SLoopbackMain below overrides this.
   override def borgMode: BorgMode = borgModeOverride
-  // The CPU reaches SDRAM through a 0x1000000-based window (DRAM_OUT_RAW), so its
-  // addresses carry byte-address bit 24 -- and SdramBackend decodes that bit.
-  // The GPU port must carry it too (MemoryController ORs VRAM_REGION_BIT in),
-  // otherwise the GPU reads/writes different physical SDRAM than the CPU does:
-  // the shader DMA then loaded uninitialised SDRAM into IMEM and the draw hung
-  // (found on the board with a DMA-write probe; with the bit the triangle
-  // renders, 496 px, identical to the netlist sim).
+  // SdramBackend decodes byte-address bit 24 of the CPU's DRAM window; without it
+  // on the GPU port the GPU sees different physical SDRAM than the CPU.
   override def gpuVramRegionBit: Boolean = true
-  // Rung B needs two pads per logical wire (both endpoints are on this chip),
-  // which only fits J1+J2 at the narrow width -- see BorgMode's doc.
+  // Rung B needs two pads per wire, which only fits J1+J2 at the narrow width.
   override def linkParams: borg.link.LinkParams =
     if (borgModeOverride == BorgPadLoop) borg.link.LinkParams(w = 8)
     else borg.link.LinkParams()
 
-  // ── Board clock and reset ──────────────────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
   val rst_n      = IO(Input(Bool()))   // BTN_PWRn, active-low
 
-  // ── SDRAM pins (IS42S16160G-7TL, 16-bit) ──────────────────────────────────
+  // SDRAM IS42S16160G-7TL, 16-bit
   val sdram_clk  = IO(Output(Clock()))
   val sdram_cke  = IO(Output(Bool()))
   val sdram_csn  = IO(Output(Bool()))
@@ -104,32 +58,23 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val sdram_a    = IO(Output(UInt(13.W)))
   val sdram_ba   = IO(Output(UInt(2.W)))
   val sdram_dqm  = IO(Output(UInt(2.W)))
-  val sdram_d    = IO(Vec(16, Analog(1.W)))   // bidirectional DQ bus
+  val sdram_d    = IO(Vec(16, Analog(1.W)))
 
-  // ── Onboard flash pins (Winbond W25Q128JV) ────────────────────────────────
-  // flash_clk is routed via the USRMCLK primitive — no IO port needed.
+  // Flash W25Q128JV; flash_clk goes through USRMCLK, so it has no port.
   val flash_csn  = IO(Output(Bool()))
   val flash_mosi = IO(Output(Bool()))
   val flash_miso = IO(Input(Bool()))
 
-  // ── UART ──────────────────────────────────────────────────────────────────
   val ftdi_rxd = IO(Output(Bool()))   // FPGA → host TX
   val ftdi_txd = IO(Input(Bool()))    // host → FPGA RX
 
-  // ── HDMI (GPDI) ───────────────────────────────────────────────────────────
   val gpdi_dp = IO(Output(UInt(4.W)))
 
-  // ── LEDs and buttons ──────────────────────────────────────────────────────
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
-  // ── Wafer.space Borg-only bridge link pins (BorgExternal, rungs B/C) ──────
-  // Mirrors BorgLinkMasterIO's own directions exactly (see BorgLinkPortsIO's
-  // doc) -- only declared when this specific top is built for BorgExternal
-  // (ULX3SExternalMain), so every other target (the demo bitstream, rung A's
-  // loopback) has zero extra pins from this block. dbg_sel/link_narrow are
-  // wired to real pins but not yet consumed by any RTL -- reserved lane-map
-  // positions, same status as BorgOnlyTop's own ASIC-side pins (see its doc).
+  // Bridge link pins (BorgExternal only), directions as BorgLinkMasterIO.
+  // dbg_sel and link_narrow only reserve lane-map positions; no RTL reads them.
   val dn_d        = if (borgMode == BorgExternal) Some(IO(Output(UInt(16.W)))) else None
   val dn_v        = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
   val dn_p        = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
@@ -138,29 +83,17 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val up_v        = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
   val up_p        = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
   val up_cred     = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
-  // far_link_up reads the far side's link_up pin -- a real ASIC or second board
-  // in rung C, which is what BorgExternal is for.
-  //
-  // There is deliberately no `link_up_loop` companion. It used to exist so a
-  // single-board ribbon could jumper this master's own link_up back into
-  // far_link_up, but that cannot work: the master's linkUp IS its farLinkUp
-  // (see BorgLinkClockGen), so the cable closes farLinkUp = linkUp = farLinkUp,
-  // a combinational loop a pulled-down pad holds at 0 forever -- the link could
-  // never train. Single-board loopback is BorgPadLoop, which routes the SLAVE's
-  // linkUp (a constant true) out and back instead.
+  // The far side's link_up. Looping back the master's own linkUp would never train,
+  // since the master's linkUp is its farLinkUp; single-board loopback is BorgPadLoop.
   val far_link_up  = if (borgMode == BorgExternal) Some(IO(Input(Bool())))  else None
-  // Control straps -- onboard DIP switches (SW1-4), not GP/GN pins.
+  // Onboard DIP switches SW1-4.
   val dbg_sel     = if (borgMode == BorgExternal) Some(IO(Input(UInt(2.W)))) else None
   val link_narrow = if (borgMode == BorgExternal) Some(IO(Input(Bool())))    else None
   val link_fast   =
     if (borgMode == BorgExternal || borgMode == BorgPadLoop) Some(IO(Input(Bool()))) else None
 
-  // ── Rung B pad-loop pins (BorgPadLoop, ULX3SPadLoopMain) ─────────────────
-  // Master AND slave are both on this FPGA, so unlike BorgExternal above every
-  // logical wire needs a driving pad and a receiving pad, with the ribbon
-  // bridging the two halves of one J1/J2 pin. 23 pairs at w=8; see BorgMode's
-  // doc for why w=16 (78 holes) does not fit and rung B cannot reuse
-  // BorgExternal.
+  // Rung B pad loop: master and slave are both on this FPGA, so each wire needs a
+  // driving and a receiving pad, bridged by the ribbon. 23 pairs at w=8.
   private def padLoop = borgMode == BorgPadLoop
   // master -> pads -> cable -> pads -> slave
   val pl_dn_d_out   = if (padLoop) Some(IO(Output(UInt(8.W)))) else None
@@ -180,42 +113,17 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val pl_up_p_in    = if (padLoop) Some(IO(Input(Bool())))     else None
   val pl_dncred_out = if (padLoop) Some(IO(Output(Bool())))    else None
   val pl_dncred_in  = if (padLoop) Some(IO(Input(Bool())))     else None
-  // Carries the SLAVE's linkUp (constant true) out and back into the master's
-  // farLinkUp -- NOT the master's own linkUp, which would deadlock.
+  // The slave's linkUp into the master's farLinkUp; the master's own would deadlock.
   val pl_linkup_out = if (padLoop) Some(IO(Output(Bool())))    else None
   val pl_linkup_in  = if (padLoop) Some(IO(Input(Bool())))     else None
 
-  // ── PLL: 25 MHz osc → SoC + SoC/90° SDRAM + 125 MHz HDMI ──────────
-  // SoC clock = the build's CLOCK_MHZ.  SINGLE SOURCE OF TRUTH is ULX3S_MHZ in
-  // fpga/ulx3s/Makefile — it drives this PLL clock, the debug-UART baud divider
-  // (SoCLogic), AND the firmware's CLOCK_MHZ together. The video pixel clock is
-  // NOT this clock -- see the VGA timing section below -- it is generated at a
-  // real 25 MHz cadence inside the 125 MHz HDMI domain instead, via a
-  // divide-by-5 clock enable, so CLOCK_MHZ is free to be whatever the CPU/GPU
-  // logic can meet timing at.
-  //
-  // CLOCK_MHZ is 10, not the higher value the routed logic can actually reach
-  // (~17 MHz measured), for a reason with nothing to do with logic timing: an
-  // ECP5 EHXPLLL solve that lands the VCO near 750 MHz (the exact solve this
-  // PLL's 3 outputs get for several nearby targets, including 15 MHz) reliably
-  // FAILED TO LOCK on a genuine cold boot from SPI flash on this board, though
-  // the identical bitstream booted fine loaded via JTAG -- loading bypasses
-  // whatever real-hardware margin a true cold start needs. A small, fast
-  // diagnostic bitstream (HdmiTestPattern3Pll.scala) swept target frequencies
-  // and found this exactly and repeatably: every target solving to VCO 750 MHz
-  // (15, 17, 18 MHz) failed cold boot on real hardware; every target solving
-  // to 500 or 625 MHz (10, 20, 25 MHz) succeeded, confirmed multiple times.
-  // 10 MHz is the fastest INTEGER MHz target that lands EXACTLY (no rounding,
-  // so no firmware UART-baud mismatch) on one of the confirmed-safe VCOs
-  // (500 MHz here). Faster options exist (e.g. a ~15.6 MHz solve also lands on
-  // the other safe VCO, 625 MHz) but only approximately, and would need
-  // CLOCK_MHZ's integer-MHz assumption fixed throughout the Makefiles and
-  // firmware first.
+  // PLL: 25 MHz osc → SoC, SoC/90° for the SDRAM pin, 125 MHz HDMI.
+  // CLOCK_MHZ comes from ULX3S_MHZ in fpga/ulx3s/Makefile, which also sets the UART divider
+  // and the firmware. Keep it at 10: solves with a ~750 MHz VCO fail to lock on a cold
+  // boot from flash (JTAG loads work); 500 and 625 MHz VCOs boot.
   val SOC_MHZ = CLOCK_MHZ
-  // Staged-reintroduction flag (HDMI_DECOUPLE=1): video timing + display side run
-  // on hdmiClock via a divide-by-5 enable, with a dual-clock frame buffer, and the
-  // SoC clock is free (10 MHz). 0 = the HPG 2026 wiring: pixel clock == sysClock
-  // (25 MHz), plain CDC of RGB into the 125 MHz TMDS domain.
+  // HDMI_DECOUPLE=1: video runs on hdmiClock with a divide-by-5 enable and a dual-clock
+  // frame buffer. 0: pixel clock == sysClock (25 MHz), plain CDC into the TMDS domain.
   val hdmiDecouple = sys.env.getOrElse("HDMI_DECOUPLE", "0") == "1"
   val HDMI_MHZ = 125
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
@@ -227,40 +135,24 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   pll.io.clk_i   := clk_25mhz
   val pllLocked  = pll.io.locked
   val sysClock   = pll.io.clk_o(0)   // CPU, SDRAM, Borg, scanout fill FSM
-  val sdramClock = pll.io.clk_o(1)   // SoC + 90° — SDRAM clock pin
-  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer AND (below,
-                                      // divided by 5) the video timing/display
+  val sdramClock = pll.io.clk_o(1)
+  val hdmiClock  = pll.io.clk_o(2)   // TMDS serializer and, divided by 5, video timing
 
-  // Route 90°-shifted clock directly to the SDRAM clock pin
   sdram_clk := sdramClock
 
-  // FlashBootLoader and SdramBackend start as soon as the PLL locks.
-  // They must NOT be gated on boot_done — boot_done depends on SdramBackend
-  // completing a write, which requires SdramBackend to be out of reset.
+  // Not gated on boot_done: boot_done needs SdramBackend to complete a write.
   val pllRst = !pllLocked
 
-  // ── Warm-reset controller (serial firmware reload) ─────────────────────────
-  // Firmware streams a new image into SDRAM scratch, then writes WARM_RESET_MAGIC
-  // to PERI_WARM_RESET → wireSoC() raises `warmReset`.  We latch a persistent
-  // `warmBootReg` (cleared only by a cold/PLL reset) and pulse `warmRst` for a
-  // few cycles.  `warmRst` resets ONLY the bootloader + (via boot_done) the
-  // CPU/icache/MemoryController — NOT the PLL, SDRAM backend, scanout, or VGA
-  // timing.  So the bootloader re-runs in warm-copy mode (scratch→0) and the CPU
-  // reboots with a freshly-flushed icache, while the HDMI sync generator keeps
-  // running and the monitor never loses signal.
-  // Declared as a Wire because flashBoot's reset needs it, but its value derives
-  // from warmReset which wireSoC() produces further below.
+  // Warm reset (serial firmware reload): resets only the bootloader and, via boot_done,
+  // the CPU side, so HDMI keeps running. warmBootReg makes the bootloader copy scratch→0.
   val warmRst     = Wire(Bool())
   val warmBootReg = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
 
-  // ── FlashBootLoader: copies firmware flash→SDRAM before Hutt starts ────────
-  // Reset on pllRst (cold) OR warmRst (warm reload). warmBoot selects scratch→0.
   val flashBoot = withClockAndReset(sysClock, pllRst || warmRst) {
     Module(new FlashBootLoader())
   }
   flashBoot.io.warmBoot := warmBootReg
 
-  // Wire USRMCLK: route flashBoot SPI clock to the flash MCLK pin
   val usrmclk = Module(new Usrmclk)
   usrmclk.USRMCLKI  := flashBoot.io.spi_clk.asClock
   usrmclk.USRMCLKTS := false.B   // always enabled (active-low tristate)
@@ -269,7 +161,6 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   flash_mosi := flashBoot.io.flash_mosi
   flashBoot.io.flash_miso := flash_miso
 
-  // ── SoCLogic abstract members ──────────────────────────────────────────────
   def soc_clk = sysClock
   def soc_rst_n = pllLocked && flashBoot.io.boot_done && rst_n
 
@@ -277,25 +168,16 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     RegNext(soc_rst_n)
   }
 
-  // ui_in[7]=ftdi_txd (UART RX from host); ui_in[6:1]=btn[5:0]; ui_in[0]=0
-  // ftdi_txd at bit 7 feeds PeriUart's default uart_rxd (ui_in(7)), enabling
-  // UART receive.  Debug UART TX still routes to ftdi_rxd via gpio_out_sel(0)=0.
+  // ui_in[7] = ftdi_txd feeds PeriUart's uart_rxd; ui_in[6:1] = btn.
   def soc_ui_in = Cat(ftdi_txd, btn, 0.U(1.W))
 
-  // ── HDMI Scanout — declared here so wireGpuMem() can reference it ─────────
-  // The framebuffer bases are NOT hardcoded here: firmware programs them via the
-  // PERI_SCANOUT_FB0/FB1 registers (scanoutFbBase0/1), from the SAME borg_layout.h
-  // constants that drive the GPU flush base — so the scanout and the GPU cannot
-  // drift apart (a 0x80 drift here previously caused the blinking green corner
-  // pixel).  Wired below once the SoC registers exist.
+  // Declared before wireGpuMem() uses it. Firmware programs the framebuffer bases.
   val scanout = withClockAndReset(sysClock, pllRst) {
     Module(new HdmiScanoutFp16(fbWidth = 128, fbHeight = 128, separatePixelClock = hdmiDecouple))
   }
 
-  // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
-  // scanoutOwns is registered so that once the scanout's request is accepted
-  // by the MemoryController, the ready pulse is always routed back to the
-  // scanout — even if gpuActive goes high while the transaction is in-flight.
+  // The GPU has priority over scanout. scanoutOwns holds an accepted scanout request
+  // until its ready, even if the GPU becomes active meanwhile.
   override def wireGpuMem(): Unit = {
     val gpuActive  = peripherals.io.gpuMem.req || peripherals.io.gpuMem.wr
     val scanoutOwns = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
@@ -312,28 +194,22 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     mem.io.gpuMem.addr  := Mux(serveGpu, peripherals.io.gpuMem.addr,  scanout.io.gpuAddr)
     mem.io.gpuMem.wr    := Mux(serveGpu, peripherals.io.gpuMem.wr,    false.B)
     mem.io.gpuMem.wdata := peripherals.io.gpuMem.wdata
-    // Burst length: only the GPU writes (and bursts); the scanout only reads.
     mem.io.gpuMem.wlen  := Mux(serveGpu, peripherals.io.gpuMem.wlen, 1.U)
 
     peripherals.io.gpuMem.data    := mem.io.gpuMem.data
     peripherals.io.gpuMem.ready   := mem.io.gpuMem.ready && !scanoutOwns
-    // Forward the burst per-word pull to the GPU only while it owns the bus.
     peripherals.io.gpuMem.waccept := mem.io.gpuMem.waccept && serveGpu
 
     scanout.io.gpuData  := mem.io.gpuMem.data
     scanout.io.gpuReady := mem.io.gpuMem.ready && scanoutOwns
   }
 
-  // ── Wire the SoC ──────────────────────────────────────────────────────────
   val uo_out_val = wireSoC()
 
-  // Rung A: peripherals.io.link is Some(...) whenever borgMode != BorgDirect
-  // (see PeripheralsIO) and is left dangling unless something closes it --
-  // wireBorgLoopback() is that something for the loopback case.
+  // Rung A: close peripherals.io.link on an on-chip slave and Borg.
   if (borgMode == BorgLoopback) wireBorgLoopback()
 
-  // Rungs B/C: close peripherals.io.link on real board pins instead of
-  // internal wires. See the dn_d/up_d/... IO block above for the pin set.
+  // Rung C: close peripherals.io.link on board pins.
   if (borgMode == BorgExternal) {
     val linkIo = peripherals.io.link.getOrElse(
       throw new IllegalStateException("BorgExternal requires peripherals.io.link to be present")
@@ -351,18 +227,14 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     linkIo.linkFast   := link_fast.get
     linkIo.linkNarrow := link_narrow.get
     linkIo.farLinkUp  := far_link_up.get
-    // dbg_sel still only reserves its lane-map position -- no RTL reads it.
-    // link_narrow is wired through, but this build is fixed-width (the runtime
-    // mux is a narrowCapable build, which is the ASIC's), so the strap is
-    // accepted and ignored here rather than silently doing nothing on silicon.
+    // This build is fixed-width (only narrowCapable builds mux), so link_narrow is ignored.
   }
 
-  // ── Rung B: the whole bridge, with the master<->slave path out on pads ────
+  // Rung B: the whole bridge, with the master<->slave path out on pads.
   if (borgMode == BorgPadLoop) {
     val pads = Wire(new BorgPadLoopIO(linkParams))
 
-    // Drive the outbound pads; sample the inbound ones. The ribbon shorts each
-    // *_out to its matching *_in, so these halves meet outside the chip.
+    // The ribbon shorts each *_out to its matching *_in.
     pl_dn_d_out.get := pads.dnOut.d
     pl_dn_v_out.get := pads.dnOut.v
     pl_dn_p_out.get := pads.dnOut.p
@@ -388,17 +260,12 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
 
     wireBorgPadLoop(pads)
 
-    // Real strap this time (SW4), unlike rung A's hardcoded safe default.
     peripherals.io.link.get.linkFast := link_fast.get
-    // Rung B is already physically 8 lanes wide (see BorgMode), so there is no
-    // 16->8 mux to engage; wireBorgPadLoop drives the slave's own side.
+    // Already 8 lanes wide, so no 16->8 mux to engage.
     peripherals.io.link.get.linkNarrow := false.B
   }
 
-  // ── Warm-reset controller logic (uses `warmReset` produced by wireSoC) ─────
-  // On a warm-reset request: latch warmBootReg (so the re-run bootloader picks
-  // the scratch→0 copy) and hold warmRst for a handful of cycles to fully reset
-  // the bootloader + CPU.  warmBootReg persists until the next cold/PLL reset.
+  // Hold warmRst for 16 cycles; warmBootReg persists until the next PLL reset.
   val warmRstCtr = withClockAndReset(sysClock, pllRst) { RegInit(0.U(5.W)) }
   when(warmReset) {
     warmBootReg := true.B
@@ -408,37 +275,31 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   }
   warmRst := warmRstCtr =/= 0.U
 
-  // ── SdramBackend: bridges MemoryController ↔ SdramController ─────────────
   val sdramBackend = withClockAndReset(sysClock, pllRst) {
     Module(new SdramBackend(SOC_MHZ))
   }
 
-  // Mux backend: FlashBootLoader during boot, MemoryController after boot_done
+  // The bootloader owns the backend until boot_done, then the MemoryController.
   val bootDone = flashBoot.io.boot_done
 
-  // → SdramBackend inputs (mux: bootloader before boot_done, MemoryController after)
   sdramBackend.io.backend.addrIn     := Mux(bootDone, mem.io.backend.addrIn,     flashBoot.io.backend.addrIn)
   sdramBackend.io.backend.dataIn     := Mux(bootDone, mem.io.backend.dataIn,     flashBoot.io.backend.dataIn)
   sdramBackend.io.backend.byteEnIn   := Mux(bootDone, mem.io.backend.byteEnIn,   flashBoot.io.backend.byteEnIn)
-  // During boot the bootloader owns the backend.  The cold path never reads, but
-  // the warm-reload path DOES (scratch→0 copy), so route flashBoot's startRead.
+  // The warm-reload copy reads.
   sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead,  flashBoot.io.backend.startRead)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
   sdramBackend.io.backend.lenIn      := Mux(bootDone, mem.io.backend.lenIn,      flashBoot.io.backend.lenIn)
 
-  // → MemoryController (only active after boot_done)
   mem.io.backend.dataOut := Mux(bootDone, sdramBackend.io.backend.dataOut, 0.U)
   mem.io.backend.accept  := Mux(bootDone, sdramBackend.io.backend.accept,  false.B)
   mem.io.backend.done    := Mux(bootDone, sdramBackend.io.backend.done,    false.B)
   mem.io.backend.busy    := Mux(bootDone, sdramBackend.io.backend.busy,    false.B)
 
-  // → FlashBootLoader (single-word; never bursts, so accept is unused there)
   flashBoot.io.backend.dataOut := sdramBackend.io.backend.dataOut
   flashBoot.io.backend.accept  := Mux(!bootDone, sdramBackend.io.backend.accept, false.B)
   flashBoot.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done, false.B)
   flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy, false.B)
 
-  // ── SDRAM physical pin wiring ──────────────────────────────────────────────
   val pins = sdramBackend.io.sdramPins
   sdram_cke  := pins.cke
   sdram_csn  := pins.cs_n
@@ -449,7 +310,6 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   sdram_ba   := pins.ba
   sdram_dqm  := pins.dqm
 
-  // Bidirectional DQ: one BB per bit
   val dqIn = Wire(Vec(16, Bool()))
   for (i <- 0 until 16) {
     val bb = Module(new Ecp5BiDirBuf())
@@ -460,10 +320,7 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   }
   pins.dq_in := dqIn.asUInt
 
-  // ── Peripherals ───────────────────────────────────────────────────────────
-
-  // DEBUG: hardware bypass UART — sends 'H' at 115200 from 125 MHz PLL.
-  // Set to true to verify pin wiring without any CPU involvement.
+  // Debug: send 'H' at 115200 from a 125 MHz clock, with no CPU involved.
   val DEBUG_UART_BYPASS = false
 
   if (DEBUG_UART_BYPASS) {
@@ -503,10 +360,8 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
 
 
 
-  // ── HDMI Scanout: enable + front-buffer select ────────────────────────────
   scanout.io.enable   := true.B
   scanout.io.frontBuf := fbSelectReg
-  // Firmware-programmed framebuffer bases (single source of truth, no drift).
   scanout.io.fbBase   := scanoutFbBase0
   scanout.io.fbBase1  := scanoutFbBase1
 
@@ -515,18 +370,8 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val pHsync = Wire(Bool()); val pVsync = Wire(Bool()); val pDe = Wire(Bool())
   val hdmiTick25 = Wire(Bool())
   if (hdmiDecouple) {
-    // ── VGA timing, at a real 25 MHz CADENCE inside the 125 MHz HDMI domain ──
-    // A divide-by-5 clock ENABLE (hdmiTick25), not a genuine dedicated pixel-
-    // clock PLL output -- see the PLL comment above for why. Everything below
-    // that used to run on a 25 MHz pixel clock (VGA timing, the scanout's
-    // display side, the TMDS encoders) now runs on hdmiClock and only ADVANCES
-    // state on hdmiTick25 -- behaviorally identical to a real 25 MHz clock,
-    // physically just a clock enable, and the frame buffer's display-side read
-    // port is genuinely on hdmiClock (a real dual-clock BRAM crossing against
-    // the fill FSM's sysClock write side -- ECP5 block RAM supports independent
-    // port clocks). hdmiClock itself is a plain, un-divided, historically
-    // reliable PLL output, so this fix adds no new PLL output and no new
-    // cold-boot risk.
+    // VGA timing on hdmiClock, advancing on a divide-by-5 enable instead of a fourth
+    // PLL output. The frame buffer crosses clocks in a dual-clock BRAM.
     val hdmiCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
     hdmiTick25 := (hdmiCount === 4.U)
     withClockAndReset(hdmiClock, hdmiRst) {
@@ -555,14 +400,11 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     scanout.io.de := de; scanout.io.tick25 := hdmiTick25
     scanout.io.pixClk.get := hdmiClock; scanout.io.pixRst.get := hdmiRst
 
-    // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
-    // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
-    // feed the TMDS encoders directly.
+    // Already in the hdmiClock domain, so no CDC.
     pRed := scanout.io.red; pGreen := scanout.io.green; pBlue := scanout.io.blue
     pHsync := hsync; pVsync := vsync; pDe := de
   } else {
-    // ── VGA timing (HPG 2026 wiring: 25 MHz pixel clock == sysClock) ──────────
-    // At 25 MHz SoC clock, every cycle IS a pixel tick -- no divider needed.
+    // Pixel clock == sysClock (25 MHz): every cycle is a pixel.
     val hCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
     val vCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
     val hTotal = 800.U;  val vTotal = 525.U
@@ -595,7 +437,6 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     }
   }
 
-  // ── TMDS Encoders + Serializers (125 MHz domain) ─────────────────────────
   val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
   encB.io.en := hdmiTick25; encB.io.data := pBlue
   encB.io.c := Cat(pVsync, pHsync); encB.io.de := pDe
@@ -605,9 +446,7 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
   encR.io.en := hdmiTick25; encR.io.data := pRed
   encR.io.c := 0.U; encR.io.de := pDe
-  // TmdsEncoder has 2 pipeline stages (q_m_reg, then the registered
-  // PopCount/diff added to pipeline the disparity computation -- see its
-  // own comment); delay serializer load by 2 cycles to match.
+  // TmdsEncoder has 2 pipeline stages; delay the serializer load to match.
   val hdmiTick25D1 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25, false.B) }
   val hdmiTick25D2 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25D1, false.B) }
   val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
@@ -620,14 +459,11 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   serClk.io.en := hdmiTick25D2; serClk.io.tmds := "b0000011111".U
   gpdi_dp := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
 
-  // ── LEDs: max debug ────────────────────────────────────────────────────────
   led := Cat(pllLocked, bootDone,
              flashBoot.io.debug_state,
              sdramBackend.io.backend.busy,
              uo_out_val(6))
 }
-
-// ── Pin constraints ────────────────────────────────────────────────────────
 
 object ULX3SPins {
   case class PinDef(name: String, site: String, pull: String = "NONE",
@@ -637,7 +473,7 @@ object ULX3SPins {
     PinDef("clk_25mhz", "G2",  pull = "NONE", drive = 4),
     PinDef("rst_n",      "D6",  pull = "UP",   drive = 4),
 
-    // Flash (clock via USRMCLK — no pin needed for flash_clk)
+    // Flash (flash_clk via USRMCLK)
     PinDef("flash_csn",  "R2",  pull = "UP"),
     PinDef("flash_mosi", "W2",  pull = "UP"),
     PinDef("flash_miso", "V2",  pull = "UP"),
@@ -688,38 +524,12 @@ object ULX3SPins {
     PinDef("gpdi_dp[3]", "A17", ioType = "LVCMOS33D"),
   )
 
-  // ── Wafer.space Borg-only bridge link pins (BorgExternal, rungs B/C) ──────
-  // Sites from ulx3s_v20.lpf's gp[]/gn[] table, confirmed applicable to this
-  // board's actual v3.0.8 hardware revision (see that file's own comment:
-  // "wifi lines shared with GP,GN on v3.0.x"). gp/gn[11-13] are skipped --
-  // shared with onboard WiFi GPIO on v3.0.x, per that comment. 40 signals,
-  // mirroring BorgLinkMasterIO's directions exactly (see the dn_d/up_d IO
-  // block's doc in ulx3s_top): our own inputs (reading a disconnected far
-  // side, or no far side at all before a real ASIC exists) default DOWN, to
-  // fail the link's own odd-parity check by construction -- same intent as
-  // chip_core.sv's bidir_pd on the ASIC side. Our own outputs don't need a
-  // pull since they're always driven.
-  //
-  // Deliberately paired one dn_* signal with its up_* counterpart per physical
-  // pin number (GP = the dn_/far_link_up half, GN = the matching up_ half) --
-  // NOT grouped by which gp[]/gn[] index the site table happens to assign, so
-  // each pair sits on one pin's own two rows and the map reads as a table
-  // rather than a scatter.
-  //
-  // This layout is a leftover convenience from when BorgExternal was expected
-  // to serve rung B by jumpering GP to GN. It cannot (see the far_link_up doc
-  // in ulx3s_top: master-only, and the training precondition self-deadlocks),
-  // and rung B is BorgPadLoop instead. For BorgExternal's actual use -- rung C,
-  // far side on a second board -- the pairing is cosmetic: each of these
-  // signals runs to its opposite number on the other board, not to its
-  // neighbour here.
-  // GP is the OUTER row (toward the board edge) and GN is the INNER row
-  // (toward the crystal/buttons/chips) -- hardware-confirmed 2026-09-03 via
-  // fpga/ulx3s/debug/pin_loopback_test.v (the opposite row guess failed on
-  // real hardware; this one didn't).
+  // Bridge link pins (BorgExternal). Sites from ulx3s_v20.lpf's gp[]/gn[] table;
+  // gp/gn[11-13] are shared with WiFi on v3.0.x and skipped. Inputs pull DOWN so a
+  // missing far side fails the link's odd-parity check. GP is the outer row
+  // (toward the board edge), GN the inner one.
   val linkExternalPins: Seq[PinDef] = Seq(
-    // J1 pins 0-10 (11 pairs): dn_d[0..10] / up_d[0..10]. Pins 11-13 skipped
-    // (WiFi-shared).
+    // J1 pins 0-10: dn_d[0..10] / up_d[0..10].
     PinDef("dn_d[0]",  "B11", pull = "NONE"), PinDef("up_d[0]",  "C11", pull = "DOWN"),
     PinDef("dn_d[1]",  "A10", pull = "NONE"), PinDef("up_d[1]",  "A11", pull = "DOWN"),
     PinDef("dn_d[2]",  "A9",  pull = "NONE"), PinDef("up_d[2]",  "B10", pull = "DOWN"),
@@ -745,15 +555,8 @@ object ULX3SPins {
     PinDef("far_link_up",  "B15", pull = "DOWN"),
   )
 
-  // ── Rung B pad-loop pin map (BorgPadLoop) ────────────────────────────────
-  // 23 pins, one logical link wire each, GP = the FPGA's driving pad and GN =
-  // its receiving pad -- so the ribbon bridges each pin's own two rows, the
-  // same physical pattern as the BorgExternal loom above (GP outer / GN inner,
-  // hardware-confirmed). Sites are gp[]/gn[] from ulx3s_v20.lpf; gp/gn[11-13]
-  // are skipped as WiFi-shared on this board revision.
-  //
-  // Inputs pull DOWN so a missing or broken jumper reads 0: that is the safe
-  // failure, since v/p and linkUp all mean "nothing is happening" when low.
+  // Rung B pad loop: GP drives, GN receives, so the ribbon bridges each pin's two rows.
+  // Inputs pull DOWN so a missing jumper reads 0, which v, p and linkUp treat as idle.
   val padLoopPins: Seq[PinDef] = Seq(
     // J1 pins 0-10: master -> cable -> slave.
     PinDef("pl_dn_d_out[0]", "B11", pull = "NONE"), PinDef("pl_dn_d_in[0]", "C11", pull = "DOWN"),
@@ -783,12 +586,10 @@ object ULX3SPins {
     PinDef("pl_linkup_out",  "D14", pull = "NONE"), PinDef("pl_linkup_in",  "E14", pull = "DOWN"),
   )
 
-  /** SW4 alone -- rung B consumes only link_fast; dbg_sel/link_narrow are
-    * BorgExternal's reserved lane-map positions and no RTL reads them. */
+  // SW4 alone: rung B reads only link_fast.
   val linkFastPin: Seq[PinDef] = Seq(PinDef("link_fast", "E7", pull = "DOWN"))
 
-  // Control straps -- onboard DIP switches SW1-4, not GP/GN pins. Sites +
-  // PULLMODE=DOWN from ulx3s_v20.lpf's "sw[]" block.
+  // DIP switches SW1-4, from ulx3s_v20.lpf's sw[] block.
   val dipSwitchPins: Seq[PinDef] = Seq(
     PinDef("dbg_sel[0]",   "E8", pull = "DOWN"),
     PinDef("dbg_sel[1]",   "D8", pull = "DOWN"),
@@ -801,9 +602,8 @@ object ULX3SPins {
     writer.println("# ULX3S (ECP5-85K) pin constraints")
     writer.println("# Sites from ulx3s_v20.lpf — https://github.com/emard/ulx3s")
     writer.println()
-    // Required for USRMCLK: hand flash SPI clock control to user logic after boot.
-    // CONFIG_MODE=SPI_SERIAL: prevents ECP5 from leaving flash in QPI mode after boot.
-    // Without this, the flash ignores all standard 1-bit SPI commands from user logic.
+    // USRMCLK needs the SPI ports released; SPI_SERIAL keeps the flash out of QPI mode,
+    // where it ignores 1-bit SPI commands.
     writer.println("SYSCONFIG CONFIG_IOVOLTAGE=3.3 COMPRESS_CONFIG=ON MCCLK_FREQ=2.4 MASTER_SPI_PORT=DISABLE SLAVE_SPI_PORT=DISABLE SLAVE_PARALLEL_PORT=DISABLE CONFIG_MODE=SPI_SERIAL;");
     writer.println()
     writer.println("BLOCK RESETPATHS;")
@@ -842,13 +642,7 @@ object ULX3SMain extends App {
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }
 
-/** Rung A of the wafer.space Borg-only bridge's on-hardware ladder: same
-  * board, same demo firmware, Borg reached only through the real link RTL
-  * (BorgLinkMaster + BorgLinkSlave, "pins" are internal wires) instead of
-  * directly. Separate emission target/output dir so the default ULX3SMain
-  * (what the demo/talk bitstream ships) is completely unaffected -- this is
-  * purely additive.
-  */
+/** Rung A of the Borg-only bridge ladder: Borg reached through the link RTL on internal wires. */
 object ULX3SLoopbackMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
   val targetDir = "out/ulx3s/verilog_loopback"
@@ -863,12 +657,8 @@ object ULX3SLoopbackMain extends App {
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }
 
-/** Rungs B/C of the wafer.space Borg-only bridge's on-hardware ladder: the
-  * link reaches real GP/GN pins (rung B: ribbon-cable loopback on this same
-  * board; rung C: a second ULX3S running BorgOnlyTop across real
-  * 74LVC8T245 level shifters) instead of BorgLoopback's internal wires.
-  * Separate emission target/output dir, same as ULX3SLoopbackMain -- purely
-  * additive, the default ULX3SMain demo bitstream is unaffected.
+/** Rung C of the bridge ladder: the link master on GP/GN pins, to a second board running
+  * BorgOnlyTop across 74LVC8T245 level shifters.
   */
 object ULX3SExternalMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
@@ -885,14 +675,9 @@ object ULX3SExternalMain extends App {
     extraPins = ULX3SPins.linkExternalPins ++ ULX3SPins.dipSwitchPins)
 }
 
-/** Rung B of the on-hardware ladder: the complete bridge (master + slave + a
-  * real Borg, exactly like rung A), but with the master<->slave path routed out
-  * through real pads and shorted back by a ribbon cable across J1/J2 -- adding
-  * IO buffers, flight time and SSO to a topology rung A already proved.
-  *
-  * Not a variant of ULX3SExternalMain: that one elaborates the master alone, so
-  * a loopback cable there feeds the master its own beats with no slave or Borg
-  * to answer. See BorgMode's doc.
+/** Rung B of the bridge ladder: rung A's master, slave and Borg, with the link routed out
+  * through pads and shorted back by a ribbon across J1/J2. ULX3SExternalMain cannot do this:
+  * it elaborates the master alone.
   */
 object ULX3SPadLoopMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt

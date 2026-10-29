@@ -1,5 +1,4 @@
-// BootUartTest.scala — Minimal Flash→SDRAM boot + readback via UART.
-// Sends hex dump of first 16 SDRAM bytes, repeating every 500ms.
+// Flash→SDRAM boot test: sends the first 16 SDRAM bytes as hex over UART every 500 ms.
 
 package soc
 
@@ -44,14 +43,13 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
   flash_csn  := flashBoot.io.flash_csn
   flash_mosi := flashBoot.io.flash_mosi
   flashBoot.io.flash_miso := flash_miso
-  flashBoot.io.warmBoot   := false.B   // no warm reload in this bring-up bitstream
+  flashBoot.io.warmBoot   := false.B
 
   val backend = withClockAndReset(sysClock, pllRst) { Module(new SdramBackend()) }
   val bootDone = flashBoot.io.boot_done
 
   withClockAndReset(sysClock, pllRst) {
 
-    // ── UART TX with registered send interface ──
     val BAUD_DIV = 1085.U(11.W)
     val txBusy   = RegInit(false.B)
     val txShift  = RegInit(0x3FF.U(10.W))
@@ -79,8 +77,7 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
 
     val txReady = !txBusy && !txSend
 
-    // ── Character buffer: queue one byte at a time ──
-    // To send a byte: set charToSend + charValid when txReady
+    // To send a byte, set charToSend and charValid when txReady.
     val charToSend = RegInit(0.U(8.W))
     val charValid  = RegInit(false.B)
 
@@ -90,12 +87,10 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
       charValid := false.B
     }
 
-    // Hex nibble → ASCII
-    // Lookup table avoids width-truncation bugs in n + 0x30.U
+    // A table avoids the width truncation of n + 0x30.U.
     val hexLut = VecInit("0123456789ABCDEF".map(_.U(8.W)))
     def hexNib(n: UInt): UInt = hexLut(n)
 
-    // ── FSM ──
     val st       = RegInit(0.U(5.W))
     val rdAddr   = RegInit(0.U(25.W))
     val rdByte   = RegInit(0.U(8.W))
@@ -132,10 +127,9 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
           charToSend := hexNib(curNib)
           charValid := true.B
           when(nibIdx === 1.U) {
-            // Done with this byte
             st := 5.U
           }.otherwise {
-            nibIdx := 1.U  // do lo nibble next cycle
+            nibIdx := 1.U
           }
         }
       }
@@ -147,7 +141,6 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
             sendB1 := true.B; nibIdx := 0.U; st := 4.U
           }.otherwise {
             rdAddr := rdAddr + 2.U
-            // Send space
             charToSend := 0x20.U; charValid := true.B; st := 6.U
           }
         }
@@ -182,8 +175,7 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
       }
     }
 
-    // ── Backend mux (stubbed for new 16-bit-word MemBackendIO) ──
-    // Functional correctness of this debug bitstream not maintained here.
+    // Stubbed for the halfword MemBackendIO; not kept functional.
     backend.io.backend.addrIn     := Mux(bootDone, rdAddr(24, 1), flashBoot.io.backend.addrIn)
     backend.io.backend.dataIn     := Mux(bootDone, 0.U,           flashBoot.io.backend.dataIn)
     backend.io.backend.byteEnIn   := "b11".U

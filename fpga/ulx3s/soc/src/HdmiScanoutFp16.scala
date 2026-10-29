@@ -1,33 +1,11 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 //
-// HdmiScanoutFp16 — reads Borg GPU tiled RGB565 framebuffer from SDRAM.
-//
-// The Borg flusher writes 4×4 tiles to SDRAM in tiled order:
-//   tile_addr = fbBase + tile_index × 32
-//   pixel_addr = tile_addr + pixel_index × 2
-//   pixel layout: one RGB565 halfword per pixel (R[15:11] G[10:5] B[4:0])
-//
-// MemoryController GPU read returns 4 bytes (2 SDRAM halfwords); the scanout
-// reads at pixel_addr and uses the low 16 bits (this pixel); the high 16 bits
-// are the next pixel and are ignored (1 read per pixel keeps the addressing
-// trivial — the fill loop is not bandwidth-critical).
-//
-// Buffering strategy (Step: full-frame BRAM):
-//   The previous design prefetched one scanline per hblank, but at 25 MHz the
-//   SDRAM read latency (~10 cy/word, ×2 for the MemoryController's 2-halfword
-//   GPU read) means 32 pixels = 64 reads ≈ 1300–1900 cy — far over the ~450 cy
-//   line budget.  Only ~1/3 of each line got fetched ⇒ garbled output.
-//
-//   Instead we hold the whole framebuffer (fbWidth×fbHeight px, RGB8) in a
-//   block RAM and fill it with a free-running FSM that walks every pixel and
-//   loops forever.  A full refill takes ~2 ms (≪ 16.7 ms frame), so for a
-//   static framebuffer the BRAM converges to the correct image within ~2
-//   frames.  Display reads the BRAM at pixel-clock rate (1-cycle latency), so
-//   there is no realtime SDRAM bandwidth pressure on the scanout path.
-//
-// Display: fbWidth×fbHeight framebuffer at 1:1 pixel mapping, centered on 640×480.
-// Note: at 128×128 the fill FSM takes ~33 ms per refill (> 1 frame) — expect ~1-frame lag.
+// HdmiScanoutFp16: scans the Borg tiled RGB565 framebuffer out of SDRAM.
+// Tiles are 4x4: pixel_addr = fbBase + tile_index*32 + pixel_index*2. A free-running
+// FSM copies the whole frame into block RAM, one GPU read per pixel (low 16 bits),
+// since per-line prefetch cannot meet the line budget at 25 MHz SDRAM latency.
+// The display reads the BRAM 1:1, centered on 640x480.
 
 package soc
 
@@ -35,8 +13,7 @@ import chisel3._
 import chisel3.util._
 
 class HdmiScanoutFp16IO(separatePixelClock: Boolean) extends Bundle {
-  // The display side's own clock and reset (see HdmiScanoutFp16's
-  // separatePixelClock); hCount/vCount/de and red/green/blue are in it.
+  // Display-side clock and reset when separatePixelClock.
   val pixClk   = Option.when(separatePixelClock)(Input(Clock()))
   val pixRst   = Option.when(separatePixelClock)(Input(Bool()))
   val gpuReq   = Output(Bool())
@@ -49,33 +26,20 @@ class HdmiScanoutFp16IO(separatePixelClock: Boolean) extends Bundle {
   val tick25   = Input(Bool())
   val enable   = Input(Bool())
   val frontBuf = Input(Bool())   // 0 = read fbBase, 1 = read fbBase1
-  // Framebuffer base addresses, programmed by firmware over MMIO so the scanout
-  // and the GPU flusher derive from the SAME source (borg_layout.h) and cannot
-  // drift apart (the cause of the green-corner-pixel bug).  Power-on default is 0
-  // (blank) until the firmware writes them at init.
+  // Programmed by firmware from the same layout as the flusher; 0 (blank) until then.
   val fbBase   = Input(UInt(25.W))
   val fbBase1  = Input(UInt(25.W))
   val curBuf   = Output(Bool())  // buffer currently being read (latched at wrap)
   val red      = Output(UInt(8.W))
   val green    = Output(UInt(8.W))
   val blue     = Output(UInt(8.W))
-  // Sim-only observability: the last RGB value the fill FSM wrote to frameBuf[0].
-  // Left unconnected in synthesis (optimised away); used by the SDRAM co-sim.
+  // Sim-only: the last RGB value written to frameBuf[0].
   val dbgFill0 = Output(UInt(24.W))
 }
 
-// fbBase/fbBase1 are runtime inputs (io.fbBase/io.fbBase1), programmed by
-// firmware — NOT constructor constants — so the scanout cannot drift from the
-// GPU's framebuffer layout.
-//
-// separatePixelClock: the display side (VGA position in, frame RAM read port,
-// pixel out) runs on io.pixClk instead of the module clock, which then only
-// clocks the fill FSM and its SDRAM reads. The frame RAM is the clock
-// crossing (ECP5 block RAM has independent port clocks), so the SoC clock no
-// longer has to be the 25 MHz pixel clock.
-// rgb565Store: keep the frame as RGB565 (16 bits per pixel, expanded to RGB8 after the read) instead
-// of RGB8 (24 bits): 16 block RAMs instead of 24 at 128x128. doubleBuffer=false: one buffer at
-// io.fbBase, no swap logic (frontBuf, fbBase1 and curBuf unused).
+// separatePixelClock: the display side runs on io.pixClk; the module clock only drives
+// the fill FSM. rgb565Store keeps 16 bits per pixel in BRAM instead of 24.
+// doubleBuffer=false: one buffer at io.fbBase, no swap logic.
 class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock: Boolean = false,
                       rgb565Store: Boolean = false, doubleBuffer: Boolean = true)
     extends Module {
@@ -92,13 +56,11 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
 
   val numPixels = fbWidth * fbHeight
 
-  // ── Frame buffer: numPixels × RGB8, mapped to block RAM ──
-  // Raster-indexed: pixel (col, row) lives at index row*fbWidth + col.
+  // Raster-indexed: pixel (col, row) at row*fbWidth + col.
   val pxBits   = if (rgb565Store) 16 else 24
   val frameBuf = SyncReadMem(numPixels, UInt(pxBits.W))
 
-  // ── RGB565 → RGB888 expansion ──
-  // Replicate the high bits into the low bits so full-scale maps to 0xFF.
+  // Replicate the high bits into the low bits so full scale maps to 0xFF.
   def rgb565ToRgb8(px: UInt): (UInt, UInt, UInt) = {
     val r5 = px(15, 11)
     val g6 = px(10, 5)
@@ -109,14 +71,10 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
     (r8, g8, b8)
   }
 
-  // ── Free-running fill FSM ──
-  // Walks every pixel (raster order), issuing 1 GPU read each, expanding the
-  // RGB565 halfword to RGB8 and writing the frame BRAM.  Loops forever.
   val sReq :: sWait :: Nil = Enum(2)
   val fstate  = RegInit(sReq)
   val fillIdx = RegInit(0.U(log2Ceil(numPixels).W))
 
-  // Decompose the raster fill index into tiled SDRAM byte address.
   val fillCol = fillIdx(log2Ceil(fbWidth) - 1, 0)
   val fillRow = fillIdx(log2Ceil(numPixels) - 1, log2Ceil(fbWidth))
   val tileCol = fillCol(log2Ceil(fbWidth) - 1, 2)
@@ -125,23 +83,13 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
   val localY  = fillRow(1, 0)
   val tileIndex = tileRow * tilesPerRow.U +& tileCol
   val pixIndex  = Cat(localY, localX)            // local_y * 4 + local_x
-  // Double-buffer: capture the front-buffer base address at the wrap point
-  // (last pixel of each loop, inside sWait) so it is stable from the very
-  // first cycle of the next loop through sReq/sWait.
-  // Latching in sReq (first state of next loop) would set it one cycle too
-  // late: gpuAddr is combinatorial from baseAddr, so it would change mid-request.
-  // Front-buffer base for the whole fill loop.  After the first loop it is the
-  // value latched at the previous wrap (stable across the loop, no mid-request
-  // change).  Before the first wrap there is nothing latched yet, so the first
-  // loop uses io.fbBase directly — the firmware programs it before rendering, so
-  // it is stable (worst case a one-loop boot transient if it is reprogrammed
-  // mid-loop).  This keeps the base valid from the very first read.
+  // gpuAddr is combinational from the base, so it is latched at the wrap (in sWait), not
+  // in sReq. The first loop, before any wrap, uses io.fbBase directly.
   val baseAddr   = if (doubleBuffer) RegInit(0.U(25.W)) else io.fbBase
   val baseLoaded = if (doubleBuffer) RegInit(false.B) else true.B
   val effBase    = if (doubleBuffer) Mux(baseLoaded, baseAddr, io.fbBase) else io.fbBase
   val pixAddr    = effBase +& (tileIndex << 5) +& (pixIndex << 1)
-  // Report which buffer is currently being read so the CPU can synchronize the
-  // double-buffer swap (wait until the scanout has released the back buffer).
+  // Lets the CPU wait until the scanout has released the back buffer.
   io.curBuf := (if (doubleBuffer) effBase === io.fbBase1 else false.B)
 
   io.gpuReq  := io.enable && (fstate === sReq || fstate === sWait)
@@ -150,24 +98,9 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
   val wrEn   = WireDefault(false.B)
   val wrData = WireDefault(0.U(pxBits.W))
 
-  // ── Write-side clock-domain crossing (sysClock -> pixClk) ──
-  // ECP5 BRAM inference (yosys's memory_libmap, as run by synth_ecp5) never
-  // offers DP16KD as a candidate for a memory whose read and write ports use
-  // genuinely different clocks -- verified empirically: an isolated 16384x24
-  // memory with independent read/write clocks falls back entirely to 6144
-  // TRELLIS_DPR16X4 + 23680 LUT4 cells (this was frameBuf's actual mapping,
-  // and why the ULX3S SoC failed nextpnr placement after switching the
-  // display side to its own pixel clock), while the identical memory with a
-  // single shared clock maps cleanly to 24 DP16KD block RAM cells -- true
-  // even at depths as small as 64 words, so this isn't a cascading-depth
-  // limit, just no dual-clock BRAM inference at all in this flow. So frameBuf
-  // itself stays single-clocked on io.pixClk (matching its read port, which
-  // must run at the real pixel rate) when separatePixelClock is set, and it's
-  // the low-bandwidth fill side that crosses instead: one write roughly every
-  // SDRAM round trip (~1-2us at sysClock<=25MHz) vs pixClk>=125MHz, so an
-  // ordinary toggle-bit synchronizer is enough -- fillIdx/wrData are latched
-  // together with the toggle and stay stable far longer than the few pixClk
-  // cycles the synchronizer takes to see it.
+  // Yosys never infers DP16KD for a memory with two port clocks (it falls back to LUT RAM),
+  // so frameBuf stays on the read clock and the slow fill side crosses with a toggle
+  // synchronizer; the latched index and data stay stable far longer than it takes.
   if (separatePixelClock) {
     val wrIdxLatch  = RegEnable(fillIdx, wrEn)
     val wrDataLatch = RegEnable(wrData, wrEn)
@@ -184,7 +117,6 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
     when(wrEn) { frameBuf.write(fillIdx, wrData) }
   }
 
-  // sim observability: snapshot the value the fill wrote to frameBuf index 0.
   val dbgFill0Reg = RegInit(0.U(24.W))
   when(wrEn && fillIdx === 0.U) {
     dbgFill0Reg := (if (rgb565Store) { val (r, g, b) = rgb565ToRgb8(wrData); Cat(r, g, b) } else wrData)
@@ -196,15 +128,12 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
       is(sReq) { fstate := sWait }
       is(sWait) {
         when(io.gpuReady) {
-          // gpuData low 16 bits = this pixel's RGB565 halfword.
           val (r8, g8, b8) = rgb565ToRgb8(io.gpuData(15, 0))
           wrEn    := true.B
           wrData  := (if (rgb565Store) io.gpuData(15, 0) else Cat(r8, g8, b8))
           val wrap = fillIdx === (numPixels - 1).U
           fillIdx := Mux(wrap, 0.U, fillIdx + 1.U)
           fstate  := sReq
-          // Latch the new front-buffer base at the wrap boundary so it is
-          // stable for all of the next loop (sReq through sWait).
           if (doubleBuffer) when(wrap) {
             baseAddr   := Mux(io.frontBuf, io.fbBase1, io.fbBase)
             baseLoaded := true.B
@@ -214,10 +143,7 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
     }
   }
 
-  // ── Display: read frame BRAM (1-cycle latency), magnified 2× ──
-  // The BRAM read returns data one cycle after the address is presented, so
-  // the gating signal is registered to match — this delays the whole overlay
-  // by a single pixel, which is imperceptible.
+  // The BRAM read takes one cycle, so the gating is registered to match.
   private def display(): Unit = {
     val inFbH = io.hCount >= startX && io.hCount < endX
     val inFbV = io.vCount >= startY && io.vCount < endY
@@ -227,22 +153,10 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
     val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
     val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
-    // Read uses the enclosing clock: io.pixClk when separatePixelClock (this
-    // method then runs inside withClockAndReset(io.pixClk.get, ...) below),
-    // matching the write side above so frameBuf is single-clocked either way
-    // -- see the write-side CDC comment for why that single-clock constraint
-    // is load-bearing for BRAM inference, not just a simplification.
+    // frameBuf must stay single-clocked for BRAM inference, see the write-side CDC.
     val pixel = frameBuf.read(dispIdx)
-    // Defensive guard against an ECP5 BRAM read-during-write collision: when the
-    // fill FSM writes the same index the display port is reading in the same cycle,
-    // the BRAM read output is implementation-defined.  Forward the write data (the
-    // correct new value for that pixel) instead.  NOTE: this was NOT the cause of
-    // the historical green corner pixel — that was a stale scanout fbBase (fixed by
-    // programming fbBase/fbBase1 from firmware) — but the guard is cheap and correct
-    // insurance against a genuine same-address read/write hazard on coloured pixels.
-    // With a separate pixel clock the two ports are asynchronous and there is no
-    // same cycle to forward in: a collision shows one pixel's old value for one
-    // frame.
+    // Forward the write data on a same-cycle read/write collision, whose BRAM output is
+    // undefined. With a separate pixel clock there is no same cycle, at worst one stale pixel.
     val pixelSafe = if (separatePixelClock) pixel else {
       val collisionD = RegNext(wrEn && (fillIdx === dispIdx), false.B)
       Mux(collisionD, RegNext(wrData), pixel)
@@ -253,29 +167,9 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
       if (rgb565Store) rgb565ToRgb8(pixelSafe) else (pixelSafe(23, 16), pixelSafe(15, 8), pixelSafe(7, 0))
 
     if (separatePixelClock) {
-      // The DP16KD's own registered read output has a real clk-to-q of
-      // ~5.8 ns on this device (measured via nextpnr's critical path
-      // report), and this memory splits across two DP16KD blocks for its
-      // 24-bit width, so Yosys inserts a small LUT mux tree to stitch their
-      // outputs back together. Feeding that straight into the TMDS
-      // encoder's first pipeline register (no register of our own in
-      // between) cannot close timing at the real 125 MHz hdmiClock rate --
-      // measured critical path ~13.5 ns against an 8 ns budget, confirmed
-      // on real hardware as a black screen.
-      //
-      // A single extra `RegNext` of the whole read barely moved Fmax
-      // (74.01 -> 74.64 MHz): it's exactly the "plain passthrough of a
-      // memory read" pattern Yosys's memory_libmap absorbs back into the
-      // BRAM's own output stage for free, so the combine-mux tree stays
-      // downstream of it either way, and one split point isn't enough to
-      // fit even half that tree in one 8 ns hop regardless. VGA position
-      // (dispIdx) is stable for 5 hdmiClock cycles at a time (it only
-      // advances on hdmiTick25), so there's plenty of slack for a real
-      // multi-stage pipeline -- each hop only needs to individually fit in
-      // 8 ns, not the whole chain in one. Three stages fixed it (measured
-      // Fmax 94.84 MHz, real hardware confirmed correct), each gated on a
-      // DIFFERENT enable (show, showD, showD2) so none of them matches the
-      // absorbable "plain passthrough" pattern.
+      // The DP16KD output plus its width-stitching mux cannot reach the TMDS encoder in one
+      // 8 ns hop at 125 MHz. dispIdx is stable for 5 cycles, so pipeline three stages, each
+      // on a different enable so Yosys cannot absorb them into the BRAM output register.
       val showD2 = RegNext(showD, false.B)
       val showD3 = RegNext(showD2, false.B)
       val showD4 = RegNext(showD3, false.B)

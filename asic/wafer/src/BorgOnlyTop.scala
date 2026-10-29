@@ -8,9 +8,8 @@ import chisel3.util._
 import borg.BorgConfig
 import borg.link.{BorgLinkSlave, LinkParams}
 
-/** Borg-only ASIC top: [[borg.Borg]] behind [[borg.link.BorgLinkSlave]], with no
-  * Hutt and no QSPI.  Flat pin layout, one bit per wafer.space bidir/input pad,
-  * matching the wafer.space Borg-only tapeout plan's lane map exactly:
+/** Borg-only ASIC core: [[borg.Borg]] behind [[borg.link.BorgLinkSlave]], no CPU.
+  * The 1x0.5 lane map (1x1 differs, see BorgOnlyTop):
   *
   * {{{
   *   bidir[0:15]   dn_d[15:0]   in
@@ -30,21 +29,8 @@ import borg.link.{BorgLinkSlave, LinkParams}
   *   input_in[3]   link_fast    in
   * }}}
   *
-  * This is a `RawModule`: no `SoCLogic`, since that trait is entirely CPU glue and
-  * there is no CPU here.  `BorgOnlyCore` holds the clocked logic so cocotb/Chisel
-  * tests can instantiate it directly without the pin-flattening boilerplate.
-  *
-  * '''`link_narrow` is a real runtime switch.''' Built with
-  * [[borg.link.LinkParams.narrowCapable]], so strapping input_in[2] high makes
-  * the link drive d[7:0] only, tie d[15:8] low, take two beats per flit and
-  * compute parity over the live lanes -- see LinkParams' doc. This is the
-  * post-silicon recovery path: pins cannot be re-synthesized after tapeout, so
-  * an elaboration-time `w = 8` would only have been a different build, not
-  * something the fabricated part could be talked into.
-  *
-  * @param cfg Borg configuration.  `BorgConfig.Wafer`: Default's feature set
-  *            (FP32, 4x MSAA, depth flush) at the slot's sizing.
-  * @param p   Link configuration.  Default width (16) matches the lane map above.
+  * link_narrow is a runtime switch (LinkParams.narrowCapable), the post-silicon
+  * recovery path if the upper lanes fail.
   */
 class BorgOnlyCoreIO(val p: LinkParams) extends Bundle {
   val dnD    = Input(UInt(p.w.W))
@@ -62,7 +48,7 @@ class BorgOnlyCoreIO(val p: LinkParams) extends Bundle {
   val dbgSel     = Input(UInt(2.W))
   val dbgO       = Output(UInt(6.W))
   val linkFast   = Input(Bool())
-  val linkNarrow = Input(Bool()) // reserved, see class doc
+  val linkNarrow = Input(Bool())
 }
 
 class BorgOnlyCore(val cfg: BorgConfig, val p: LinkParams) extends Module {
@@ -89,17 +75,8 @@ class BorgOnlyCore(val cfg: BorgConfig, val p: LinkParams) extends Module {
   io.linkUp  := slave.io.linkUp
   io.linkErr := slave.io.linkErr
 
-  // -- Debug bus -------------------------------------------------------------
-  // If the part comes back and link_up never rises, the only other evidence on
-  // the package is link_err. That is two bits for a fault with many causes --
-  // clock not arriving, reset stuck, a lane open in the padring, parity
-  // polarity, the phase never locking -- which all present identically. These
-  // four views are chosen to separate exactly those, and cost 6 output pads
-  // that are otherwise tied to zero.
-  //
-  // The heartbeat is deliberately first and free-running: if it is static, the
-  // core clock is not reaching the die and nothing else on this bus means
-  // anything.
+  // Debug views to tell apart the bring-up faults that all look like
+  // link_up never rising. A static heartbeat means no core clock.
   val heartbeat = RegInit(0.U(6.W))
   heartbeat := heartbeat + 1.U
 
@@ -120,12 +97,8 @@ class BorgOnlyCore(val cfg: BorgConfig, val p: LinkParams) extends Module {
   io.dbgO := dbgViews(io.dbgSel)
 }
 
-/** Which wafer.space slot's padring this build targets.
-  *
-  * The two differ in more than size: 1x1 trades six bidir pads for eight extra
-  * input-only ones, so the lane map is not a truncation of the 1x0.5 map -- the
-  * input-direction link lanes have to move onto the input-only pads to fit.
-  */
+/** The wafer.space slot's padring. 1x1 trades six bidir pads for eight
+  * input-only ones, so its lane map moves input lanes onto those. */
 sealed trait WaferSlot {
   def numBidir: Int
   def numInput: Int
@@ -138,22 +111,9 @@ case object Slot1x1 extends WaferSlot {
   val numBidir = 40; val numInput = 12; val name = "1x1"
 }
 
-/** Pin-flattening `RawModule` wrapper: one bit per wafer.space pad, matching
-  * [[chip_core]]'s `bidir_in`/`bidir_out`/`bidir_oe`/`input_in` convention exactly
-  * (mirrors `soc.QspiSocTop`'s flattening of Hutt's SoC ports for its pad
-  * interface).
-  *
-  * The design needs 27 output-direction and 23 input-direction lanes. Outputs
-  * can only live on bidir pads; inputs can live on either. That fits both slots,
-  * but differently:
-  *
-  *   - '''1x0.5''' (46 bidir + 4 input): every link lane on bidir, the 4 input
-  *     pads carrying only the static straps. Fills the budget exactly, no spare.
-  *   - '''1x1''' (40 bidir + 12 input): 27 outputs + 11 inputs on bidir (38 of
-  *     40, 2 spare), with the straps and dn_d[7:0] moved to the 12 input-only
-  *     pads. This is what keeps the link at the full w=16 -- the alternative,
-  *     running `narrowCapable` w=8 to free 16 pads, would fit trivially but
-  *     halve link bandwidth.
+/** One bit per wafer.space pad, in chip_core's bidir_in/out/oe and input_in
+  * convention. 27 output and 23 input lanes: 1x0.5 puts every link lane on
+  * bidir; 1x1 moves the straps and dn_d[7:0] to the input-only pads to keep w=16.
   */
 class BorgOnlyTop(
     val cfg: BorgConfig,
@@ -162,13 +122,7 @@ class BorgOnlyTop(
 ) extends RawModule {
   require(p.w == 16, "BorgOnlyTop's lane map assumes w=16 (dn_d/up_d each 16 lanes)")
 
-  // Distinct Verilog module name per slot, so a slot/RTL mismatch is a hard
-  // "module not found" instead of a silent miswire.  Without this, building
-  // chip_core for one slot against the other slot's emission just resizes the
-  // ports -- yosys reports only "Warning: Resizing cell port
-  // chip_core.i_borg.bidirIn from 46 bits to 40 bits" and builds a wrong chip.
-  // 1x0.5 keeps the bare name so the signed-off flow and the pad-level cocotb
-  // test are untouched.
+  // A name per slot: on a slot mismatch yosys only warns and resizes the ports.
   override def desiredName: String = slot match {
     case Slot1x0p5 => "BorgOnlyTop"
     case Slot1x1   => "BorgOnlyTop1x1"
@@ -181,18 +135,8 @@ class BorgOnlyTop(
   val bidirOe  = IO(Output(UInt(slot.numBidir.W)))
   val inputIn  = IO(Input(UInt(slot.numInput.W)))
 
-  // Two-flop reset synchronizer. rst_n is a board-level pin with no timing
-  // relationship to clk, but it used to drive the core's synchronous reset
-  // directly -- straight into the reset mux of every resettable flop. A
-  // release near a clock edge could then take some flops out of reset a
-  // cycle before others, or leave one metastable, and STA flagged it as a
-  // pad-to-flop hold violation at the ss corners, where the ~11 ns clock
-  // insertion delay exceeds the pad's data path (run linkfix-0923-1829: the
-  // only hold violator left). Now the pin reaches only rstSync's first flop
-  // (a false path in chip_top.sdc, as for any synchronizer input) and the
-  // core's reset launches from a clocked flop like any other timed path.
-  // Assertion is also synchronous, which is fine: the board clock runs
-  // throughout, and reset only has to be held for two cycles.
+  // rst_n is asynchronous to clk; only the first flop sees it (a false path in
+  // chip_top.sdc), so the core's reset is a timed path.
   val rstSync = withClockAndReset(clk, false.B) { ShiftRegister(!rst_n, 2) }
   rstSync.suggestName("rstSync")
 
@@ -200,18 +144,14 @@ class BorgOnlyTop(
 
   val dbgO = core.io.dbgO
 
-  // Built per-bit rather than via Cat: the vector mixes in/out lanes at
-  // non-contiguous positions, and bidirOe (below) is what actually decides
-  // which of these bits reach a pad -- this only needs to get the *output*
-  // lanes right.
+  // bidirOe decides which of these bits reach a pad.
   val outVec = Wire(Vec(slot.numBidir, Bool()))
   val oeVec  = Wire(Vec(slot.numBidir, Bool()))
   for (i <- 0 until slot.numBidir) { outVec(i) := false.B; oeVec(i) := false.B }
 
   slot match {
     case Slot1x0p5 =>
-      // Unchanged from the map validated by the pad-level cocotb test
-      // (asic/wafer.space/cocotb/chip_link_tb.py, test 8) -- do not renumber.
+      // Validated by the pad-level cocotb test (chip_link_tb.py); do not renumber.
       core.io.dnD    := bidirIn(15, 0)
       core.io.dnV    := bidirIn(16)
       core.io.dnP    := bidirIn(17)
@@ -225,7 +165,6 @@ class BorgOnlyTop(
       for (i <- 0 until 16) outVec(19 + i) := core.io.upD(i)
       outVec(35) := core.io.upV
       outVec(36) := core.io.upP
-      // bidir[37] = up_cred, an input lane -- no drive
       outVec(38) := core.io.linkUp
       outVec(39) := core.io.linkErr
       for (i <- 0 until 6) outVec(40 + i) := dbgO(i)
@@ -252,7 +191,6 @@ class BorgOnlyTop(
       for (i <- 0 until 16) outVec(11 + i) := core.io.upD(i)
       outVec(27) := core.io.upV
       outVec(28) := core.io.upP
-      // bidir[29] = up_cred, an input lane -- no drive
       outVec(30) := core.io.linkUp
       outVec(31) := core.io.linkErr
       for (i <- 0 until 6) outVec(32 + i) := dbgO(i)
@@ -262,7 +200,6 @@ class BorgOnlyTop(
       oeVec(30) := true.B
       oeVec(31) := true.B
       for (i <- 32 until 38) oeVec(i) := true.B
-      // bidir[38..39] spare: left as inputs, undriven
   }
 
   bidirOut := outVec.asUInt
