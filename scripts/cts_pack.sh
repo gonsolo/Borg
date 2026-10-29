@@ -33,6 +33,7 @@ sed 's|"library_path": ".*"|"library_path": "./libvulkan_borg.so"|' "$VK/vulkan/
   > "$P/mesa/build-borg/src/borg/vulkan/borg_devenv_icd.x86_64.json"
 cp "$VK/drm/libborg_drm_shim.so" "$P/mesa/build-borg/src/borg/drm/"
 cp "$REPO/simulation/direct/direct_sim" "$P/simulation/direct/"
+cp "$REPO/simulation/golden/borgvk_capture.bin" "$P/simulation/direct/bench_capture.bin"
 cp "$REPO/scripts/cts_one.sh" "$REPO/scripts/cts_par.sh" "$REPO/scripts/cts_pack_shard.sh" "$P/scripts/"
 
 # The Nix store paths the binaries link or load (the Vulkan loader is opened at run time).
