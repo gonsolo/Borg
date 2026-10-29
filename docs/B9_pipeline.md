@@ -247,8 +247,20 @@ LUTs, FFs, block RAM and Fmax.
 3. Wafer: overlapped operand reads. Superseded by three read ports on Wafer.
 4. Next, against the drain share: branch redirect at X1; pipelined LOD multiplies in the sampler
    for mipmapped textures (72 cycles to about 30).
-5. Step 2: block-RAM register files; `quadSlots` with non-blocking units and the implicit wait
-   after each request, 2 slots then 4; `WAITCNT` and borgc placing it; measure each.
+5. Step 2, in stages (vkcube before it, 2026-10-29: 1,648,670 cycles per frame, the shader 1.38 M
+   of it: 0.29 M issuing, 0.60 M waiting on a register, 0.39 M on a unit; expected about 0.6 to
+   0.75 M after, with the sampler's own busy time the new limit):
+   a. The quad's state as a slot of the core, `quadSlots = 1`: PC, exec mask and stack, barrier
+      state, the per-quad inputs latched at the trigger, the register file addressed by slot.
+      Cycle-identical.
+   b. Non-blocking TEX, memory, FATTR, SOUT and FEXP2/FLOG2: results written back when the
+      pipeline's write port is free, the slot's counters, the implicit wait.
+   c. The dispatcher keeps a quad per slot through its phases (edge test, destination read,
+      shading, depth test and tile write), starts a quad into a free slot, holds back one that
+      overlaps an earlier primitive's quad in flight, and takes each slot's outputs tagged.
+      Vertex, setup and compute stay on slot 0.
+   d. `quadSlots = 2`, then 4 on ULX3S: cycles, LUTs, block RAM, Fmax.
+   e. `WAITCNT` and borgc placing it.
 6. Forwarding, early write-back of short operations, non-blocking memory within a quad: each
    only if the counters show its stall dominates.
 
