@@ -8,8 +8,8 @@ import chisel3.simulator.SharedSim._
 import utest._
 import BorgCoreTestHelpers._
 
-/** The pipeline (docs/B9_pipeline.md, step 1): an instruction issues every cycle unless it
-  * reads a register an instruction in flight writes. Each test checks results and cycles. */
+/** The pipeline (docs/B9_pipeline.md, steps 1 and 2): an instruction issues every cycle unless it
+  * reads a register an instruction in flight writes, or its slot waits for a unit. */
 object BorgPipelineTests extends TestSuite {
 
   private val piped   = BorgConfig.Test
@@ -113,6 +113,21 @@ object BorgPipelineTests extends TestSuite {
       val r = withMem(piped, prog, Seq(2, 3, 5), mem)
       println(s"  LW, dependent IADD, SW: $r, ${mem.get(0x104)}")
       utest.assert(r == Seq(BigInt(21), BigInt(42), BigInt(1)) && mem.get(0x104) == Some(BigInt(42)))
+    }
+
+    utest.test("unit_result_waits_for_write_back") {
+      // FEXP2 issues right behind IADDs still in flight; its result needs a free write-back cycle.
+      val prog = Seq(Instructions.IADD(1, 2, 3), Instructions.IADD(1, 2, 4), Instructions.IADD(1, 2, 5),
+                     Opcodes.FEXP2(7, 9), Instructions.IADD(1, 2, 6))
+      val (_, r) = check("IADDs, FEXP2, IADD", ints :+ (9 -> floatToBits(3.0f)), prog, 3 to 7)
+      utest.assert(r == Seq.fill(4)(BigInt(8)) :+ floatToBits(8.0f))
+    }
+
+    utest.test("store_then_load_of_the_same_word") {
+      val prog = Seq(Opcodes.ADDI(1, 0, 0x100), Opcodes.ADDI(3, 0, 77), Opcodes.SW(0, 1, 3), Opcodes.LW(4, 1, 0))
+      val mem = scala.collection.mutable.Map(BigInt(0x100) -> BigInt(5))
+      val r = withMem(piped, prog, Seq(4), mem)
+      utest.assert(r == Seq(BigInt(77)) && mem.get(0x100) == Some(BigInt(77)))
     }
 
     utest.test("expush_leaves_the_instruction_before_it_unmasked") {
