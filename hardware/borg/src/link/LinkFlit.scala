@@ -82,7 +82,8 @@ object LinkFlit {
   def flitsUp(h: LinkHeader): UInt =
     Mux(
       h.chan === LinkChan.V,
-      // V.A: header and two address flits, then one flit per burst word on writes.
+      // V.A: header and two address flits, then one flit per burst word on writes: a write word
+      // is a halfword (GpuMemIO).
       Mux(
         h.opcode === TLOpcode.Get,
         3.U,

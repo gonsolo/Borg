@@ -6,7 +6,8 @@ package borg
 import chisel3._
 
 /** The GPU's memory port, master side: hold [[req]] until [[ready]] pulses with the read [[data]]
-  * or the write's completion.
+  * or the write's completion. A write word is one halfword, wdata(15, 0): every memory behind the
+  * port stores halfwords, so Borg sends a 32-bit word as a two-beat burst, low half first.
   */
 class GpuMemIO extends Bundle {
   val addr  = Output(UInt(GpuMemIO.AddrBits.W))  // byte address
@@ -14,7 +15,7 @@ class GpuMemIO extends Bundle {
   val data  = Input(UInt(32.W))
   val ready = Input(Bool())
   val wr    = Output(Bool())
-  val wdata = Output(UInt(32.W)) // the current burst beat, low 16 bits
+  val wdata = Output(UInt(32.W)) // the current burst beat: a halfword in the low 16 bits
   // A burst of `wlen` words advances on each `waccept`; `ready` pulses once at its end.
   val wlen    = Output(UInt(7.W))   // burst word count (1..64)
   val waccept = Input(Bool())       // controller pulled the current word; present next
