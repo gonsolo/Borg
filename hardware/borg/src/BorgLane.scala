@@ -220,7 +220,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
     // A branch's rd field is part of its target. The exec mask gates every write, the CSR writes
     // too, except EXANY's: a lane already out of a divergent loop must still see the others finish.
-    val wbWrites = !flagsW.branch && !flagsW.execOp && !flagsW.rvNoWrite
+    val wbWrites = !flagsW.branch && !flagsW.execOp && !flagsW.rvNoWrite && !flagsW.unit
     val pipe_write = running && at(1) && wbWrites && (flagsW.exany || activeW)
     val w_en = mmio_write || pipe_write
     val w_addr = Mux(pipe_write, rdW, addr(0.U(cfg.slotBits.W), ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)))

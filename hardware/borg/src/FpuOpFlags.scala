@@ -55,4 +55,6 @@ class FpuOpFlags extends Bundle {
   val negC    = Bool()     // FSUB, FMSUB, FNMADD: the FMA's addend negated
   val negProd = Bool()     // FNMADD, FNMSUB: the FMA's product negated
   val csr     = UInt(12.W)
+  val explog  = Bool()     // FEXP2, FLOG2
+  val unit    = Bool()     // a non-blocking unit runs it: loads, stores, SOUT, FATTR, TEX*, FEXP2/FLOG2
 }

@@ -162,10 +162,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val fetchedInstruction = fetch.io.word
   val fetchReady = fetch.io.ready
 
-  // After a unit finishes, IMEM still holds its word for a cycle: nothing issues then.
+  // After ZTEST finishes, IMEM still holds its word for a cycle: nothing issues then.
   val resumeDelay = RegInit(false.B)
   when(resumeDelay) { resumeDelay := false.B }
-  fetch.io.missOk := running && !busy && !resumeDelay
+  // Unit instructions in flight per slot; a slot issues only with none (the implicit wait).
+  val pending = RegInit(VecInit(Seq.fill(cfg.quadSlots)(0.U(2.W))))
+  private val unitDone = scala.collection.mutable.ArrayBuffer[(Bool, UInt)]()   // each unit's finish and slot
+  // The memory port has no lock: no instruction-cache fill while a unit may use it.
+  fetch.io.missOk := running && !busy && !resumeDelay && !pending.map(_ =/= 0.U).reduce(_ || _)
 
   val (regs, opFlags) = Decode(fetchedInstruction, cfg)
   // A BARRIER with every lane masked is one the workgroup skipped (barriers are in uniform control
@@ -173,11 +177,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val barrierStop = opFlags.barrier && exec.io.mask(issueSlot) =/= 0.U
   val next = RvInt(fetchedInstruction)
   val issued = Wire(new StageInfo)
-  issued.writes := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite
+  issued.writes := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite && !opFlags.unit
   issued.rd     := regs.rd
   issued.branch := opFlags.branch
-  issued.drain  := opFlags.load || opFlags.store || opFlags.sout || opFlags.fattr || opFlags.tex ||
-    opFlags.texa || opFlags.texs || opFlags.ztest || next.fexp2 || next.flog2
+  issued.drain  := opFlags.ztest
   val canIssue = Wire(Bool())
   val decoding = running && canIssue
   val issuing = decoding && !resumeDelay && fetchReady && fetchedInstruction =/= 0.U
@@ -196,15 +199,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       reads.map { case (used, rs) => used && rs === i.rd }.reduce(_ || _))
     val stops = fetchedInstruction === 0.U || opFlags.barrier || issued.drain
     val behindBranch = any(redirect to cfg.cBusyLoad)(_.branch)
-    canIssue := !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain) &&
+    val unitWait = pending(issueSlot) =/= 0.U
+    canIssue := !hazard && !behindBranch && !unitWait && !any(1 to cfg.cBusyLoad)(_.drain) &&
       (!stops || !stages(cfg.cBusyLoad - 1, 1).orR)
     val waiting = running && !resumeDelay && fetchReady && !canIssue
     io.issueStats.waitReg    := waiting && hazard
     io.issueStats.waitBranch := waiting && !hazard && behindBranch
     io.issueStats.waitDrain  := waiting && !hazard && !behindBranch
-    io.issueStats.waitEmpty  := waiting && !hazard && !behindBranch && !any(1 to cfg.cBusyLoad)(_.drain)
-    io.issueStats.waitUnit   := waiting && !hazard && !behindBranch && holdPipe
-    io.issueStats.drains     := issuing && issued.drain
+    io.issueStats.waitEmpty  := waiting && !hazard && !behindBranch && !unitWait && !any(1 to cfg.cBusyLoad)(_.drain)
+    io.issueStats.waitUnit   := waiting && !hazard && !behindBranch && (unitWait || holdPipe)
+    io.issueStats.drains     := issuing && (issued.drain || opFlags.unit)
     val step = issuing && !opFlags.branch && !issued.drain && !barrierStop
     redirecting := at(redirect) && info(redirect).branch
     nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
@@ -262,28 +266,35 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   lanes.map(_.io.memWrite).foreach { mw => mw.en := false.B; mw.addr := 0.U; mw.data := 0.U }
 
   private val zTest = Module(new ZTestUnit(cfg))
-  attach(zTest.io)
+  attach(zTest.io, _.ztest, blocking = true)
   io.zTestReq := zTest.io.req
   zTest.io.done := io.zTestDone
 
   private val memUnit = Module(new MemUnit(cfg))
-  attach(memUnit.io)
+  attach(memUnit.io, f => f.load || f.store || f.sout || f.fattr)
   memUnit.io.record     := io.record
   memUnit.io.laneHelper := io.laneHelper
   memUnit.io.seqBusy    := io.seqBusy
 
   private val texUnit = Module(new TexUnit(cfg))
-  attach(texUnit.io)
+  attach(texUnit.io, f => f.tex || f.texa || f.texs)
   texUnit.io.descWritten := io.descWritten
 
-  attach(Module(new ExpLogUnit(cfg)).io)
+  attach(Module(new ExpLogUnit(cfg)).io, _.explog)
+  locally {
+    val issue = Mux(issuing && opFlags.unit, UIntToOH(issueSlot, cfg.quadSlots), 0.U)
+    pending.zipWithIndex.foreach { case (p, s) =>
+      p := (p + issue(s).asUInt - PopCount(unitDone.map { case (done, sl) => done && sl === s.U }.toSeq))(1, 0)
+    }
+  }
 
   // The memory port: the sampler's while it runs, the instruction cache's while it fills, else
   // the memory unit's. They never overlap: each runs only while the pipeline waits for it.
   locally {
     val users = Seq(texUnit.io.busy -> texUnit.io.mem, fetch.io.filling -> fetch.io.mem, true.B -> memUnit.io.mem)
-    users.foreach { case (_, m) => m.data := io.gpuMem.data; m.ready := io.gpuMem.ready; m.waccept := io.gpuMem.waccept }
-    def pick[T <: Data](f: GpuMemIO => T): T = PriorityMux(users.map(_._1), users.map(u => f(u._2)))
+    val grant = PriorityEncoderOH(users.map(_._1))
+    users.zip(grant).foreach { case ((_, m), g) => m.data := io.gpuMem.data; m.ready := io.gpuMem.ready && g; m.waccept := io.gpuMem.waccept && g }
+    def pick[T <: Data](f: GpuMemIO => T): T = Mux1H(grant, users.map(u => f(u._2)))
     io.gpuMem.req   := pick(_.req)
     io.gpuMem.addr  := pick(_.addr)
     io.gpuMem.wr    := pick(_.wr)
@@ -418,23 +429,27 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     (Mux(RegNext(opEn, false.B), data, 0.U), funct3)
   }
 
-  /** Connects a multi-cycle unit: it holds the pipeline while it works; when it finishes, the
-    * stages are squashed and the PC steps past its instruction. */
-  private def attach(u: CoreUnitIO): Unit = {
-    u.issue.valid := issuing
+  /** Connects a multi-cycle unit, which takes the instructions `mine` picks. A blocking one holds
+    * the pipeline while it works; when it finishes, the stages are squashed and the PC steps past
+    * its instruction. The others run beside the pipeline and count in their slot's `pending`. */
+  private def attach(u: CoreUnitIO, mine: FpuOpFlags => Bool, blocking: Boolean = false): Unit = {
+    val issue = issuing && mine(opFlags)
+    u.issue.valid := issue
     u.issue.bits.word := fetchedInstruction
     u.issue.bits.regs := regs
-    u.atOps := at(cfg.cOperands)
+    u.atOps := at(cfg.cOperands) && mine(flagsX)
     u.mask  := execMask
     u.wbReady := !wbBusy
     u.a := VecInit(lanes.map(_.io.recARaw)); u.b := VecInit(lanes.map(_.io.recBRaw)); u.c := VecInit(lanes.map(_.io.recCRaw))
-    when(u.hold) { holdPipe := true.B }
-    when(u.finish) {
-      squashPipe := true.B
-      programCounter := programCounter + 1.U
-      resumeDelay := true.B
-    }
-    val unitSlot = RegEnable(issueSlot, issuing)
+    val unitSlot = RegEnable(issueSlot, issue)
+    if (blocking) {
+      when(u.hold) { holdPipe := true.B }
+      when(u.finish) {
+        squashPipe := true.B
+        programCounter := programCounter + 1.U
+        resumeDelay := true.B
+      }
+    } else unitDone += (u.finish -> unitSlot)
     lanes.zip(u.wb).foreach { case (l, w) =>
       when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := RegFileCopy.addr(cfg, unitSlot, w.addr); l.io.memWrite.data := w.data }
     }
