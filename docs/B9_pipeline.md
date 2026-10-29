@@ -1,6 +1,6 @@
 # Pipeline
 
-Status: step 1 built and on main (2026-10-27), on every target; step 2 is the plan. It builds on
+Status: step 1 built and on main (2026-10-27), on every target; step 2 (GCN-style, 2026-10-29) is the plan. It builds on
 ISA v2 (B8, on main since 2026-10-25). A pipeline that writes several instructions' results in
 flight cannot also watch register numbers: B8 removed every such role except the dispatcher's
 snoop of the raster ROM's registers, which went first (Order, step 0, 2026-10-25).
@@ -131,25 +131,34 @@ ULX3S (vkcube SoC): step 1 costs +1,174 yosys LUT4 against the +800 to +1,500 es
 the growth flops (+511 per lane); nextpnr 73,489 LUTs (87%) at 19.70 MHz. With the bypass 73,243
 LUTs at 19.57 MHz; the critical path starts at the uniform RAM.
 
-## Step 2: several quads in flight (ULX3S only)
+## Step 2: several quads in flight
 
 With one quad, the interlocks waste every cycle a dependent instruction or a TEX waits. A second
 source of independent instructions hides that: several quads share the pipeline, and each cycle
-D issues from a quad whose next instruction is ready (fine-grained multithreading, as every GPU).
+D issues from another quad (fine-grained multithreading, as every GPU). The design follows AMD
+GCN rather than a scoreboard machine: a fixed rotation over the quads hides the pipeline's
+depth, and the compiler, not the hardware, tracks the long-latency units.
 
 | Item | Design |
 |---|---|
-| Quads | 4, then 8 if it pays |
-| Per quad | PC, exec-mask stack, scoreboard, CSR state (system values, outputs), a slot in the register file |
-| Register file | block RAM: 4 lanes × 32 registers × 32 bits per quad = 4 Kbit. A DP16KD in 512 × 36 mode holds 16 quads' worth of one lane and one read port; three read ports and four lanes take 12 blocks for up to 16 quads, under one block per quad at 16 (`23 of 208` in use today). The LUTRAM copies of step 1 go. |
-| Selection | round robin over ready quads; a quad waiting for memory or TEX is not ready |
-| Memory and TEX | non-blocking for the pipeline: the requesting quad waits, the others run. The memory port still serves one request at a time; the texture unit one quad at a time. |
-| Fragment order | Two quads covering the same pixels must write the tile in primitive order (blending, depth). The dispatcher does not issue a quad whose 2 × 2 position matches a quad in flight from an earlier primitive. |
+| Slots | `quadSlots` hardware quads: 4 on ULX3S, 1 on Wafer (see below), 8 later if it pays |
+| Per slot | PC, exec-mask stack, CSR state (system values, outputs), a slot in the register file, two wait counters |
+| Issue | round robin: the cycle after slot k issues, slot k + 1 is asked first. A slot without a quad, or waiting on a counter, a drain or `BARRIER`, gives its turn to the next. |
+| Register hazards | The step-1 check against the stages in flight stays, compared within a slot. With four slots in rotation an instruction's successor in the same quad comes 4 cycles later, the bypass needs 5: a dependent pair waits one cycle, and only when the other slots are idle does it wait the full 5. No scoreboard. |
+| Register file | block RAM: 4 lanes × 32 registers × 32 bits per quad = 4 Kbit. A DP16KD in 512 × 36 mode holds 16 quads' worth of one lane and one read port; three read ports and four lanes take 12 blocks for up to 16 quads (`23 of 208` in use today). The LUTRAM copies of step 1 go. |
+| TEX, memory, FATTR, SOUT | non-blocking for the pipeline. Issue increments the slot's counter (one for TEX, one for memory and attribute traffic); the unit's result is written to the slot's registers when it arrives, through the write port in a cycle W leaves free, and decrements the counter. |
+| Waits | `WAITCNT tex, mem` (new, custom-2) holds the slot until its counters are at most the given values, as GCN's `s_waitcnt`. borgc places it before the first read of a result, after the independent work it can schedule between. Before borgc places them, a slot waits right after each request (the first build), which is correct and still lets the other slots run. |
+| Fragment order | Two quads covering the same pixels must write the tile in primitive order (blending, depth). The dispatcher does not start a quad whose 2 × 2 position matches a quad in flight from an earlier primitive. |
 | Compute | quads of one workgroup run interleaved; `BARRIER` waits until every quad of the group arrives (the compute sequencer's segments become a counter) |
 | Vertex | invocations are independent |
 
-Expected: close to one instruction per cycle when four quads have work, and TEX and memory
-latency hidden instead of stalled.
+Expected: close to one instruction per cycle when four quads have work, TEX and memory latency
+hidden behind the other quads instead of stalled. One quad alone runs as fast as in step 1: a
+slot without a quad gives its turn away.
+
+**Wafer.** Its register files are flops, 124,000 µm² per quad (see below), so four slots are
+not affordable; `quadSlots = 1` is step 1 exactly. SRAM macros for the register files would
+change that; to be measured before Wafer gets more slots.
 
 ## Wafer
 
@@ -183,8 +192,8 @@ register files.
 | Step 1: two more LUTRAM register-file copies per lane | +250 to +500 (128 DPR16X4) |
 | Step 1: scoreboard, issue, write-back slots, padding | +250 to +400 |
 | **Step 1 total** | **+800 to +1,500** |
-| Step 2: per-quad PC, exec stack, scoreboard, CSR state (4 quads) | +500 to +800 |
-| Step 2: quad selection, fragment ordering check | +500 to +1,000 |
+| Step 2: per-slot PC, exec stack, CSR state, wait counters (4 slots) | +500 to +800 |
+| Step 2: round-robin issue, result write-back slots, fragment ordering check | +500 to +1,000 |
 | Step 2: register files to block RAM | −250 to −500 LUTs (the step-1 copies), +12 DP16KD |
 | **Step 2 total** | **+750 to +1,300**, 12 DP16KD |
 
@@ -238,7 +247,8 @@ LUTs, FFs, block RAM and Fmax.
 3. Wafer: overlapped operand reads. Superseded by three read ports on Wafer.
 4. Next, against the drain share: branch redirect at X1; pipelined LOD multiplies in the sampler
    for mipmapped textures (72 cycles to about 30).
-5. Step 2 on ULX3S: block-RAM register files, then 2 quads, then 4.
+5. Step 2: block-RAM register files; `quadSlots` with non-blocking units and the implicit wait
+   after each request, 2 slots then 4; `WAITCNT` and borgc placing it; measure each.
 6. Forwarding, early write-back of short operations, non-blocking memory within a quad: each
    only if the counters show its stall dominates.
 
