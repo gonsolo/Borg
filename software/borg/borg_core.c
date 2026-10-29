@@ -34,7 +34,7 @@ uint32_t borg_cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;   // cull back face
 // 0xB4 packs the pipeline's samples above the cull bits: [11:8] mask, [12] alpha to coverage, [31] four samples.
 static uint32_t borg_sample_cfg(void)
 {
-  return (borg_cull_cfg >> 31) ? ((borg_cull_cfg >> 8) & 0x1F) : (0xF | (1u << 6));
+  return ((borg_cull_cfg >> 31) ? ((borg_cull_cfg >> 8) & 0x1F) : (0xF | (1u << 6))) | (((borg_cull_cfg >> 13) & 1) << 5);
 }
 uint32_t tbr_bin_base = 0, tbr_setup_base = 0;
 
