@@ -34,14 +34,20 @@ class ExpLogUnit(cfg: BorgConfig) extends Module {
     io.hold := true.B
     when(sent < N.U) { sent := sent + 1.U }
   }
-  when(active && unit.io.out.valid) {
-    io.wb.zipWithIndex.foreach { case (w, i) =>
-      w.en := i.U === back && mask(i); w.addr := rd; w.data := unit.io.out.bits
-    }
-    back := back + 1.U
-    when(back === (N - 1).U) {
-      active := false.B; isOp := false.B
-      io.finish := true.B
-    }
+  // BorgExpLog cannot stall: a result the port does not take waits in its lane's buffer.
+  private val res  = Reg(Vec(N, UInt(32.W)))
+  private val pend = RegInit(0.U(N.W))
+  private val arrive = Mux(active && unit.io.out.valid, UIntToOH(back(log2Up(N) - 1, 0), N), 0.U)
+  private val want = pend | arrive
+  io.wb.zipWithIndex.foreach { case (w, i) =>
+    w.en := io.wbReady && want(i) && mask(i); w.addr := rd; w.data := Mux(arrive(i), unit.io.out.bits, res(i))
+  }
+  for (i <- 0 until N) when(arrive(i)) { res(i) := unit.io.out.bits }
+  pend := Mux(io.wbReady, 0.U, want)
+  when(active && unit.io.out.valid) { back := back + 1.U }
+  private val allBack = back === N.U || (active && unit.io.out.valid && back === (N - 1).U)
+  when(active && allBack && io.wbReady) {
+    active := false.B; isOp := false.B
+    io.finish := true.B
   }
 }

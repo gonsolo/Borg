@@ -148,9 +148,9 @@ class MemUnit(cfg: BorgConfig) extends Module {
   when(state === sWB) {
     io.hold := true.B
     io.wb.zipWithIndex.foreach { case (w, i) =>
-      w.en := i.U === lane && !(rvMem && rd === 0.U); w.addr := rd; w.data := data
+      w.en := io.wbReady && i.U === lane && !(rvMem && rd === 0.U); w.addr := rd; w.data := data
     }
-    finishLane()
+    when(io.wbReady) { finishLane() }
   }
 
   // FATTR: word k to rd+k of every active lane, three times, through a direct-mapped varying cache.
@@ -210,8 +210,10 @@ class MemUnit(cfg: BorgConfig) extends Module {
   when(state === sAttrWB) {
     io.hold := true.B
     fcFill  := fcFromMem
-    io.wb.zipWithIndex.foreach { case (w, i) => w.en := mask(i); w.addr := rd + attrK; w.data := data }
-    when(attrK === 2.U) { finishInstr() }
-      .otherwise { attrK := attrK + 1.U; state := sAttrReq }
+    io.wb.zipWithIndex.foreach { case (w, i) => w.en := io.wbReady && mask(i); w.addr := rd + attrK; w.data := data }
+    when(io.wbReady) {
+      when(attrK === 2.U) { finishInstr() }
+        .otherwise { attrK := attrK + 1.U; state := sAttrReq }
+    }
   }
 }

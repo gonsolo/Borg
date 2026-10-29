@@ -14,7 +14,7 @@ class IssuedInstr extends Bundle {
 
 /** A multi-cycle unit of the core (memory, TEX, FEXP2/FLOG2): it latches its instruction at
   * issue, starts once that instruction is at its operands, holds the pipeline while it works,
-  * writes the lanes' registers, and finishes; the core then resumes past the instruction. */
+  * writes the lanes' registers when wbReady, and finishes; the core then resumes past the instruction. */
 class CoreUnitIO(val cfg: BorgConfig) extends Bundle {
   private val N = cfg.fragLanes
   val issue  = Input(Valid(new IssuedInstr))
@@ -26,6 +26,7 @@ class CoreUnitIO(val cfg: BorgConfig) extends Bundle {
   val hold   = Output(Bool())
   val finish = Output(Bool())
   val wb     = Vec(N, new MemWritePort(5, cfg.totalBits))
+  val wbReady = Input(Bool())   // wb lands this cycle: the pipeline's write-back leaves the port free
 
   def idle(): Unit = {
     hold := false.B; finish := false.B

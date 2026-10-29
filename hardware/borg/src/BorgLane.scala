@@ -235,8 +235,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.csrWrite.addr := flagsW.csr
     io.csrWrite.data := aW
 
-    // A unit's write (a load's word, TEX's texel) wins over the pipeline's.
-    when(io.memWrite.en && io.execActive) {
+    // A unit's write (a load's word, TEX's texel), masked by the unit.
+    when(io.memWrite.en) {
       writeReg(io.memWrite.addr, true.B, io.memWrite.data)
     }
   }

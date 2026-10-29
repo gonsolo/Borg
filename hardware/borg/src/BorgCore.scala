@@ -182,12 +182,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val decoding = running && canIssue
   val issuing = decoding && !resumeDelay && fetchReady && fetchedInstruction =/= 0.U
   val redirecting = Wire(Bool())   // the PC goes to pcAfterThis
+  val wbBusy = Wire(Bool())        // the pipeline writes back this cycle
   io.issueStats.issued := issuing && !opFlags.barrier
   locally {
     // info(k): the instruction in stage k, valid while at(k).
     val infos = Seq.iterate(RegEnable(issued, issuing), cfg.cBusyLoad)(r => RegEnable(r, !holdPipe))
     def info(k: Int): StageInfo = infos(cfg.cBusyLoad - k)
     def any(ks: Seq[Int])(p: StageInfo => Bool): Bool = ks.map(k => at(k) && p(info(k))).reduce(_ || _)
+    wbBusy := at(1) && info(1).writes
     val reads = Seq(next.readsRs1 -> regs.rs1, next.readsRs2 -> regs.rs2, next.readsRs3 -> regs.rs3)
     // A source waits until its writer is in write-back; the lane's bypass gives it that word.
     val hazard = any(2 to cfg.cBusyLoad)(i => i.writes && i.rd =/= 0.U &&
@@ -424,6 +426,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     u.issue.bits.regs := regs
     u.atOps := at(cfg.cOperands)
     u.mask  := execMask
+    u.wbReady := !wbBusy
     u.a := VecInit(lanes.map(_.io.recARaw)); u.b := VecInit(lanes.map(_.io.recBRaw)); u.c := VecInit(lanes.map(_.io.recCRaw))
     when(u.hold) { holdPipe := true.B }
     when(u.finish) {

@@ -86,11 +86,13 @@ class TexUnit(cfg: BorgConfig) extends Module {
   when(st === sWB) {
     io.hold := true.B
     io.wb.zipWithIndex.foreach { case (w, i) =>
-      w.en := i.U === respLane && mask(i); w.addr := rd + wbK; w.data := respData(wbK)
+      w.en := io.wbReady && i.U === respLane && mask(i); w.addr := rd + wbK; w.data := respData(wbK)
     }
-    when(wbK === 3.U) {
-      when(lastResp) { finish() }.otherwise { st := sWait }
-    }.otherwise { wbK := wbK + 1.U }
+    when(io.wbReady) {
+      when(wbK === 3.U) {
+        when(lastResp) { finish() }.otherwise { st := sWait }
+      }.otherwise { wbK := wbK + 1.U }
+    }
   }
 
   io.busy := sampler.io.busy
