@@ -389,8 +389,19 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
   wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
   wireICache()
-  // --- TEX/TEXA: the descriptor-based texture unit, on the same port ---
-  wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
+  private val texUnit = Module(new TexUnit(cfg))
+  attach(texUnit.io)
+  texUnit.io.descWritten := io.descWritten
+  texUnit.io.mem.data    := io.gpuMem.data
+  texUnit.io.mem.ready   := io.gpuMem.ready
+  texUnit.io.mem.waccept := io.gpuMem.waccept
+  when(texUnit.io.busy) {
+    io.memBusy     := true.B
+    io.gpuMem.req  := texUnit.io.mem.req
+    io.gpuMem.addr := texUnit.io.mem.addr
+    io.gpuMem.wr   := false.B
+    io.gpuMem.wlen := 1.U
+  }
 
   attach(Module(new ExpLogUnit(cfg)).io)
 
@@ -773,111 +784,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     hit
   }
   // @doc:end
-
-  /** TEX and TEXA (docs/B2_texture_unit.md).
-    *
-    * TEXA keeps each lane's three operands (w or layer, LOD or bias, depth
-    * reference) for the TEXs after it. TEX hands the whole quad to
-    * BorgSampler -- every lane's u, v and TEXA arguments at once, so it can
-    * take the LOD from the quad's derivatives -- then writes each lane's
-    * RGBA to rd..rd+3 as the sampler answers it. Both freeze at operand time
-    * like LOAD/STORE and resume past the instruction, so the lanes' own FMA
-    * (TEX and TEXA are R4-type) never writes back.
-    *
-    * The sampler owns the core's memory port while it runs; LOAD/STORE and
-    * the instruction cache cannot run at the same time. */
-  private def wireSampler(uOps: Seq[UInt], vOps: Seq[UInt], cOps: Seq[UInt],
-                          memWrites: Seq[MemWritePort]): Unit = {
-    val N = cfg.fragLanes
-    val sampler = Module(new BorgSampler(cfg))
-    sampler.io.invalidate := io.descWritten
-
-    val auxW = Reg(Vec(N, UInt(32.W))); val auxLod = Reg(Vec(N, UInt(32.W))); val auxRef = Reg(Vec(N, UInt(32.W)))
-    val is_tex_reg  = RegInit(false.B)
-    val is_texa_reg = RegInit(false.B)
-    val is_texs_reg = RegInit(false.B)
-    // TEXS: the sampler descriptor address and the control word for the TEX after it.
-    val sAddrReg = RegInit(0.U(GpuMemIO.AddrBits.W)); val sCtlReg = RegInit(0.U(32.W))
-    when(fma_start) {
-      is_tex_reg  := opFlags.tex
-      is_texa_reg := opFlags.texa
-      is_texs_reg := opFlags.texs
-    }
-    val sIdle :: sWait :: sWB :: Nil = Enum(3)
-    val st = RegInit(sIdle)
-    val lastResp = RegInit(false.B)
-    val rdReg = RegInit(0.U(5.W))
-    val wbK   = RegInit(0.U(2.W))
-    val respLane = RegInit(0.U(log2Up(N).W))
-    val respData = Reg(Vec(4, UInt(32.W)))
-
-    def finish(): Unit = {
-      st := sIdle
-      is_tex_reg := false.B; is_texa_reg := false.B; is_texs_reg := false.B
-      squashPipe := true.B
-      programCounter := programCounter + 1.U
-      texResumeDelay := true.B
-    }
-
-    sampler.io.req.valid := false.B
-    val lead = (ops: Seq[UInt]) => PriorityMux(execMask.asBools, ops)
-    sampler.io.req.bits.ctl := sCtlReg
-    sampler.io.req.bits.texAddr := lead(cOps)(GpuMemIO.AddrBits - 1, 0)
-    sampler.io.req.bits.sampAddr := sAddrReg
-    for (i <- 0 until N) {
-      sampler.io.req.bits.active(i) := execMask(i)
-      val a = sampler.io.req.bits.lane(i)
-      a.u := uOps(i); a.v := vOps(i); a.w := auxW(i); a.lod := auxLod(i); a.dref := auxRef(i)
-    }
-    // Taken into respData at once: the sampler works on the next lane during the write-back.
-    sampler.io.respReady := st === sWait
-
-    when(at(cfg.cOperands) && is_texs_reg) {
-      sAddrReg := lead(uOps); sCtlReg := lead(vOps)
-      finish()
-    }
-    when(at(cfg.cOperands) && is_texa_reg) {
-      for (i <- 0 until N) { auxW(i) := uOps(i); auxLod(i) := vOps(i); auxRef(i) := cOps(i) }
-      finish()
-    }
-    when(at(cfg.cOperands) && is_tex_reg && st === sIdle) {
-      sampler.io.req.valid := true.B
-      rdReg := regs.rd
-      holdPipe := true.B
-      st := sWait
-    }
-    when(st === sWait) {
-      holdPipe := true.B
-      when(sampler.io.resp.valid) {
-        respLane := sampler.io.resp.bits.lane; respData := sampler.io.resp.bits.data
-        lastResp := sampler.io.done
-        wbK := 0.U; st := sWB
-      }
-    }
-    when(st === sWB) {
-      holdPipe := true.B
-      memWrites.zipWithIndex.foreach { case (mw, i) =>
-        mw.en   := i.U === respLane && execMask(i)
-        mw.addr := rdReg + wbK
-        mw.data := respData(wbK)
-      }
-      when(wbK === 3.U) {
-        when(lastResp) { finish() }.otherwise { st := sWait }
-      }.otherwise { wbK := wbK + 1.U }
-    }
-
-    // The memory port: the sampler's while it runs.
-    sampler.io.gpuMem.data    := io.gpuMem.data
-    sampler.io.gpuMem.ready   := io.gpuMem.ready && sampler.io.busy
-    sampler.io.gpuMem.waccept := false.B
-    when(sampler.io.busy) {
-      io.memBusy := true.B
-      io.gpuMem.req   := sampler.io.gpuMem.req
-      io.gpuMem.addr  := sampler.io.gpuMem.addr
-      io.gpuMem.wr    := false.B
-      io.gpuMem.wlen  := 1.U
-    }
-  }
 
   /** Connects a multi-cycle unit: it holds the pipeline while it works; when it finishes, the
     * stages are squashed and the PC steps past its instruction. */
