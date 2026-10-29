@@ -15,6 +15,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val advance     = Input(Bool())
 
   val csrWrite  = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
+  val csrSlot   = Input(UInt(cfg.slotBits.W))
 
   val coreStatus = Flipped(new CoreStatusIO)
 
@@ -88,6 +89,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex
   dispatcher.io.shaderIter     := iterator.io.shaderIter
   dispatcher.io.csrWrite       <> io.csrWrite
+  dispatcher.io.csrSlot        := io.csrSlot
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
   dispatcher.io.depthCompareOp := io.depthCompareOp

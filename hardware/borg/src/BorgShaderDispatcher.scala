@@ -14,6 +14,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val quadIter        = Output(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))   // the shaded quad's
 
   val csrWrite   = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
+  val csrSlot    = Input(UInt(cfg.slotBits.W))   // the quad slot csrWrite comes from
   val coreStatus = Flipped(new CoreStatusIO)
   val fragPcReg  = Input(UInt(6.W))
 
@@ -277,9 +278,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     }
   }
 
-  cov.capture(io.csrWrite, phase === sRast, slot)
-  outs.captureRast(io.csrWrite, phase === sRast, slot)
-  outs.captureFrag(io.csrWrite, phase === sFrag, slot)
+  cov.capture(io.csrWrite, phase === sRast, io.csrSlot)
+  outs.captureRast(io.csrWrite, phase === sRast, io.csrSlot)
+  outs.captureFrag(io.csrWrite, phase === sFrag, io.csrSlot)
 
   io.autoRunStall := auto_run_stall
   io.insideFlag   := covQ.anyInside

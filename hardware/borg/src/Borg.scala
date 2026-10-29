@@ -267,6 +267,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                          s.io.iter.iterate
 
     rast.io.csrWrite <> core.io.csrWrite
+    rast.io.csrSlot := core.io.csrSlot
     rast.io.coreStatus <> core.io.status
 
     // GPU memory priority: DMA > flusher > loader > binner/setup store > core.

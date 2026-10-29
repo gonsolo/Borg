@@ -30,6 +30,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val dmaUniformWrite = Flipped(new MemWritePort(6, cfg.totalBits))
 
   val csrWrite    = Vec(N, new CsrWriteIO(cfg.totalBits))   // fragment outputs, rast_*, setup_*
+  val csrSlot     = Output(UInt(cfg.slotBits.W))            // the quad slot csrWrite comes from
   val status      = new CoreStatusIO
   val regReadData = Output(UInt(cfg.totalBits.W))           // MMIO register read
 
@@ -218,6 +219,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val flagsX = BorgLane.later(!holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), issuing), cfg.cBusyLoad - cfg.cOperands)
   val slotX = BorgLane.later(!holdPipe)(RegEnable(issueSlot, issuing), cfg.cBusyLoad - cfg.cOperands)
   val execMask = exec.io.mask(slotX)
+  io.csrSlot := BorgLane.later(!holdPipe)(slotX, cfg.cOperands - 1)
 
   val (uniformData, funct3Del) = wireUniformRead()
   val ovs = wireRvOperands()
