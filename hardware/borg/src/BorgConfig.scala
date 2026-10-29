@@ -29,7 +29,7 @@ case class BorgConfig(
     hasBlend: Boolean = true,
     hasStencil: Boolean = true,
     hasCompute: Boolean = true,
-    quadSlots: Int = 2
+    quadSlots: Int = 4
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   require(Integer.bitCount(quadSlots) == 1, s"quadSlots must be a power of two, got $quadSlots")
