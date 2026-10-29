@@ -286,7 +286,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
 
     // (3) The auto-rasterizer's initial edge-test pass always fetches from the
     // permanent BorgRasterRom hardware ROM, never from writable instruction
-    // memory (BorgCore.scala: `fetchRast := io.coreTrigger.isRast`, and the
+    // memory (BorgCore.scala: `startSlot.fetchRast := io.coreTrigger.isRast`, and the
     // dispatcher sets isRast=true for exactly this pass -- see BorgRasterRom's
     // own doc). A prior version of this test wrote ADD instructions to words
     // 0-3 believing they'd force every edge "inside"; those writes were dead

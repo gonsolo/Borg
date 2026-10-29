@@ -15,9 +15,10 @@ the CPU communicates with it over MMIO.
 
 At the heart of the processor are a small register file, an instruction memory,
 and a program counter. The entire state fits in a handful of flip-flops.
-Instruction memory, program counter, and the uniform RAM are **shared** —
-`BorgCore` owns one copy each, since every lane executes the same fetched
-instruction in lockstep:
+Instruction memory and the uniform RAM are **shared** — `BorgCore` owns one
+copy each, since every lane executes the same fetched instruction in lockstep.
+The program counter and run state belong to a quad slot (`QuadSlot`); the core
+keeps `cfg.quadSlots` of them, and the register files hold 32 registers per slot:
 
 {{snippet:hardware/borg/src/BorgCore.scala:storage}}
 

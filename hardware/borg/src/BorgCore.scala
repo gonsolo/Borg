@@ -86,6 +86,20 @@ class IssueStatsIO extends Bundle {
   val drains     = Bool()
 }
 
+/** A quad the core keeps: where its program is and whether it runs. */
+class QuadSlot(cfg: BorgConfig) extends Bundle {
+  val pc           = UInt(cfg.pcBits.W)
+  val running      = Bool()
+  val startPending = Bool()   // triggered: running from the next cycle
+  val byRasterizer = Bool()   // triggered, not started by MMIO: reads uniformPage
+  // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
+  val fetchRast    = Bool()
+  val fetchSetup   = Bool()
+  // Where a compute invocation stopped; written on every stop, so never stale.
+  val atBarrier    = Bool()
+  val barrierPC    = UInt(cfg.pcBits.W)
+}
+
 /** What the issue logic knows about an instruction in flight. */
 class StageInfo extends Bundle {
   val writes = Bool()
@@ -108,13 +122,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val allLanes = ((1 << cfg.fragLanes) - 1).U(cfg.fragLanes.W)
 
   // @doc:storage
-  val programCounter = RegInit(0.U(cfg.pcBits.W))
-  val running = RegInit(false.B)
-  val startPending = RegInit(false.B)    // triggered: running from the next cycle
-  val byRasterizer = RegInit(false.B)    // triggered, not started by MMIO: reads uniformPage
-  // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
-  val fetchRast  = RegInit(false.B)
-  val fetchSetup = RegInit(false.B)
+  val slots = RegInit(VecInit(Seq.fill(cfg.quadSlots)(0.U.asTypeOf(new QuadSlot(cfg)))))
+  // The slot that issues; units write their result to the slot that issued them.
+  val issueSlot = WireDefault(0.U(cfg.slotBits.W))
+  // Triggers and MMIO start slot 0 until the dispatcher picks slots (step 2c).
+  private val startSlot = slots(0)
+  private val slot = slots(issueSlot)
+  val programCounter = slot.pc
+  val running = slot.running
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
   // @doc:end
 
@@ -132,18 +147,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val exec = Module(new ExecMask(cfg.fragLanes))
   val execMask = exec.io.mask
 
-  // Where a compute invocation stopped; written on every stop, so never stale.
-  val atBarrierReg = RegInit(false.B)
-  val barrierPCReg = RegInit(0.U(cfg.pcBits.W))
-
   // The PC advances at issue, a branch's one stage after its operands.
   private val redirect = cfg.cOperands - 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC = Wire(UInt(cfg.pcBits.W))
   private val fetch = Module(new Fetch(cfg))
   fetch.io.pc         := nextPC
-  fetch.io.fromRast   := fetchRast
-  fetch.io.fromSetup  := fetchSetup
+  fetch.io.fromRast   := slot.fetchRast
+  fetch.io.fromSetup  := slot.fetchSetup
   fetch.io.drawMode   := io.drawMode
   fetch.io.drawSingle := io.drawSingle
   fetch.io.setupShort := io.setupShort
@@ -204,8 +215,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val (uniformData, funct3Del) = wireUniformRead()
   val ovs = wireRvOperands()
 
-  // The quad slot that issues; units write their result to the slot that issued them.
-  val issueSlot = WireDefault(0.U(cfg.slotBits.W))
   val lanes = Seq.fill(cfg.fragLanes)(Module(new BorgLane(cfg)))
   lanes.zipWithIndex.foreach { case (lane, i) =>
     lane.io.regs        := regs
@@ -237,13 +246,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.csrWrite(i)      := lane.io.csrWrite
   }
   io.regReadData := lanes(0).io.regReadData
-  io.status.running := running
-  io.status.autoRunPending := startPending
+  io.status.running := slots.map(_.running).reduce(_ || _)
+  io.status.autoRunPending := slots.map(_.startPending).reduce(_ || _)
   io.branchDivergent := branchDivergent
   io.execFault       := exec.io.fault
   io.barrier.foreach { b =>
-    b.hit      := atBarrierReg
-    b.resumePC := barrierPCReg
+    b.hit      := slots(0).atBarrier
+    b.resumePC := slots(0).barrierPC
   }
 
   // The units' register writes; at most one unit runs at a time.
@@ -314,25 +323,25 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     programCounter := nextPC
     when(decoding && !resumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
-        running      := false.B
-        atBarrierReg := false.B
+        running        := false.B
+        slot.atBarrier := false.B
       }.elsewhen(barrierStop) {
         // The compute sequencer resumes the invocation one word past the BARRIER.
-        running      := false.B
-        atBarrierReg := true.B
-        barrierPCReg := (programCounter + 1.U)(cfg.pcBits - 1, 0)
+        running        := false.B
+        slot.atBarrier := true.B
+        slot.barrierPC := (programCounter + 1.U)(cfg.pcBits - 1, 0)
       }
     }
 
     when(io.control.start) {
-      running := true.B
-      byRasterizer := false.B
-      fetchRast := false.B
-      fetchSetup := false.B
+      startSlot.running := true.B
+      startSlot.byRasterizer := false.B
+      startSlot.fetchRast := false.B
+      startSlot.fetchSetup := false.B
     }
     when(io.control.reset) {
-      programCounter := io.control.startPC
-      running := false.B
+      startSlot.pc := io.control.startPC
+      startSlot.running := false.B
       stages := 0.U
     }
     when(holdPipe) { stages := stages }
@@ -340,17 +349,19 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // @doc:end
 
     when(io.coreTrigger.valid) {
-      programCounter := io.coreTrigger.pc(cfg.pcBits - 1, 0)
-      startPending := true.B
-      byRasterizer := true.B
-      fetchRast := io.coreTrigger.isRast
-      fetchSetup := io.coreTrigger.isSetup
+      startSlot.pc := io.coreTrigger.pc(cfg.pcBits - 1, 0)
+      startSlot.startPending := true.B
+      startSlot.byRasterizer := true.B
+      startSlot.fetchRast := io.coreTrigger.isRast
+      startSlot.fetchSetup := io.coreTrigger.isSetup
       if (BorgDebug.trace) printf("[CORE] coreTrigger pc=%d isRast=%d\n",
         io.coreTrigger.pc, io.coreTrigger.isRast)
     }
-    when(startPending) {
-      running := true.B
-      startPending := false.B
+    slots.foreach { q =>
+      when(q.startPending) {
+        q.running := true.B
+        q.startPending := false.B
+      }
     }
 
     val mmioImemWrite =
@@ -394,7 +405,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val opEn = decoding || stages(cfg.cBusyLoad - 1, 1).orR
     val funct3 = RegEnable(opFlags.funct3, opEn)
     val addr = if (cfg.maxUniforms > 32) {
-      Cat(Mux(byRasterizer, io.uniformPage, io.control.uniformWritePage), regs.rs1(4, 0))
+      Cat(Mux(slot.byRasterizer, io.uniformPage, io.control.uniformWritePage), regs.rs1(4, 0))
     } else {
       regs.rs1(4, 0)
     }
