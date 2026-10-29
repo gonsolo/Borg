@@ -23,7 +23,7 @@ class HuttDivider(val bits: Int) extends Module {
   val io = IO(new HuttDividerIO(bits))
 
   val busy    = RegInit(false.B)
-  val doneReg = RegInit(false.B)
+  val doneReg = RegInit(false.B)   // registered, so done lands with the result registers
   val count   = Reg(UInt(log2Ceil(bits).W))
   val divReg  = Reg(UInt(bits.W))
   val rem     = Reg(UInt((bits + 1).W))

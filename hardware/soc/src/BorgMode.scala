@@ -7,7 +7,8 @@ package soc
   *
   *   - [[BorgDirect]]    Borg instantiated locally; the link package is not elaborated.
   *   - [[BorgLoopback]]  Link master, slave and Borg in one bitstream over internal wires.
-  *   - [[BorgExternal]]  The link master alone; the slave is silicon or a second FPGA.
+  *   - [[BorgExternal]]  The link master alone; the slave is silicon or a second FPGA. Looping its
+  *                       pins back only feeds the master its own beats, hence BorgPadLoop.
   *   - [[BorgPadLoop]]   BorgLoopback with the link through real pads and a ribbon cable. It needs
   *                       two pads per wire, which only fits J1+J2 at `LinkParams(w = 8)`.
   */

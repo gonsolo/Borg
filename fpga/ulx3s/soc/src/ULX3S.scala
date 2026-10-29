@@ -171,7 +171,8 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // ui_in[7] = ftdi_txd feeds PeriUart's uart_rxd; ui_in[6:1] = btn.
   def soc_ui_in = Cat(ftdi_txd, btn, 0.U(1.W))
 
-  // Declared before wireGpuMem() uses it. Firmware programs the framebuffer bases.
+  // Declared before wireGpuMem() uses it. Firmware programs the framebuffer bases
+  // from the constants of the GPU flush base, so the two cannot drift apart.
   val scanout = withClockAndReset(sysClock, pllRst) {
     Module(new HdmiScanoutFp16(fbWidth = 128, fbHeight = 128, separatePixelClock = hdmiDecouple))
   }
