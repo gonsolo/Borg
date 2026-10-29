@@ -41,7 +41,7 @@ private[borg] object BorgSetupRom {
     val DepthScale  = 12
     val DepthOffset = 13
     val One         = 14
-    val Meta        = 15     // written by the draw walker: bit 1 = back-facing
+    val Meta        = 15     // written by the draw walker: bit 1 = back-facing; pass 2 snoops it
     val InvDet      = 16     // |1/det M|: turns the edge planes' sum into FragCoord.w = 1/w
     // Sample depths are FragCoord.z + {d0, d1, -d1, -d0}, in framebuffer depth.
     val SampleDepth = 17

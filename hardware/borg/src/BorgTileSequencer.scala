@@ -28,7 +28,8 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Advances only once the triangle's pixels have drained, so it names the
   // triangle every tested fragment belongs to.
   val curTriIndex = Output(UInt(16.W))
-  // The current triangle's varyings (record word 48), for FATTR.
+  // The current triangle's varyings (record word 48), for FATTR; the dispatcher
+  // drains before the next triangle is selected, so each fragment sees its own.
   val attrBase = Output(UInt(GpuMemIO.AddrBits.W))
   // Top or left edges (inward normal (a, b): a > 0, or a == 0 and b > 0) own
   // samples exactly on them, so a shared edge is covered once.

@@ -108,10 +108,12 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
-  // A later part of a partial render (docs/B11_partial_render.md).
+  // A later part of a partial render (docs/B11_partial_render.md): every tile loads every
+  // attached aspect, and a tile no triangle reaches is kept.
   val loadAll = Output(Bool())
 
-  // Per-edge MSAA sample deltas d0, d1; the other two samples are their sign flips.
+  // Per-edge MSAA sample deltas d0, d1; the other two samples are their sign flips. Held for
+  // the whole triangle.
   val covDelta = if (cfg.samples > 1)
     Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
   // Per-triangle facing, meaningful only while busy.

@@ -6,7 +6,7 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** Dispatch parameters, latched at `start`. */
+/** Dispatch parameters, latched at `start`: the MMIO registers may change mid-dispatch. */
 class ComputeDispatchIO extends Bundle {
   val start      = Input(Bool())
   val pc         = Input(UInt(6.W))
@@ -49,8 +49,8 @@ class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
 
 /** vkCmdDispatch on the shader core: a workgroup runs as a sequence of quads through the
   * graphics `coreTrigger`. r30/r31 hold LocalInvocationIndex/ID, u29-u31 of page 0 hold
-  * WorkgroupID, and a partial last quad masks its missing lanes. One quad at a time, so
-  * memory is sequentially consistent by construction.
+  * WorkgroupID, and a partial last quad masks its missing lanes. One quad at a time, and every
+  * memory access stalls the core, so memory is sequentially consistent by construction.
   *
   * BARRIER: run every quad up to the barrier, then every quad again from its resume PC
   * (a new segment). Quads that disagree about the barrier set `barrierFault` and end the

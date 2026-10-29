@@ -34,7 +34,8 @@ object LinkChan {
   *                      active lanes only, so a stuck-high unused lane is not mistaken for data.
   * @param creditDepth   Outstanding A packets per direction; must not exceed what the receiver
   *                      buffers. Both adapters hold one request, so 1.
-  * @param maxBurstLog2  Largest gpuMem burst, log2 so the packet length follows from the header.
+  * @param maxBurstLog2  Largest gpuMem burst, log2 so the packet length follows from the header;
+  *                      BorgTileFlusher emits 16-word bursts.
   * @param divLog2       Beat-rate divider at reset, log2; the `link_fast` strap selects 0.
   * @param gapBeats      Idle beats between packets, at least 1: the receiver resynchronizes there.
   * @param trainBeats    Consecutive good training beats required before `link_up`.

@@ -314,7 +314,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, Mux(wideWr, 2.U, 1.U))
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
-    // Ungated: a f.io.busy guard loops through io_read_en, which arcilator mishandles.
+    // waccept is only high in the flusher's own burst; a f.io.busy guard would loop through
+    // io_read_en, which arcilator mishandles.
     f.io.gpuMem.waccept := io.gpuMem.waccept
     d.io.gpuMem.data  := io.gpuMem.data
     d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
@@ -603,7 +604,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val rdl_read_data = rdlRegs.io.bus.readData
     val data_out = MuxCase(rdl_read_data, Seq(
       (read_addr_del < 128.U) -> core.io.regReadData,
-      // Debug readback reports sample 0.
+      // Debug readback for the test harness (readTilePixel); reports sample 0.
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data(0).r, tile.io.read.data(0).g),
       (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data(0).b, depthToFp16(tile.io.read.data(0).z)),
       // The write-only SEQ_TRIGGER reads back seqDoneSticky.
@@ -652,6 +653,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // A DMA into IMEM sets the I-cache's code base: source A to word i gives A - 4*i, and flushes.
     // Taken at the first IMEM write: at the start pulse the descriptor's offset may still be stale.
+    // The core lets that write win over the flush, so its line stays valid.
     locally {
       val codeBaseReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
       val awaitFirst   = RegInit(false.B)

@@ -38,7 +38,7 @@ case class BorgConfig(
   def coveragePlanesStored: Int = 4
   def tileDepthBits: Int = 32           // holds every D16/D24 value and D32_SFLOAT exactly
   def pcBits: Int = 14                  // branches reach their 1024-word page, JAL anywhere
-  // The largest power of two within IMEM; lines above it are never replaced.
+  // The largest power of two within IMEM; lines at and above it are never replaced.
   def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
   // Line state in a RAM instead of flops once flops would cost more than a RAM.
   def icacheMetaInRam: Boolean = maxInstructions > 128

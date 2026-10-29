@@ -58,6 +58,7 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   *
   * Per instance and primitive: assemble the corners, fetch indices (with restart), run the
   * vertex shader once for all three corners, run the setup ROM, cull, bin, store the facing.
+  * The vertex shader and the setup ROM write the rest of the record themselves (SOUT).
   * The triangle index counts every primitive, culled or not, so record t is primitive t.
   */
 class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
