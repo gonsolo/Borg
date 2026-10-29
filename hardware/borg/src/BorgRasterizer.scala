@@ -21,6 +21,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val iterSlot   = Input(UInt(cfg.slotBits.W))
   val helperSlot = Input(UInt(cfg.slotBits.W))
   val triggerSlot = Output(UInt(cfg.slotBits.W))
+  val zTestSlot  = Input(UInt(cfg.slotBits.W))
 
   val fragPcReg       = Input(UInt(6.W))
   val depthCompareOp  = Input(UInt(3.W))
@@ -134,6 +135,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.insideFlag   := dispatcher.io.insideFlag
 
   dispatcher.io.zTestReq := io.zTestReq
+  dispatcher.io.zTestSlot := io.zTestSlot
   io.zTestDone         := dispatcher.io.zTestDone
   io.laneHelper        := dispatcher.io.laneHelper
   io.occSamples        := dispatcher.io.occSamples

@@ -57,6 +57,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val barrier = if (cfg.hasCompute) Some(Output(new ComputeBarrierIO)) else None
 
   val zTestReq  = Output(Bool())        // held until the dispatcher has tested the quad
+  val zTestSlot = Output(UInt(cfg.slotBits.W))
   val zTestDone = Input(Bool())
 
   // The running program's image in DRAM (word pc at codeBase + 4 pc), and a pulse when it changes.
@@ -276,7 +277,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   lanes.map(_.io.memWrite).foreach { mw => mw.en := false.B; mw.addr := 0.U; mw.data := 0.U }
 
   private val zTest = Module(new ZTestUnit(cfg))
-  attach(zTest.io, _.ztest, blocking = true)
+  io.zTestSlot := attach(zTest.io, _.ztest, blocking = true)
   io.zTestReq := zTest.io.req
   zTest.io.done := io.zTestDone
 

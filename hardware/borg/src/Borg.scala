@@ -261,6 +261,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     s.io.dma.snoop             := d.io.snoop
 
     rast.io.zTestReq := core.io.zTestReq
+    rast.io.zTestSlot := core.io.zTestSlot
     core.io.zTestDone := rast.io.zTestDone
     core.io.laneHelper := rast.io.laneHelper
   }
