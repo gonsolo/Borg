@@ -26,25 +26,25 @@ object BorgShaderDispatcherTestsD extends TestSuite {
 
         firePixelReady(d, fragPc = 13, tileIdx = 7)
         d.io.fragPcReg.poke(13.U)
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
 
         // Fragment shader writes r25 (the discard/kill register) as well as
         // its colour: a `discard`ed fragment performs no per-fragment
         // operations at all, so the stencil buffer must not advance either.
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         for ((reg, value) <- Seq((25, 1), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x3000))) {
           pokeWrite(d, reg, fragOut(reg, value))
         }
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
         stepThroughDepthTest(d)
 

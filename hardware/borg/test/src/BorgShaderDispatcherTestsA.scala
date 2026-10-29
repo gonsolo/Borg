@@ -78,15 +78,15 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         d.io.fragPcReg.poke(13.U)
 
         // Simulate rast shader — write all edges inside (+1.0)
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
         utest.assert(d.io.insideFlag.peek().litToBoolean)
         // core_just_finished fires combinationally when running goes low;
         // sample coreTrigger in the SAME cycle before clocking forward.
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
 
         val trigValid = d.io.coreTrigger.valid.peek().litToBoolean
         val trigPc    = d.io.coreTrigger.pc.peek().litValue.toInt
@@ -101,15 +101,15 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         utest.assert(phase == PHASE_FRAG)
 
         // Simulate frag shader — snoop RGBZ outputs
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         // Write fragment outputs (r26=R, r27=G, r28=B, r29=Z)
         for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, fragOut(reg, value))
         }
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
 
         // Should be in sZRead (Step 25.5C: depth test before tile write)
@@ -320,11 +320,11 @@ object BorgShaderDispatcherTestsA extends TestSuite {
         d.io.fragPcReg.poke(13.U)
 
         // Rast shader: all edges inside
-        d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B); d.clock.step(1)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)  // FSM: sRast → sFrag
 
         // Frag shader → sZRead

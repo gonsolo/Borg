@@ -31,6 +31,12 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
 
   val csrWrite    = Vec(N, new CsrWriteIO(cfg.totalBits))   // fragment outputs, rast_*, setup_*
   val csrSlot     = Output(UInt(cfg.slotBits.W))            // the quad slot csrWrite comes from
+  // The slot each per-quad input is for: iter the issuing one's, laneHelper the memory unit's,
+  // laneCoverage and laneDst csrSlot's (the instruction in write-back).
+  val iterSlot    = Output(UInt(cfg.slotBits.W))
+  val helperSlot  = Output(UInt(cfg.slotBits.W))
+  val triggerSlot = Input(UInt(cfg.slotBits.W))             // the slot coreTrigger starts
+  val slotStatus  = Vec(cfg.quadSlots, new CoreStatusIO)
   val status      = new CoreStatusIO
   val regReadData = Output(UInt(cfg.totalBits.W))           // MMIO register read
 
@@ -126,8 +132,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val slots = RegInit(VecInit(Seq.fill(cfg.quadSlots)(0.U.asTypeOf(new QuadSlot(cfg)))))
   // The slot that issues; units write their result to the slot that issued them.
   val issueSlot = WireDefault(0.U(cfg.slotBits.W))
-  // Triggers and MMIO start slot 0 until the dispatcher picks slots (step 2c).
-  private val startSlot = slots(0)
+  private val startSlot = slots(0)   // MMIO's
+  private val trigSlot  = slots(io.triggerSlot)
   private val slot = slots(issueSlot)
   val programCounter = slot.pc
   val running = slot.running
@@ -257,6 +263,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.regReadData := lanes(0).io.regReadData
   io.status.running := slots.map(_.running).reduce(_ || _)
   io.status.autoRunPending := slots.map(_.startPending).reduce(_ || _)
+  io.slotStatus.zip(slots).foreach { case (st, q) => st.running := q.running; st.autoRunPending := q.startPending }
+  io.iterSlot := issueSlot
   io.branchDivergent := branchDivergent
   io.execFault       := exec.io.fault
   io.barrier.foreach { b =>
@@ -273,7 +281,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   zTest.io.done := io.zTestDone
 
   private val memUnit = Module(new MemUnit(cfg))
-  attach(memUnit.io, f => f.load || f.store || f.sout || f.fattr)
+  io.helperSlot := attach(memUnit.io, f => f.load || f.store || f.sout || f.fattr)
   memUnit.io.record     := io.record
   memUnit.io.laneHelper := io.laneHelper
   memUnit.io.seqBusy    := io.seqBusy
@@ -309,7 +317,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   locally {
     val ex = at(cfg.cOperands) && flagsX.execOp
     exec.io.slot := slotX
-    exec.io.startSlot := 0.U(cfg.slotBits.W)
+    exec.io.startSlot := Mux(io.coreTrigger.valid, io.triggerSlot, 0.U(cfg.slotBits.W))
     exec.io.push := ex && flagsX.expush; exec.io.els := ex && flagsX.exelse; exec.io.pop := ex && flagsX.expop
     exec.io.cond := VecInit(lanes.map(_.io.recARaw))
     // A compute quad starts with only its real invocations: a workgroup may not fill the quad.
@@ -367,11 +375,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // @doc:end
 
     when(io.coreTrigger.valid) {
-      startSlot.pc := io.coreTrigger.pc(cfg.pcBits - 1, 0)
-      startSlot.startPending := true.B
-      startSlot.byRasterizer := true.B
-      startSlot.fetchRast := io.coreTrigger.isRast
-      startSlot.fetchSetup := io.coreTrigger.isSetup
+      trigSlot.pc := io.coreTrigger.pc(cfg.pcBits - 1, 0)
+      trigSlot.startPending := true.B
+      trigSlot.byRasterizer := true.B
+      trigSlot.fetchRast := io.coreTrigger.isRast
+      trigSlot.fetchSetup := io.coreTrigger.isSetup
       if (BorgDebug.trace) printf("[CORE] coreTrigger pc=%d isRast=%d\n",
         io.coreTrigger.pc, io.coreTrigger.isRast)
     }
@@ -434,7 +442,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Connects a multi-cycle unit, which takes the instructions `mine` picks. A blocking one holds
     * the pipeline while it works; when it finishes, the stages are squashed and the PC steps past
     * its instruction. The others run beside the pipeline and count in their slot's `pending`. */
-  private def attach(u: CoreUnitIO, mine: FpuOpFlags => Bool, blocking: Boolean = false): Unit = {
+  private def attach(u: CoreUnitIO, mine: FpuOpFlags => Bool, blocking: Boolean = false): UInt = {
     val issue = issuing && mine(opFlags)
     u.issue.valid := issue
     u.issue.bits.word := fetchedInstruction
@@ -455,6 +463,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lanes.zip(u.wb).foreach { case (l, w) =>
       when(w.en) { l.io.memWrite.en := true.B; l.io.memWrite.addr := RegFileCopy.addr(cfg, unitSlot, w.addr); l.io.memWrite.data := w.data }
     }
+    unitSlot
   }
 
   /** BEQ..BGEU decide on the lowest active lane at the operands, JAL always jumps; the PC

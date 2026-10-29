@@ -52,19 +52,19 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     }
     firePixelReady(d, fragPc = 13, tileIdx = 7)
     d.io.fragPcReg.poke(13.U)
-    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(true.B)
     d.clock.step(1)
-    d.io.coreStatus.autoRunPending.poke(false.B)
-    d.io.coreStatus.running.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(false.B)
+    d.io.coreStatus(0).running.poke(true.B)
     pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-    d.io.coreStatus.running.poke(false.B)
+    d.io.coreStatus(0).running.poke(false.B)
     d.clock.step(1)
 
     // Fragment shader up to ZTEST: depth first, as the compiler must emit it.
-    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(true.B)
     d.clock.step(1)
-    d.io.coreStatus.autoRunPending.poke(false.B)
-    d.io.coreStatus.running.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(false.B)
+    d.io.coreStatus(0).running.poke(true.B)
     writeReg(d, 29, fragZ)
     utest.assert(!d.io.laneHelper(0).peek().litToBoolean)   // covered, not yet tested
 
@@ -85,7 +85,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     for ((reg, v) <- Seq((26, SRC._1), (27, SRC._2), (28, SRC._3))) writeReg(d, reg, v)
     if (discardAfter) writeReg(d, 25, 1)
     val helperAtEnd = d.io.laneHelper(0).peek().litToBoolean
-    d.io.coreStatus.running.poke(false.B)
+    d.io.coreStatus(0).running.poke(false.B)
     d.clock.step(1)
 
     // The tile buffer now holds whatever the early pass wrote.
@@ -205,17 +205,17 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         d.io.scissorPass(0).poke(false.B)            // lane 0 scissored out, held with the quad
         firePixelReady(d, fragPc = 13, tileIdx = 7)
         d.io.fragPcReg.poke(13.U)
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_FRAG)
         utest.assert(d.io.laneHelper(0).peek().litToBoolean)
         utest.assert(!d.io.laneHelper(1).peek().litToBoolean)
@@ -241,17 +241,17 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         }
         firePixelReady(d, fragPc = 13, tileIdx = 7)
         d.io.fragPcReg.poke(13.U)
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         writeReg(d, 29, 0x3000)
 
         d.io.zTestReq.poke(true.B)
@@ -273,7 +273,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         utest.assert(!d.io.laneHelper(0).peek().litToBoolean)   // two samples passed
 
         for ((reg, v) <- Seq((26, SRC._1), (27, SRC._2), (28, SRC._3))) writeReg(d, reg, v)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
         // The passing samples now hold Z = 0x3000; a re-test with LESS would fail them.
         d.io.tileRead.data.zipWithIndex.foreach { case (s, i) =>
@@ -309,15 +309,15 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
           d.io.tileRead.data.foreach(_.z.poke(oldZ.U))
           firePixelReady(d, fragPc = 13, tileIdx = 7)
           d.io.fragPcReg.poke(13.U)
-          d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
-          d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+          d.io.coreStatus(0).autoRunPending.poke(true.B); d.clock.step(1)
+          d.io.coreStatus(0).autoRunPending.poke(false.B); d.io.coreStatus(0).running.poke(true.B)
           pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-          d.io.coreStatus.running.poke(false.B); d.clock.step(1)
-          d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
-          d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+          d.io.coreStatus(0).running.poke(false.B); d.clock.step(1)
+          d.io.coreStatus(0).autoRunPending.poke(true.B); d.clock.step(1)
+          d.io.coreStatus(0).autoRunPending.poke(false.B); d.io.coreStatus(0).running.poke(true.B)
           writeReg(d, 29, fragZ)
           if (d.io.occSamples.peek().litValue != 0) nonTestCycles += 1
-          d.io.coreStatus.running.poke(false.B); d.clock.step(1)
+          d.io.coreStatus(0).running.poke(false.B); d.clock.step(1)
           stepThroughDepthTest(d)
           val occ = d.io.occSamples.peek().litValue.toInt
           d.clock.step(1)
@@ -347,17 +347,17 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         d.io.tileRead.data.foreach(_.z.poke(stored.U))
         firePixelReady(d, fragPc = 13, tileIdx = 7)
         d.io.fragPcReg.poke(13.U)
-        d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B); d.clock.step(1)
+        d.io.coreStatus(0).autoRunPending.poke(false.B); d.io.coreStatus(0).running.poke(true.B)
         val one = java.lang.Float.floatToRawIntBits(1.0f).toLong & 0xFFFFFFFFL
         for ((reg, v) <- Seq((0, one), (1, one), (2, one))) {
           pokeWrite(d, reg, v)
         }
-        d.io.coreStatus.running.poke(false.B); d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).running.poke(false.B); d.clock.step(1)
+        d.io.coreStatus(0).autoRunPending.poke(true.B); d.clock.step(1)
+        d.io.coreStatus(0).autoRunPending.poke(false.B); d.io.coreStatus(0).running.poke(true.B)
         pokeWrite(d, 29, frag)
-        d.io.coreStatus.running.poke(false.B); d.clock.step(1)
+        d.io.coreStatus(0).running.poke(false.B); d.clock.step(1)
         stepThroughDepthTest(d)
         val en = d.io.tileWrite.en.peek().litToBoolean
         val z  = d.io.tileWrite.data.z.peek().litValue.toLong

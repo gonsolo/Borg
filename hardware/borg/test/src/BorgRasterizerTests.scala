@@ -26,8 +26,8 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.cmdPop.valid.poke(false.B)
     rast.io.advance.poke(false.B)
     rast.io.csrWrite.foreach { w => w.en.poke(false.B); w.addr.poke(0.U); w.data.poke(0.U) }
-    rast.io.coreStatus.running.poke(false.B)
-    rast.io.coreStatus.autoRunPending.poke(false.B)
+    rast.io.coreStatus(0).running.poke(false.B)
+    rast.io.coreStatus(0).autoRunPending.poke(false.B)
     // Register-driven frag_pc and uniform_page
     rast.io.fragPcReg.poke(0.U)
     rast.io.uniformPageReg.poke(0.U)
@@ -64,21 +64,21 @@ object BorgRasterizerTests extends TestSuite {
     // After advance, the core would be running (triggered by triggerCoreValid),
     // so hold coreRunning=true to keep auto_run_stall alive.
     rast.io.advance.poke(false.B)
-    rast.io.coreStatus.running.poke(true.B)
+    rast.io.coreStatus(0).running.poke(true.B)
     rast.clock.step(1)
     // Then core finishes
-    rast.io.coreStatus.running.poke(false.B)
+    rast.io.coreStatus(0).running.poke(false.B)
     rast.clock.step(1)
   }
 
   /** Simulate a complete shader execution: auto_run_pending → running → halt. */
   def simulateShaderRun(rast: BorgRasterizer, cycles: Int = 3): Unit = {
-    rast.io.coreStatus.autoRunPending.poke(true.B)
+    rast.io.coreStatus(0).autoRunPending.poke(true.B)
     rast.clock.step(1)
-    rast.io.coreStatus.autoRunPending.poke(false.B)
-    rast.io.coreStatus.running.poke(true.B)
+    rast.io.coreStatus(0).autoRunPending.poke(false.B)
+    rast.io.coreStatus(0).running.poke(true.B)
     rast.clock.step(cycles)
-    rast.io.coreStatus.running.poke(false.B)
+    rast.io.coreStatus(0).running.poke(false.B)
     rast.clock.step(1)
   }
 
@@ -231,11 +231,11 @@ object BorgRasterizerTests extends TestSuite {
 
         // Now simulate: advance done, core starts running
         rast.io.advance.poke(false.B)
-        rast.io.coreStatus.autoRunPending.poke(true.B)
+        rast.io.coreStatus(0).autoRunPending.poke(true.B)
         rast.clock.step(1)
 
-        rast.io.coreStatus.autoRunPending.poke(false.B)
-        rast.io.coreStatus.running.poke(true.B)
+        rast.io.coreStatus(0).autoRunPending.poke(false.B)
+        rast.io.coreStatus(0).running.poke(true.B)
 
         val stalled = rast.io.autoRunStall.peek().litToBoolean
         println(f"  While core running: autoRunStall=$stalled")
@@ -243,7 +243,7 @@ object BorgRasterizerTests extends TestSuite {
 
         rast.clock.step(5)
 
-        rast.io.coreStatus.running.poke(false.B)
+        rast.io.coreStatus(0).running.poke(false.B)
         rast.clock.step(1)
 
         val clearedStall = !rast.io.autoRunStall.peek().litToBoolean
@@ -318,10 +318,10 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)
 
         // Simulate rast shader running
-        rast.io.coreStatus.autoRunPending.poke(true.B)
+        rast.io.coreStatus(0).autoRunPending.poke(true.B)
         rast.clock.step(1)
-        rast.io.coreStatus.autoRunPending.poke(false.B)
-        rast.io.coreStatus.running.poke(true.B)
+        rast.io.coreStatus(0).autoRunPending.poke(false.B)
+        rast.io.coreStatus(0).running.poke(true.B)
 
         // Write edges inside
         for (i <- 0 until 3) {
@@ -335,7 +335,7 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         
         rast.clock.step(1)
-        rast.io.coreStatus.running.poke(false.B)
+        rast.io.coreStatus(0).running.poke(false.B)
 
         val trigValid = rast.io.coreTrigger.valid.peek().litToBoolean
         val trigPC = rast.io.coreTrigger.pc.peek().litValue.toInt
@@ -384,13 +384,13 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
 
         // Simulate rast shader
-        rast.io.coreStatus.autoRunPending.poke(true.B)
+        rast.io.coreStatus(0).autoRunPending.poke(true.B)
         rast.clock.step(1)
-        rast.io.coreStatus.autoRunPending.poke(false.B)
-        rast.io.coreStatus.running.poke(true.B)
+        rast.io.coreStatus(0).autoRunPending.poke(false.B)
+        rast.io.coreStatus(0).running.poke(true.B)
         rast.clock.step(3)
 
-        rast.io.coreStatus.running.poke(false.B)
+        rast.io.coreStatus(0).running.poke(false.B)
         rast.clock.step(1)
         val stall = rast.io.autoRunStall.peek().litToBoolean
         utest.assert(!stall)

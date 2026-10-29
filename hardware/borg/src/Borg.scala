@@ -225,6 +225,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.coreTrigger.isRast := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.isRast,
                                                 nonSeqTrigger.isRast)
     core.io.coreTrigger.isSetup := s.io.coreTrigger.valid && s.io.coreTrigger.isSetup
+    // Sequencers and compute run on slot 0.
+    val otherTrigger = s.io.coreTrigger.valid || compute.map(_.io.coreTrigger.valid).getOrElse(false.B)
+    core.io.triggerSlot := Mux(otherTrigger, 0.U(cfg.slotBits.W), rast.io.triggerSlot)
     // ids, record and drawMode: see wireDraw.
     core.io.barrier.foreach(compute.get.io.barrier := _)
 
@@ -268,7 +271,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     rast.io.csrWrite <> core.io.csrWrite
     rast.io.csrSlot := core.io.csrSlot
-    rast.io.coreStatus <> core.io.status
+    rast.io.coreStatus <> core.io.slotStatus
+    rast.io.iterSlot   := core.io.iterSlot
+    rast.io.helperSlot := core.io.helperSlot
 
     // GPU memory priority: DMA > flusher > loader > binner/setup store > core.
     val geoBusy  = b.io.busy || s.io.store.active

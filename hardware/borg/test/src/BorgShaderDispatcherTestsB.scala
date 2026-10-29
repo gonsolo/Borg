@@ -23,25 +23,25 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         firePixelReady(d, fragPc = 13, tileIdx = 5)
         d.io.fragPcReg.poke(13.U)
 
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
         utest.assert(d.io.insideFlag.peek().litToBoolean)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1) // -> sFrag
 
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         // Write r25 (kill, nonzero) then RGBZ as usual — discard doesn't stop
         // the rest of the shader from running (matches GLSL semantics).
         for ((reg, value) <- Seq((25, 0x3C00), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, fragOut(reg, value))
         }
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1) // -> sZRead
 
         stepThroughDepthTest(d)
@@ -63,22 +63,22 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         firePixelReady(d, fragPc = 13, tileIdx = 5)
         d.io.fragPcReg.poke(13.U)
 
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
 
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, fragOut(reg, value))
         }
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
 
         stepThroughDepthTest(d)
@@ -99,22 +99,22 @@ object BorgShaderDispatcherTestsB extends TestSuite {
         firePixelReady(d, fragPc = 13, tileIdx = 5)
         d.io.fragPcReg.poke(13.U)
 
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
 
-        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(true.B)
         d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
+        d.io.coreStatus(0).autoRunPending.poke(false.B)
+        d.io.coreStatus(0).running.poke(true.B)
         for ((reg, value) <- Seq((25, 0x0000), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
           pokeWrite(d, reg, fragOut(reg, value))
         }
-        d.io.coreStatus.running.poke(false.B)
+        d.io.coreStatus(0).running.poke(false.B)
         d.clock.step(1)
 
         stepThroughDepthTest(d)

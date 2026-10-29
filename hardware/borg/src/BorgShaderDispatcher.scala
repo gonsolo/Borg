@@ -15,7 +15,11 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 
   val csrWrite   = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val csrSlot    = Input(UInt(cfg.slotBits.W))   // the quad slot csrWrite comes from
-  val coreStatus = Flipped(new CoreStatusIO)
+  val coreStatus = Flipped(Vec(cfg.quadSlots, new CoreStatusIO))
+  // The slots the core asks quadIter and laneHelper for; laneCoverage and laneDst are csrSlot's.
+  val iterSlot    = Input(UInt(cfg.slotBits.W))
+  val helperSlot  = Input(UInt(cfg.slotBits.W))
+  val triggerSlot = Output(UInt(cfg.slotBits.W))   // the slot coreTrigger starts
   val fragPcReg  = Input(UInt(6.W))
 
   val depthCompareOp = Input(UInt(3.W))
@@ -99,26 +103,32 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
        sDstRead :: sDstWait1 :: sDstWait2 :: sDstCap :: Nil) = Enum(11)
   val phase = RegInit(sIdle)
 
-  // The quad's inputs, held: the iterator moves on once the quad has a slot.
-  private val capture = RegNext(io.pixelReady, false.B)
-  private def held[T <: Data](live: T): T = Mux(capture, live, RegEnable(live, capture))
-  val tileIndex   = held(io.shaderTileIndex)
-  val scissorPass = held(io.scissorPass)
-  io.quadIter := held(io.shaderIter)
-
   // The quad slot; one until the dispatcher keeps several.
   val slot = 0.U(cfg.slotBits.W)
   private def perSlot[T <: Data](x: => T): Vec[T] = VecInit(Seq.fill(cfg.quadSlots)(x))
+
+  // The quad's inputs, held per slot: the iterator moves on once the quad has a slot.
+  private val capture = RegNext(io.pixelReady, false.B)
+  private def held[T <: Data](live: T): UInt => T = {
+    val r = Reg(Vec(cfg.quadSlots, chiselTypeOf(live)))
+    when(capture) { r(slot) := live }
+    q => Mux(capture && q === slot, live, r(q))
+  }
+  private val (tileIndexOf, scissorOf, iterOf) = (held(io.shaderTileIndex), held(io.scissorPass), held(io.shaderIter))
+  val tileIndex   = tileIndexOf(slot)
+  val scissorPass = scissorOf(slot)
+  io.quadIter := iterOf(io.iterSlot)
   val cov  = new QuadCoverage(cfg, io.drawMode, io.topLeft, io.covDelta, io.sampleCfg)
   val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.sampleCfg)
   private val (covQ, outsQ) = (cov.at(slot), outs.at(slot))
   val ops  = new FragmentOps(cfg, io, outsQ, covQ, scissorPass, tileIndex)
-  io.laneCoverage := covQ.laneMask
+  io.laneCoverage := cov.at(io.csrSlot).laneMask
+  io.triggerSlot  := slot
 
   val auto_run_stall = RegInit(false.B)
 
   val dstWord = RegInit(perSlot(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W)))))))
-  io.laneDst := dstWord(slot)
+  io.laneDst := dstWord(io.csrSlot)
   io.extWrite.foreach(_ := 0.U)
   private val dstActive = (io.rawColor || io.srgbColor) && outs.rawSupported.B
 
@@ -186,8 +196,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx0=%d\n", tileIndex(0))
   }
 
-  val core_was_active = RegNext(io.coreStatus.running || io.coreStatus.autoRunPending, false.B)
-  val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
+  private val status = io.coreStatus(slot)
+  val core_was_active = RegNext(status.running || status.autoRunPending, false.B)
+  val core_just_finished = core_was_active && !status.running && !status.autoRunPending
 
   when(phase === sRast && core_just_finished) {
     when(covQ.anyInside && io.fragPcReg =/= 0.U) {
@@ -290,9 +301,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // A helper lane: no covered sample, outside the scissor, discarded, or after ZTEST none of its
   // samples passed.
+  private val (hq, covH, outsH) = (io.helperSlot, cov.at(io.helperSlot), outs.at(io.helperSlot))
   for (i <- 0 until N) {
-    val failedEarly = earlyDone(slot) && !earlyPass(slot)(i).reduce(_ || _)
+    val failedEarly = earlyDone(hq) && !earlyPass(hq)(i).reduce(_ || _)
     io.laneHelper(i) := phase === sFrag &&
-      (!covQ.inside(i) || !scissorPass(i) || outsQ.killed(i) || failedEarly)
+      (!covH.inside(i) || !scissorOf(hq)(i) || outsH.killed(i) || failedEarly)
   }
 }

@@ -66,8 +66,8 @@ object BorgShaderDispatcherTestHelpers {
     d.io.pixelReady.poke(false.B)
     d.io.shaderTileIndex(0).poke(0.U)
     d.io.csrWrite.foreach(_.en.poke(false.B))
-    d.io.coreStatus.running.poke(false.B)
-    d.io.coreStatus.autoRunPending.poke(false.B)
+    d.io.coreStatus(0).running.poke(false.B)
+    d.io.coreStatus(0).autoRunPending.poke(false.B)
     d.io.fragPcReg.poke(0.U)
     // Step 50 item 11: configurable depth state.  The defaults reproduce the
     // historical hardcoded behaviour (LESS, depth writes on) so every
@@ -147,12 +147,12 @@ object BorgShaderDispatcherTestHelpers {
 
   /** Simulate a complete shader execution: autoRunPending → running → halt. */
   def simulateShaderRun(d: BorgShaderDispatcher, cycles: Int = 3): Unit = {
-    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(true.B)
     d.clock.step(1)
-    d.io.coreStatus.autoRunPending.poke(false.B)
-    d.io.coreStatus.running.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(false.B)
+    d.io.coreStatus(0).running.poke(true.B)
     d.clock.step(cycles)
-    d.io.coreStatus.running.poke(false.B)
+    d.io.coreStatus(0).running.poke(false.B)
     d.clock.step(1)
   }
 
@@ -251,26 +251,26 @@ object BorgShaderDispatcherTestHelpers {
     d.io.fragPcReg.poke(13.U)
 
     // Rast shader: all edges inside.
-    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(true.B)
     d.clock.step(1)
-    d.io.coreStatus.autoRunPending.poke(false.B)
-    d.io.coreStatus.running.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(false.B)
+    d.io.coreStatus(0).running.poke(true.B)
     pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-    d.io.coreStatus.running.poke(false.B)
+    d.io.coreStatus(0).running.poke(false.B)
     d.clock.step(1)
 
     // Frag shader: RGB plus the depth we want tested.
-    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(true.B)
     d.clock.step(1)
-    d.io.coreStatus.autoRunPending.poke(false.B)
-    d.io.coreStatus.running.poke(true.B)
+    d.io.coreStatus(0).autoRunPending.poke(false.B)
+    d.io.coreStatus(0).running.poke(true.B)
     val fragWrites =
       fragA.map(a => Seq((24, a))).getOrElse(Seq.empty) ++
       Seq((26, srcRgb._1), (27, srcRgb._2), (28, srcRgb._3), (29, fragZ))
     for ((reg, value) <- fragWrites) {
       pokeWrite(d, reg, if (fp32Out) BigInt(value & 0xFFFFFFFFL) else fragOut(reg, value))
     }
-    d.io.coreStatus.running.poke(false.B)
+    d.io.coreStatus(0).running.poke(false.B)
     d.clock.step(1)
 
     utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
