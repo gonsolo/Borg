@@ -79,6 +79,7 @@ static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bi
 #define BC_TEXEL_BYTES (TEX_REGION_BYTES - 256)
 #endif
 static int g_nocolor = 0;              // the pass has no colour attachment
+static int g_ms = 0;                   // the pass stores each of 4 samples in its own tile
 static int g_srgb = 0;                 // attachment 0 is sRGB (FLUSH_FORMAT bit 4)
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 4 RAW16 (2 B/px), 5 RAW8 (1 B/px), 6 RAW64 (8 B/px), 7 RAW128 (16 B/px)
 #ifdef BORG_HOST
@@ -94,7 +95,7 @@ static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f == 4 ? 2u 
 
 // Words per framebuffer, plus the DONE marker word.
 static uint32_t frame_stride_words(void) {
-  return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * flush_bytes_per_pixel(g_flush_format) / 4u + 1u;
+  return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * flush_bytes_per_pixel(g_flush_format) / 4u * (g_ms ? 4u : 1u) + 1u;
 }
 
 void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt >= 1 && fmt <= 3) ? fmt : 0; }
@@ -821,16 +822,17 @@ int borg_core_packet(const uint8_t *p) {
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour, 4 per sample
     int srgb, fmt = wire_format(p[1], &srgb);
     if (fmt < 0 || p[2] > 31) return BC_BAD;
-    if (fmt != g_flush_format || srgb != g_srgb || ((p[2] >> 3) & 1) != g_nocolor) {
+    if (fmt != g_flush_format || srgb != g_srgb || ((p[2] >> 3) & 1) != g_nocolor || ((p[2] >> 4) & 1) != g_ms) {
       g_flush_format = fmt;
       g_srgb = srgb;
       g_nocolor = (p[2] >> 3) & 1;
+      g_ms = (p[2] >> 4) & 1;
       core_apply_layout();
     }
     BREG_W(flush_zb_base, (p[2] & 1) ? BORG_ZB_SPI : 0);
     BREG_W(flush_sb_base, (p[2] & 2) ? BORG_SB_SPI : 0);
     BREG_W(depth_format, (p[2] >> 2) & 1);
-    BREG_W(attach_ms, (p[2] >> 4) & 1);
+    BREG_W(attach_ms, g_ms);
     return BC_PASS;
   }
   case 0xB8: { // heap write: byte offset from BORG_HEAP_SPI, nbytes, data
