@@ -68,7 +68,9 @@ class TexUnit(cfg: BorgConfig) extends Module {
     for (i <- 0 until N) { auxW(i) := io.a(i); auxLod(i) := io.b(i); auxRef(i) := io.c(i) }
     finish()
   }
-  when(io.atOps && isTex && st === sIdle) {
+  private val start = io.atOps && isTex && st === sIdle
+  private val mask = RegEnable(io.mask, start)   // the sampler latches the rest
+  when(start) {
     sampler.io.req.valid := true.B
     io.hold := true.B
     st := sWait
@@ -84,7 +86,7 @@ class TexUnit(cfg: BorgConfig) extends Module {
   when(st === sWB) {
     io.hold := true.B
     io.wb.zipWithIndex.foreach { case (w, i) =>
-      w.en := i.U === respLane && io.mask(i); w.addr := rd + wbK; w.data := respData(wbK)
+      w.en := i.U === respLane && mask(i); w.addr := rd + wbK; w.data := respData(wbK)
     }
     when(wbK === 3.U) {
       when(lastResp) { finish() }.otherwise { st := sWait }

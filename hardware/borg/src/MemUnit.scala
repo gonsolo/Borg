@@ -46,7 +46,10 @@ class MemUnit(cfg: BorgConfig) extends Module {
   private val rd   = RegInit(0.U(5.W))
   private val data = RegInit(0.U(W.W))
 
-  private val curIndex = io.a(lane); private val curData = io.b(lane); private val curCmp = io.c(lane)
+  // The lanes' operands and mask as the instruction starts, at its operands.
+  private val start = io.atOps && state === sIdle && (isLoad || isStore || isFattr)
+  private val (opA, opB, opC, mask) = (RegEnable(io.a, start), RegEnable(io.b, start), RegEnable(io.c, start), RegEnable(io.mask, start))
+  private val curIndex = opA(lane); private val curData = opB(lane); private val curCmp = opC(lane)
 
   // Word accesses are aligned: the low address bits select within the word.
   private val rvAddr = (curIndex.pad(32) + rvImm)(31, 0)
@@ -108,7 +111,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
   }
 
   // The helper bits describe the quad the dispatcher shades, never a sequencer's program.
-  private val laneActive = io.mask(lane) && soutLaneOk &&
+  private val laneActive = mask(lane) && soutLaneOk &&
     !((isStore && !isSws || isAmo) && !io.seqBusy && io.laneHelper(lane))
 
   when(state === sReq && !laneActive) {
@@ -207,7 +210,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
   when(state === sAttrWB) {
     io.hold := true.B
     fcFill  := fcFromMem
-    io.wb.zipWithIndex.foreach { case (w, i) => w.en := io.mask(i); w.addr := rd + attrK; w.data := data }
+    io.wb.zipWithIndex.foreach { case (w, i) => w.en := mask(i); w.addr := rd + attrK; w.data := data }
     when(attrK === 2.U) { finishInstr() }
       .otherwise { attrK := attrK + 1.U; state := sAttrReq }
   }

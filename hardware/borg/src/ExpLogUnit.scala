@@ -21,20 +21,22 @@ class ExpLogUnit(cfg: BorgConfig) extends Module {
   }
   private val active = RegInit(false.B)
   private val sent = RegInit(0.U(log2Up(N + 1).W)); private val back = RegInit(0.U(log2Up(N + 1).W))
-  when(io.atOps && isOp && !active) {
+  private val start = io.atOps && isOp && !active
+  private val (opA, mask) = (RegEnable(io.a, start), RegEnable(io.mask, start))
+  when(start) {
     active := true.B; sent := 0.U; back := 0.U
     io.hold := true.B
   }
   unit.io.log := isLog
   unit.io.in.valid := active && sent < N.U
-  unit.io.in.bits  := io.a(sent((log2Up(N) max 1) - 1, 0))
+  unit.io.in.bits  := opA(sent((log2Up(N) max 1) - 1, 0))
   when(active) {
     io.hold := true.B
     when(sent < N.U) { sent := sent + 1.U }
   }
   when(active && unit.io.out.valid) {
     io.wb.zipWithIndex.foreach { case (w, i) =>
-      w.en := i.U === back && io.mask(i); w.addr := rd; w.data := unit.io.out.bits
+      w.en := i.U === back && mask(i); w.addr := rd; w.data := unit.io.out.bits
     }
     back := back + 1.U
     when(back === (N - 1).U) {
