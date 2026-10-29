@@ -6,27 +6,31 @@ package borg
 import chisel3._
 import chisel3.util._
 
-class ExecMaskIO(lanes: Int) extends Bundle {
+class ExecMaskIO(lanes: Int, slots: Int) extends Bundle {
+  val slot  = Input(UInt(log2Ceil(slots).W)) // the quad slot push, else and pop act on
   val push  = Input(Bool())                 // EXPUSH: the lanes whose cond is nonzero
   val els   = Input(Bool())                 // EXELSE
   val pop   = Input(Bool())                 // EXPOP
   val cond  = Input(Vec(lanes, UInt(32.W)))
   val start = Input(Valid(UInt(lanes.W)))   // a new invocation and its lanes
-  val mask  = Output(UInt(lanes.W))
+  val startSlot = Input(UInt(log2Ceil(slots).W))
+  val mask  = Output(Vec(slots, UInt(lanes.W)))
   val fault = Output(Bool())                // sticky: the stack over- or underflowed
 }
 
 /** The execution mask of divergent control flow: both arms of a divergent `if` run, the lanes
   * that should not are masked. The stack holds the enclosing mask, so EXELSE gives
-  * `enclosing & ~mask`, never a plain inversion that would wake lanes an outer `if` masked. */
-class ExecMask(lanes: Int, depth: Int = 8) extends Module {
-  val io = IO(new ExecMaskIO(lanes))
-  private val all   = ((1 << lanes) - 1).U(lanes.W)
-  private val mask  = RegInit(all)
-  private val stack = Reg(Vec(depth, UInt(lanes.W)))
-  private val sp    = RegInit(0.U(log2Ceil(depth + 1).W))
-  private val fault = RegInit(false.B)
-  io.mask := mask; io.fault := fault
+  * `enclosing & ~mask`, never a plain inversion that would wake lanes an outer `if` masked.
+  * Each quad slot has its own mask and stack. */
+class ExecMask(lanes: Int, slots: Int = 1, depth: Int = 8) extends Module {
+  val io = IO(new ExecMaskIO(lanes, slots))
+  private val all    = ((1 << lanes) - 1).U(lanes.W)
+  private val masks  = RegInit(VecInit(Seq.fill(slots)(all)))
+  private val stacks = Reg(Vec(slots, Vec(depth, UInt(lanes.W))))
+  private val sps    = RegInit(VecInit(Seq.fill(slots)(0.U(log2Ceil(depth + 1).W))))
+  private val fault  = RegInit(false.B)
+  io.mask := masks; io.fault := fault
+  private val (mask, stack, sp) = (masks(io.slot), stacks(io.slot), sps(io.slot))
 
   private val cond   = VecInit(io.cond.map(_ =/= 0.U)).asUInt
   // sp is one bit wider than the stack's index: slice, or the index logic doubles.
@@ -47,5 +51,5 @@ class ExecMask(lanes: Int, depth: Int = 8) extends Module {
   if (BorgDebug.trace) when(io.push || io.els || io.pop) {
     printf("[EXEC] push=%d else=%d pop=%d cond=0x%x mask=0x%x sp=%d\n", io.push, io.els, io.pop, cond, mask, sp)
   }
-  when(io.start.valid) { mask := io.start.bits; sp := 0.U }
+  when(io.start.valid) { masks(io.startSlot) := io.start.bits; sps(io.startSlot) := 0.U }
 }

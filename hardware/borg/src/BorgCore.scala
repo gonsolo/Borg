@@ -144,8 +144,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val brTargetReg = RegInit(0.U(cfg.pcBits.W))
   val branchDivergent = RegInit(false.B)
 
-  private val exec = Module(new ExecMask(cfg.fragLanes))
-  val execMask = exec.io.mask
+  private val exec = Module(new ExecMask(cfg.fragLanes, cfg.quadSlots))
 
   // The PC advances at issue, a branch's one stage after its operands.
   private val redirect = cfg.cOperands - 1
@@ -171,7 +170,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val (regs, opFlags) = Decode(fetchedInstruction, cfg)
   // A BARRIER with every lane masked is one the workgroup skipped (barriers are in uniform control
   // flow): it steps over, since a resume would restart those lanes unmasked.
-  val barrierStop = opFlags.barrier && execMask =/= 0.U
+  val barrierStop = opFlags.barrier && exec.io.mask(issueSlot) =/= 0.U
   val next = RvInt(fetchedInstruction)
   val issued = Wire(new StageInfo)
   issued.writes := !opFlags.branch && !opFlags.execOp && !opFlags.rvNoWrite
@@ -209,8 +208,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     nextPC := Mux(redirecting, pcAfterThis, Mux(step, programCounter + 1.U, programCounter))
   }
   runPipeline()
-  // The flags of the instruction at its operands (stage cOperands).
+  // The flags and slot of the instruction at its operands (stage cOperands), and its exec mask.
   val flagsX = BorgLane.later(!holdPipe)(RegEnable(opFlags, 0.U.asTypeOf(opFlags), issuing), cfg.cBusyLoad - cfg.cOperands)
+  val slotX = BorgLane.later(!holdPipe)(RegEnable(issueSlot, issuing), cfg.cBusyLoad - cfg.cOperands)
+  val execMask = exec.io.mask(slotX)
 
   val (uniformData, funct3Del) = wireUniformRead()
   val ovs = wireRvOperands()
@@ -292,6 +293,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireBranch()
   locally {
     val ex = at(cfg.cOperands) && flagsX.execOp
+    exec.io.slot := slotX
+    exec.io.startSlot := 0.U(cfg.slotBits.W)
     exec.io.push := ex && flagsX.expush; exec.io.els := ex && flagsX.exelse; exec.io.pop := ex && flagsX.expop
     exec.io.cond := VecInit(lanes.map(_.io.recARaw))
     // A compute quad starts with only its real invocations: a workgroup may not fill the quad.
