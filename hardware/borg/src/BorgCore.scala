@@ -652,8 +652,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * be tested against instead of a subtly wrong image.
     */
   private def wireBranch(condOperands: Seq[UInt], condOperandsB: Seq[UInt]): Unit = {
-    // ISA v2: BEQ..BGEU decide on the lowest active lane, JAL always jumps.
-    val rv = RvInt(fetchedInstruction)
+    // ISA v2: BEQ..BGEU decide on the lowest active lane, JAL always jumps. The word as it issued:
+    // the fetch may hold another by the time the branch reaches its operands.
+    val rv = RvInt(RegEnable(fetchedInstruction, fma_start && opFlags.branch))
     val rvConds = condOperands.zip(condOperandsB).map { case (a, b) => rv.cond(a, b) }
     val rvLead  = PriorityMux(execMask.asBools, rvConds)
     val takeIt = (rv.br && rvLead) || rv.jal
