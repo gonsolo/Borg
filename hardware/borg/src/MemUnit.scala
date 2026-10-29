@@ -50,6 +50,11 @@ class MemUnit(cfg: BorgConfig) extends Module {
   private val start = io.atOps && state === sIdle && (isLoad || isStore || isFattr)
   private val (opA, opB, opC, mask) = (RegEnable(io.a, start), RegEnable(io.b, start), RegEnable(io.c, start), RegEnable(io.mask, start))
   private val curIndex = opA(lane); private val curData = opB(lane); private val curCmp = opC(lane)
+  // A load whose active lanes share one address makes one access for all of them.
+  private val uniform = RegEnable(isLoad && !isAmo && {
+    val first = Mux1H(PriorityEncoderOH(io.mask), io.a)
+    (0 until N).map(i => !io.mask(i) || io.a(i) === first).reduce(_ && _)
+  }, start)
 
   // Word accesses are aligned: the low address bits select within the word.
   private val rvAddr = (curIndex.pad(32) + rvImm)(31, 0)
@@ -88,7 +93,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
   io.wbWant    := state === sWB || state === sAttrWB
 
   when(io.atOps && state === sIdle && (isLoad || isStore)) {
-    rd := regs.rd; lane := 0.U
+    rd := regs.rd; lane := Mux(isLoad && !isAmo, PriorityEncoder(io.mask), 0.U)
     state := sReq
     compIdx := Cat(regs.rs1, regs.rd)          // SOUT: index in rs1:rd
   }
@@ -144,9 +149,9 @@ class MemUnit(cfg: BorgConfig) extends Module {
   }
   when(state === sWB) {
     io.wb.zipWithIndex.foreach { case (w, i) =>
-      w.en := io.wbReady && i.U === lane && !(rvMem && rd === 0.U); w.addr := rd; w.data := data
+      w.en := io.wbReady && Mux(uniform, mask(i), i.U === lane) && !(rvMem && rd === 0.U); w.addr := rd; w.data := data
     }
-    when(io.wbReady) { finishLane() }
+    when(io.wbReady) { when(uniform) { finishInstr() }.otherwise { finishLane() } }
   }
 
   // FATTR: word k to rd+k of every active lane, three times, through a direct-mapped cache of

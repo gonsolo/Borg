@@ -121,10 +121,10 @@ object BorgCoreTestsC extends TestSuite {
         val (_, helperW) = run(Opcodes.SW(rs1 = 3, rs2 = 1), Seq(false, true, false, true))
         val (helperR, _) = run(Opcodes.LW(rd = 2, rs1 = 3), Seq(false, true, false, true))
         val (_, spillW)  = run(Opcodes.SWS(rs1 = 3, rs2 = 1), Seq(false, true, false, true))
-        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); loads $helperR (expect 4); spill stores $spillW (expect 4)")
+        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); loads $helperR (expect 1, one address for the quad); spill stores $spillW (expect 4)")
         utest.assert(allW == 4)
         utest.assert(helperW == 2)
-        utest.assert(helperR == 4)
+        utest.assert(helperR == 1)
         utest.assert(spillW == 4)
         core.io.laneHelper.foreach(_.poke(false.B))
       }

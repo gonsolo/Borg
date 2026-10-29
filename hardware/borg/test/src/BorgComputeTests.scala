@@ -381,6 +381,20 @@ object BorgComputeTests extends TestSuite {
       }
     }
 
+    utest.test("uniform_and_per_lane_loads_reach_every_active_lane") {
+      import Opcodes._
+      // Three invocations, lane 3 masked: r6 = word 20 (one access), r8 = word 24 + lane.
+      val prog = words(ADDI(5, 0, 20), ld(5, 6), ADDI(7, 30, 24), ld(7, 8), st(30, 6), ADDI(9, 30, 8), st(9, 8))
+      def preset(dram: HalfwordDram, i: Int, v: Int): Unit = { dram.mem(lsBase + 4 * i) = v; dram.mem(lsBase + 4 * i + 2) = 0 }
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, Map(10 -> 0), (1, 1, 1), (3, 1, 1),
+          setup = m => { preset(m, 20, 1234); (0 until 4).foreach(i => preset(m, 24 + i, 100 + i)) })
+        val got = (0 until 4).map(i => (word(dram, i), word(dram, 8 + i)))
+        println(s"  $got")
+        utest.assert(got == (0 until 3).map(i => (BigInt(1234), BigInt(100 + i))) :+ ((BigInt(0), BigInt(0))))
+      }
+    }
+
     utest.test("amoadd_and_amocas_serialize_the_lanes") {
       import Opcodes._
       // r14 counter (0x2000, starts 0), r19 a second word (0x2010, starts 100); old values to 0x3000 / 0x3010 + 4 * lane.

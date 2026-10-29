@@ -388,9 +388,9 @@ object BorgLinkEquivalenceTests extends TestSuite {
       utest.assert(direct._2 == linked._2)
 
       // This scenario's whole point: real gpuMem read traffic actually
-      // happened -- three sequential reads (R, G, B) per pixel, 16 pixels.
-      utest.assert(direct._3 == 48)
-      utest.assert(linked._3 == 48)
+      // happened -- three reads (R, G, B) per quad, one for its four lanes' shared address.
+      utest.assert(direct._3 == 12)
+      utest.assert(linked._3 == 12)
 
       // Independently anchor it: a bug that broke *both* paths identically
       // (e.g. the same reference gpuMem model on both sides) would otherwise
