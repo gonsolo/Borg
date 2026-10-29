@@ -8,7 +8,10 @@ import chisel3.util._
 
 class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val pixelReady      = Input(Bool())                                   // a new quad, one cycle
-  val shaderTileIndex = Input(Vec(cfg.fragLanes, UInt(4.W)))            // each lane's tile slot
+  // The iterator's quad from the cycle after pixelReady: each lane's tile slot and position.
+  val shaderTileIndex = Input(Vec(cfg.fragLanes, UInt(4.W)))
+  val shaderIter      = Input(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))
+  val quadIter        = Output(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))   // the shaded quad's
 
   val csrWrite   = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
   val coreStatus = Flipped(new CoreStatusIO)
@@ -95,9 +98,16 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
        sDstRead :: sDstWait1 :: sDstWait2 :: sDstCap :: Nil) = Enum(11)
   val phase = RegInit(sIdle)
 
+  // The quad's inputs, held: the iterator moves on once the quad has a slot.
+  private val capture = RegNext(io.pixelReady, false.B)
+  private def held[T <: Data](live: T): T = Mux(capture, live, RegEnable(live, capture))
+  val tileIndex   = held(io.shaderTileIndex)
+  val scissorPass = held(io.scissorPass)
+  io.quadIter := held(io.shaderIter)
+
   val cov  = new QuadCoverage(cfg, io.drawMode, io.topLeft, io.covDelta, io.sampleCfg)
   val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.sampleCfg)
-  val ops  = new FragmentOps(cfg, io, outs, cov)
+  val ops  = new FragmentOps(cfg, io, outs, cov, scissorPass, tileIndex)
   io.laneCoverage := cov.laneMask
 
   val auto_run_stall = RegInit(false.B)
@@ -125,7 +135,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.coreTrigger.isSetup := false.B
 
   io.tileWrite.en       := false.B
-  io.tileWrite.idx      := io.shaderTileIndex(0)
+  io.tileWrite.idx      := tileIndex(0)
   io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16, cfg.tileDepthBits))
   io.tileWrite.coverage := 0.U
   io.occSamples         := 0.U
@@ -154,7 +164,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
 
   io.tileRead.en  := false.B
-  io.tileRead.idx := io.shaderTileIndex(0)
+  io.tileRead.idx := tileIndex(0)
 
   when(io.pixelReady) {
     cov.clear()
@@ -168,7 +178,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     io.coreTrigger.valid  := true.B
     io.coreTrigger.pc     := 0.U
     io.coreTrigger.isRast := true.B
-    if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx0=%d\n", io.shaderTileIndex(0))
+    if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx0=%d\n", tileIndex(0))
   }
 
   val core_was_active = RegNext(io.coreStatus.running || io.coreStatus.autoRunPending, false.B)
@@ -202,7 +212,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // triangle starts once this one is written.
   when(phase === sDstRead) {
     io.tileRead.en  := true.B
-    io.tileRead.idx := io.shaderTileIndex(laneIdx)
+    io.tileRead.idx := tileIndex(laneIdx)
     phase := sDstWait1
   }
   when(phase === sDstWait1) { phase := sDstWait2 }
@@ -227,14 +237,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   when(phase === sZRead) {
     io.tileRead.en  := true.B
-    io.tileRead.idx := io.shaderTileIndex(laneIdx)
+    io.tileRead.idx := tileIndex(laneIdx)
     phase := sZWait1
   }
   when(phase === sZWait1) { phase := sZWait2 }
   when(phase === sZWait2) { phase := sTileWrite }
 
   when(phase === sTileWrite) {
-    io.tileWrite.idx := io.shaderTileIndex(laneIdx)
+    io.tileWrite.idx := tileIndex(laneIdx)
     ops.write(laneIdx, sampleCtr.map(_.asUInt).getOrElse(0.U), earlyActive, earlyDone, earlyPass)
 
     // The next lane once this one's samples are written; the tile read holds across them.
@@ -278,6 +288,6 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   for (i <- 0 until N) {
     val failedEarly = earlyDone && !earlyPass(i).reduce(_ || _)
     io.laneHelper(i) := phase === sFrag &&
-      (!cov.inside(i) || !io.scissorPass(i) || outs.killed(i) || failedEarly)
+      (!cov.inside(i) || !scissorPass(i) || outs.killed(i) || failedEarly)
   }
 }

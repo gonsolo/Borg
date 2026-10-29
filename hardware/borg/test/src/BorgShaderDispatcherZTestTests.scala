@@ -202,6 +202,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         println("\n--- helper lanes ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+        d.io.scissorPass(0).poke(false.B)            // lane 0 scissored out, held with the quad
         firePixelReady(d, fragPc = 13, tileIdx = 7)
         d.io.fragPcReg.poke(13.U)
         d.io.coreStatus.autoRunPending.poke(true.B)
@@ -216,9 +217,8 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         d.io.coreStatus.autoRunPending.poke(false.B)
         d.io.coreStatus.running.poke(true.B)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_FRAG)
-        utest.assert(!d.io.laneHelper(0).peek().litToBoolean)
-        d.io.scissorPass(0).poke(false.B)            // scissored out
         utest.assert(d.io.laneHelper(0).peek().litToBoolean)
+        utest.assert(!d.io.laneHelper(1).peek().litToBoolean)
         d.io.scissorPass(0).poke(true.B)
         println("  PASSED")
       }

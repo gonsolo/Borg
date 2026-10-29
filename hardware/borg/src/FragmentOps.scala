@@ -11,7 +11,8 @@ import chisel3.util._
   * written on its own cycle, so it sees that sample's stored value; otherwise one colour goes to
   * every covered sample. Under ZTEST (`early`) only depth and stencil change, colour is rewritten
   * as read, and earlyPass keeps each sample's result for the late pass. */
-class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs, cov: QuadCoverage) {
+class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs, cov: QuadCoverage,
+                  scissorPass: Vec[Bool], tileIndex: Vec[UInt]) {
   val perSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 
   /** VkCompareOp on depths in float order: negative below positive, -0 equal to +0. */
@@ -91,9 +92,9 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
     // Covered, not discarded, inside the scissor, and in the late pass inside alpha to coverage and
     // the shader's mask (the early tests ran without them).
     def reached(s: Int): Bool =
-      cov.coverage(lane)(s) && !outs.killed(lane) && io.scissorPass(lane) && (early || outs.postMask(lane)(s))
+      cov.coverage(lane)(s) && !outs.killed(lane) && scissorPass(lane) && (early || outs.postMask(lane)(s))
     def reachedDyn(s: UInt): Bool =
-      cov.coverage(lane)(s) && !outs.killed(lane) && io.scissorPass(lane) && (early || outs.postMask(lane)(s))
+      cov.coverage(lane)(s) && !outs.killed(lane) && scissorPass(lane) && (early || outs.postMask(lane)(s))
 
     if (perSample) {
       val testOk = stencilRes.map(_.pass).getOrElse(depthPasses(outs.zAt(lane, smp), rd.z))
@@ -127,6 +128,6 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
       }
     }
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d smp=%d idx=%d Z=0x%x zOld=0x%x cov=0x%x\n",
-      lane, smp, io.shaderTileIndex(lane), outs.frag_z(lane), rd.z, io.tileWrite.coverage)
+      lane, smp, tileIndex(lane), outs.frag_z(lane), rd.z, io.tileWrite.coverage)
   }
 }

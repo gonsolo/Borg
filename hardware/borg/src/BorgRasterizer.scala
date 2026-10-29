@@ -86,6 +86,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   dispatcher.io.pixelReady     := iterator.io.pixelReady
   dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex
+  dispatcher.io.shaderIter     := iterator.io.shaderIter
   dispatcher.io.csrWrite       <> io.csrWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
@@ -130,7 +131,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.occSamples        := dispatcher.io.occSamples
 
   io.iter         := iterator.io.iter
-  io.shaderIter   := iterator.io.shaderIter
+  io.shaderIter   := dispatcher.io.quadIter
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
   io.tileOrigin   := iterator.io.tileOrigin
