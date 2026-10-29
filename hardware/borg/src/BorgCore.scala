@@ -170,23 +170,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // @doc:storage
   // --- Shared storage ---
-  val instructionMemory = SyncReadMem(cfg.maxInstructions, UInt(32.W))
   val programCounter = RegInit(0.U(cfg.pcBits.W))
   val running = RegInit(false.B)
   val auto_run_pending = RegInit(false.B)
   val running_by_rasterizer = RegInit(false.B)
 
-  // Baked rasterizer edge-test shader (see BorgRasterRom) -- a permanent ROM,
-  // fetched instead of instructionMemory while fetchRast is latched. Timing-
-  // matched to instructionMemory.read(nextPC)'s 1-cycle synchronous latency by
-  // registering the address, not the (combinational) ROM output.
-  val rasterRom  = VecInit(BorgRasterRom.instructions.map(_.U(32.W)))
+  // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
   val fetchRast  = RegInit(false.B)
-  // The draw front end's triangle setup (BorgSetupRom), fetched the same way.
-  val setupRom   = VecInit(BorgSetupRom.instructions.map(_.U(32.W)))
   val fetchSetup = RegInit(false.B)
-  // ...and its per-pixel program, which replaces the edge test in draw mode.
-  val drawRasterRom = VecInit(BorgRasterRom.drawInstructions.map(_.U(32.W)))
 
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
   // @doc:end
@@ -244,25 +235,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val redirect = cfg.cOperands - 1
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC = Wire(UInt(cfg.pcBits.W))
-  val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
-  private val rasterShort = io.drawSingle && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
-  private val rasterWord =
-    Mux(io.drawMode, Mux(rasterShort, 0.U, drawRasterRom(rasterRomAddrReg)), rasterRom(rasterRomAddrReg))
-  private val setupStop = io.setupShort && rasterRomAddrReg === BorgSetupRom.shortPc.U
-  val fetchedInstruction =
-    Mux(fetchRast, rasterWord,
-      Mux(fetchSetup, Mux(setupStop, 0.U, setupRom(rasterRomAddrReg)), instructionMemory.read(imemIndex(nextPC))))
-  // False while the fetched word is not the program's word at that PC (an
-  // instruction-cache miss or fill); nothing issues until it is. Always true
-  // without the cache.
-  val fetchReady = WireDefault(true.B)
-  // Cache fill: shares IMEM's single write port with DMA/MMIO (see runPipeline).
-  val fillWriteEn   = WireDefault(false.B)
-  val fillWriteIdx  = WireDefault(0.U(log2Ceil(cfg.maxInstructions).W))
-  val fillWriteData = WireDefault(0.U(32.W))
-  // DMA/MMIO write this cycle, for the cache's bookkeeping.
-  val extWriteEn  = WireDefault(false.B)
-  val extWriteIdx = WireDefault(0.U(log2Ceil(cfg.maxInstructions).W))
+  private val fetch = Module(new Fetch(cfg))
+  fetch.io.pc         := nextPC
+  fetch.io.fromRast   := fetchRast
+  fetch.io.fromSetup  := fetchSetup
+  fetch.io.drawMode   := io.drawMode
+  fetch.io.drawSingle := io.drawSingle
+  fetch.io.setupShort := io.setupShort
+  fetch.io.codeBase   := io.codeBase
+  fetch.io.flush      := io.icacheFlush
+  val fetchedInstruction = fetch.io.word
+  val fetchReady = fetch.io.ready
 
   // Resume delay: after a stall FSM's writeback completes, the IMEM still
   // holds the stale opcode (1-cycle SyncReadMem latency); suppress restart
@@ -270,6 +253,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // TEX/TEXA).
   val texResumeDelay = RegInit(false.B)
   when(texResumeDelay) { texResumeDelay := false.B }
+  fetch.io.missOk := running && !is_busy && !texResumeDelay
 
   // --- Decode + FSM ---
   val (regs, opFlags) = decode(fetchedInstruction)
@@ -386,9 +370,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.zTestReq := zTest.io.req
   zTest.io.done := io.zTestDone
 
-  // --- Instruction cache: must follow wireMemStall, whose port it shares ---
-
-  // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
   private val memUnit = Module(new MemUnit(cfg))
   attach(memUnit.io)
   memUnit.io.record     := io.record
@@ -397,25 +378,27 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   memUnit.io.mem.data    := io.gpuMem.data
   memUnit.io.mem.ready   := io.gpuMem.ready
   memUnit.io.mem.waccept := io.gpuMem.waccept
-  io.gpuMem.req   := memUnit.io.mem.req
-  io.gpuMem.addr  := memUnit.io.mem.addr
-  io.gpuMem.wr    := memUnit.io.mem.wr
-  io.gpuMem.wdata := memUnit.io.mem.wdata
-  io.gpuMem.wlen  := memUnit.io.mem.wlen
-  io.memBusy      := memUnit.io.busy
-  wireICache()
   private val texUnit = Module(new TexUnit(cfg))
   attach(texUnit.io)
   texUnit.io.descWritten := io.descWritten
   texUnit.io.mem.data    := io.gpuMem.data
   texUnit.io.mem.ready   := io.gpuMem.ready
   texUnit.io.mem.waccept := io.gpuMem.waccept
-  when(texUnit.io.busy) {
-    io.memBusy     := true.B
-    io.gpuMem.req  := texUnit.io.mem.req
-    io.gpuMem.addr := texUnit.io.mem.addr
-    io.gpuMem.wr   := false.B
-    io.gpuMem.wlen := 1.U
+  fetch.io.mem.data    := io.gpuMem.data
+  fetch.io.mem.ready   := io.gpuMem.ready
+  fetch.io.mem.waccept := io.gpuMem.waccept
+
+  // The memory port: the sampler's while it runs, the instruction cache's while it fills, else
+  // the memory unit's. They never overlap: each runs only while the pipeline waits for it.
+  locally {
+    val users = Seq(texUnit.io.busy -> texUnit.io.mem, fetch.io.filling -> fetch.io.mem, true.B -> memUnit.io.mem)
+    def pick[T <: Data](f: GpuMemIO => T): T = PriorityMux(users.map(_._1), users.map(u => f(u._2)))
+    io.gpuMem.req   := pick(_.req)
+    io.gpuMem.addr  := pick(_.addr)
+    io.gpuMem.wr    := pick(_.wr)
+    io.gpuMem.wdata := pick(_.wdata)
+    io.gpuMem.wlen  := pick(_.wlen)
+    io.memBusy := texUnit.io.busy || fetch.io.filling || memUnit.io.busy
   }
 
   attach(Module(new ExpLogUnit(cfg)).io)
@@ -568,24 +551,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       auto_run_pending := false.B
     }
 
-    // IMEM write: DMA has priority; MMIO always present.
+    // IMEM write: DMA has priority over MMIO.
     val mmioImemWrite =
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 416.U // 128 + 72*4
-    val imemWen  = io.dmaImemWrite.en || mmioImemWrite
-    val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
-                       (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
-    val imemData = Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
-    // One write port, shared with the instruction-cache fill (which only runs
-    // while a shader is executing, never alongside a DMA/MMIO load). An
-    // address past IMEM is dropped: a preload longer than IMEM leaves the
-    // rest of the program to the cache.
-    val extWrite = imemWen && imemAddr < cfg.maxInstructions.U
-    extWriteEn  := extWrite
-    extWriteIdx := imemAddr.pad(log2Ceil(cfg.maxInstructions))(log2Ceil(cfg.maxInstructions) - 1, 0)
-    when(extWrite || fillWriteEn) {
-      instructionMemory.write(Mux(fillWriteEn, fillWriteIdx, extWriteIdx),
-                              Mux(fillWriteEn, fillWriteData, imemData))
-    }
+    fetch.io.load.valid := io.dmaImemWrite.en || mmioImemWrite
+    fetch.io.load.bits.addr := Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr, (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
+    fetch.io.load.bits.data := Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
 
     // Uniform write: same single-port pattern.
     val mmioUnifWrite =
@@ -641,164 +612,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val uniform_data = Mux(op_en_del, read_data, 0.U)
     (uniform_data, funct3_del)
   }
-
-  /** IMEM word for program counter `pc`. Without the cache the PC only ever
-    * indexes IMEM. With it, IMEM is direct-mapped over the program: word `pc`
-    * lives in line `pc mod L` (L = the largest power of two within IMEM),
-    * except that every PC inside IMEM keeps its own word, so a 72-word IMEM
-    * still holds a 72-word program exactly where it always did. */
-  private def imemIndex(pc: UInt): UInt = {
-    val n  = cfg.maxInstructions
-    val lb = cfg.icacheLinesLog2
-    if ((1 << lb) == n) pc(lb - 1, 0)
-    else Mux(pc < n.U, pc(log2Ceil(n) - 1, 0), pc(lb - 1, 0))
-  }
-
-  // @doc:icache
-  /** Shader instruction cache.
-    *
-    * IMEM is the cache's data array; this adds only bookkeeping. A line is
-    * invalid, NEAR -- holding the word of the PC equal to its own index, which
-    * is where the sequencer's DMA and MMIO writes put a program -- or FAR,
-    * holding the word of a PC past IMEM, identified by a tag. Only the low L
-    * lines can go far; lines L..N-1 (IMEM 64..71 of a 72-word build) are
-    * near or invalid.
-    *
-    * A fetch hits if the line is valid and holds the word of the PC being
-    * fetched (near for a PC inside IMEM, far with a matching tag past it).
-    * On a miss the core does not issue. The fill reads codeBase + 4*pc over
-    * the LOAD/STORE port (one 32-bit word), writes it into the line, marks
-    * it, and waits one cycle for IMEM's synchronous read to return the new
-    * word. Any PC can miss -- a near line far code evicted, or one the
-    * preload never reached -- so the whole program, not just its tail, must
-    * be in DRAM at codeBase. The sequencer's shader DMA arranges that
-    * automatically (Borg.scala).
-    *
-    * `icacheFlush` marks a program change and invalidates every line; the
-    * DMA/MMIO writes that follow make their lines near and valid, which is
-    * what makes a preload a prefill of this cache. Lines reset valid, so a
-    * program loaded without any flush -- every pre-cache use of IMEM --
-    * behaves exactly as before. An MMIO-loaded program longer than IMEM must
-    * write CODE_BASE (which flushes) BEFORE its IMEM words.
-    */
-  private def wireICache(): Unit = {
-    val pc      = rasterRomAddrReg
-    val inImem  = pc < cfg.maxInstructions.U
-
-    val sIdle :: sFetch :: sSettle :: Nil = Enum(3)
-    val state  = RegInit(sIdle)
-    val missPc = RegInit(0.U(cfg.pcBits.W))
-    val g = io.gpuMem
-    val fill = state === sFetch && g.ready
-    val lineHit =
-      if (cfg.icacheMetaInRam) icacheLinesRam(pc, inImem, fill, missPc)
-      else icacheLinesFlops(pc, inImem, fill, missPc)
-    val hit = fetchRast || fetchSetup || lineHit
-    fetchReady := hit && state === sIdle
-
-    when(state === sIdle && running && !is_busy && !texResumeDelay && !hit) {
-      missPc := pc
-      state  := sFetch
-      if (BorgDebug.trace) printf("[ICACHE] miss pc=%d\n", pc)
-    }
-    when(state === sFetch) {
-      io.memBusy := true.B
-      g.req  := true.B
-      g.wr   := false.B
-      g.addr := (io.codeBase + (missPc << 2))(GpuMemIO.AddrBits - 1, 0)
-      when(g.ready) {
-        fillWriteEn   := true.B
-        fillWriteIdx  := imemIndex(missPc)
-        fillWriteData := g.data
-        state := sSettle
-      }
-    }
-    // IMEM returns the filled word one read later; hold issue for that cycle.
-    when(state === sSettle) { state := sIdle }
-  }
-
-  /** Line state in flops, for a small IMEM: a flush clears it in one cycle.
-    * True if the line holds pc's word. */
-  private def icacheLinesFlops(pc: UInt, inImem: Bool, fill: Bool, missPc: UInt): Bool = {
-    val n       = cfg.maxInstructions
-    val lb      = cfg.icacheLinesLog2
-    val L       = 1 << lb
-    val valid    = RegInit(VecInit(Seq.fill(n)(true.B)))
-    val isFar    = RegInit(VecInit(Seq.fill(L)(false.B)))
-    val farTag   = Reg(Vec(L, UInt((cfg.pcBits - lb).W)))
-    val line   = pc(lb - 1, 0)
-    val nearOk = if (L < n) Mux(pc >= L.U, true.B, !isFar(line)) else !isFar(line)
-    val hit = valid(imemIndex(pc)) && Mux(inImem, nearOk,
-      isFar(line) && farTag(line) === pc(cfg.pcBits - 1, lb))
-    when(fill) {
-      val l = missPc(lb - 1, 0)
-      valid(imemIndex(missPc)) := true.B
-      when(missPc < n.U) {
-        when(missPc < L.U) { isFar(l) := false.B }   // a near word (re)fetched
-      }.otherwise {
-        isFar(l)  := true.B
-        farTag(l) := missPc(cfg.pcBits - 1, lb)
-      }
-    }
-    // A flush starts a new program: nothing in IMEM belongs to it yet. The
-    // DMA/MMIO writes that follow each make their line near and valid. (A
-    // write in the same cycle as a flush wins: the flush pulses at DMA start,
-    // before its first word arrives, so they never actually coincide.)
-    when(io.icacheFlush) {
-      valid.foreach(_ := false.B)
-      isFar.foreach(_ := false.B)
-    }
-    when(extWriteEn) {
-      valid(extWriteIdx) := true.B
-      when(extWriteIdx < L.U) { isFar(extWriteIdx(lb - 1, 0)) := false.B }
-    }
-    hit
-  }
-
-  /** Line state in a RAM read next to IMEM, for a large IMEM, where flops
-    * cost LUTs on the FPGA and per-cycle work in the simulator. A line is
-    * valid only in the epoch it was written in, so a flush bumps the epoch.
-    * A sweep rewrites every line after reset (valid, as the flops reset) and
-    * when the epoch wraps (invalid); a line it has not reached yet reads as
-    * what it will write. True if the line holds pc's word. */
-  private def icacheLinesRam(pc: UInt, inImem: Bool, fill: Bool, missPc: UInt): Bool = {
-    val n     = cfg.maxInstructions
-    val lb    = cfg.icacheLinesLog2
-    val lines = SyncReadMem(n, new ICacheLine(cfg.pcBits - lb))
-    val epoch      = RegInit(0.U(ICacheLine.EpochBits.W))
-    val sweeping   = RegInit(true.B)
-    val sweepValid = RegInit(true.B)
-    val sweepIdx   = RegInit(0.U(log2Ceil(n).W))
-    val flush = io.icacheFlush
-
-    val cur = lines.read(imemIndex(nextPC))
-    val unswept = RegNext(sweeping && imemIndex(nextPC) >= sweepIdx)
-    val unsweptValid = RegNext(sweepValid && !flush)
-    val hit = Mux(unswept, unsweptValid && inImem,
-      cur.valid && cur.epoch === epoch && Mux(inImem, !cur.far, cur.far && cur.tag === pc(cfg.pcBits - 1, lb)))
-
-    val w = Wire(new ICacheLine(cfg.pcBits - lb))
-    w.valid := true.B
-    w.epoch := Mux(flush, epoch + 1.U, epoch)
-    w.far   := fill && !(missPc < n.U)
-    w.tag   := missPc(cfg.pcBits - 1, lb)
-    val step = sweeping && !fill && !extWriteEn
-    when(step) { w.valid := sweepValid && !flush; w.far := false.B }
-    when(fill || extWriteEn || step) {
-      lines.write(Mux(fill, imemIndex(missPc), Mux(extWriteEn, extWriteIdx, sweepIdx)), w)
-    }
-    when(step) {
-      sweepIdx := sweepIdx + 1.U
-      when(sweepIdx === (n - 1).U) { sweeping := false.B }
-    }
-    when(flush) {
-      epoch := epoch + 1.U
-      when(sweeping) { sweepValid := false.B }   // the rest is stale now too
-      when(epoch.andR) { sweeping := true.B; sweepValid := false.B; sweepIdx := 0.U }
-    }
-    hit
-  }
-  // @doc:end
 
   /** Connects a multi-cycle unit: it holds the pipeline while it works; when it finishes, the
     * stages are squashed and the PC steps past its instruction. */
