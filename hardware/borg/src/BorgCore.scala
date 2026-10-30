@@ -240,7 +240,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   else {
     val order = (1 to cfg.quadSlots).map(k => (issueSlot + k.U)(cfg.slotBits - 1, 0))
     val ready = VecInit(slots.zip(pending).map { case (q, p) => (q.running || q.startPending) && p === 0.U })
-    nextSlot := PriorityMux(order.map(ready(_)) :+ true.B, order :+ issueSlot)
+    // Idle, slot 0: MMIO reads it, and a constant slot in the read address would keep the
+    // register file out of block RAM.
+    val idle = !slots.map(q => q.running || q.startPending).reduce(_ || _)
+    nextSlot := PriorityMux(order.map(ready(_)) :+ true.B, order :+ Mux(idle, 0.U, issueSlot))
   }
   issueSlot := nextSlot
   runPipeline()

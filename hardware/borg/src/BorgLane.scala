@@ -157,9 +157,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mmioAddr = ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)
 
     val atDecode = io.decode
-    // MMIO reads and writes slot 0.
+    // MMIO reads and writes slot 0, the issue slot while the core is idle.
     val (rs1, rs2, rs3) = (addr(io.slot, regs.rs1), addr(io.slot, regs.rs2), addr(io.slot, regs.rs3))
-    regFile.io.rd.addr := Mux(mmioEn, addr(0.U(cfg.slotBits.W), mmioAddr), rs1)
+    regFile.io.rd.addr := addr(io.slot, Mux(mmioEn, mmioAddr, regs.rs1))
     regFile.io.rd.en   := mmioEn || atDecode
     regFilesBC.zip(Seq(rs2, rs3)).foreach { case (f, r) => f.io.rd.addr := r; f.io.rd.en := atDecode }
     val (dataB, dataC) = (regFilesBC(0).io.rd.data, regFilesBC(1).io.rd.data)
