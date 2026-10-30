@@ -222,6 +222,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val dims = Mux(ttype === T3D.U, 3.U, Mux(ttype === T1D.U, 1.U, 2.U))
 
   private val srgbRom = VecInit(TexFormat.srgbToLinear.map(_.U(32.W)))
+  private val srgbWait = RegInit(false.B)                  // an sRGB channel waits a cycle for its ROM read
 
   // The one FMA: implicit LOD and the filter's weighted sum.
   private val fma = Module(new BorgFma(cfg))
@@ -634,13 +635,14 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val sext = ((field << (32.U - w))(31, 0).asSInt >> (32.U - w)).asUInt
       val oneF = "h3F800000".U(32.W)
       val isAlpha = k === 3.U
+      val srgbLin = RegNext(srgbRom(field(7, 0)))           // block RAM
       val v = MuxLookup(fmt.kind, field)(Seq(
         TexFormat.UNORM.U  -> TexFormat.unormToFp32(field, w),
         TexFormat.SNORM.U  -> TexFormat.snormToFp32(field, w),
         TexFormat.UINT.U   -> field,
         TexFormat.SINT.U   -> sext,
         TexFormat.SFLOAT.U -> Mux(w === 16.U, Fp16Fp32.widen(field(15, 0)), field),
-        TexFormat.SRGB.U   -> Mux(isAlpha, TexFormat.unormToFp32(field, w), srgbRom(field(7, 0))),
+        TexFormat.SRGB.U   -> Mux(isAlpha, TexFormat.unormToFp32(field, w), srgbLin),
         TexFormat.UFLOAT.U -> Mux(w === 11.U, TexFormat.ufloatToFp32(field(10, 0), 6),
                                   TexFormat.ufloatToFp32(field(9, 0), 5)),
         TexFormat.SHAREDEXP.U -> TexFormat.uintScaledToFp32(field, all(31, 27).zext - 24.S)))
@@ -651,8 +653,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val bOne = Mux(isInt, 1.U(32.W), oneF)
       val bv = Mux(isAlpha, Mux(border >= 2.U, bOne, 0.U), Mux(border >= 4.U, bOne, 0.U))
       // The border replaces only the channels the format has.
-      vals(k(1, 0)) := Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
-      when(k === 3.U) { k := 0.U; state := Mux(doCmp, sCompare, sAcc) }.otherwise { k := k + 1.U }
+      val hold = fmt.kind === TexFormat.SRGB.U && !isAlpha && !tBorder && w =/= 0.U && !srgbWait
+      srgbWait := hold
+      when(!hold) {
+        vals(k(1, 0)) := Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
+        when(k === 3.U) { k := 0.U; state := Mux(doCmp, sCompare, sAcc) }.otherwise { k := k + 1.U }
+      }
     }
     is(sCompare) {
       // Depth compare per tap before filtering; UNORM formats clamp dref to [0, 1] first.
