@@ -17,9 +17,10 @@ object BorgExpLogTests extends TestSuite {
   def run(log: Boolean, xs: Seq[Float]): Seq[Float] = {
     var out = Seq.empty[Float]
     simulate(new BorgExpLog) { dut =>
+      dut.reset.poke(true.B); dut.clock.step(1); dut.reset.poke(false.B)
       dut.io.log.poke(log.B)
       val got = scala.collection.mutable.ArrayBuffer[Float]()
-      for (x <- xs ++ Seq(0f, 0f)) {
+      for (x <- xs ++ Seq.fill(3)(0f)) {
         dut.io.in.valid.poke(true.B); dut.io.in.bits.poke(bits(x).U)
         dut.clock.step(1)
         if (dut.io.out.valid.peek().litToBoolean) got += flt(dut.io.out.bits.peek().litValue)

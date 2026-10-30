@@ -8,7 +8,7 @@ import chisel3.util._
 
 /** FEXP2 and FLOG2 at FP32 (docs/B8_isa_v2.md, "Special functions"): 128 segments per function,
   * each a quadratic in the segment's fraction u = d / 2^17, fixed point with 30 fraction bits.
-  * Two cycles from `in` to `out`; denormal inputs and results flush to zero.
+  * Three cycles from `in` to `out`; denormal inputs and results flush to zero.
   */
 object BorgExpLog {
   val Segs = 128
@@ -34,8 +34,9 @@ class BorgExpLogIO extends Bundle {
 class BorgExpLog extends Module {
   import BorgExpLog._
   val io = IO(new BorgExpLogIO)
-  private def rom(t: Seq[(BigInt, BigInt, BigInt)], k: Int) =
-    VecInit(t.map(c => (k match { case 0 => c._1; case 1 => c._2; case _ => c._3 }).S(34.W)))
+  // Both tables in one ROM, a registered read: block RAM, not LUTs.
+  private val table = VecInit((exp2Table ++ log2Table).map { case (c0, c1, c2) =>
+    Cat(c2.S(34.W).asUInt, c1.S(34.W).asUInt, c0.S(34.W).asUInt) })
 
   val x = io.in.bits
   val (s, e, f) = (x(31), x(30, 23), x(22, 0))
@@ -54,11 +55,11 @@ class BorgExpLog extends Module {
   val fr = fx.asUInt(23, 0)
   val idx = Mux(io.log, logIdx, fr(23, 17))
   val d = Mux(io.log, logD, fr(16, 0))
-  val (a0, a1, a2) = (Mux(io.log, rom(log2Table, 0)(idx), rom(exp2Table, 0)(idx)),
-                      Mux(io.log, rom(log2Table, 1)(idx), rom(exp2Table, 1)(idx)),
-                      Mux(io.log, rom(log2Table, 2)(idx), rom(exp2Table, 2)(idx)))
-  val dd = ((d * d) >> 17).asUInt
-  val t1 = (a1 * d.zext) >> 17
+  val coef = RegNext(table(Cat(io.log, idx)))
+  val (a0, a1, a2) = (coef(33, 0).asSInt, coef(67, 34).asSInt, coef(101, 68).asSInt)
+  val dA = RegNext(d)
+  val dd = ((dA * dA) >> 17).asUInt
+  val t1 = (a1 * dA.zext) >> 17
   val t2 = (a2 * dd.zext) >> 17
 
   // Special results, else stage 2 assembles the value.
@@ -69,10 +70,11 @@ class BorgExpLog extends Module {
   val expSpecial = Mux(nan, x | 0x00400000.U, Mux(inf || big, Mux(s, 0.U, 0x7F800000.U), 0x3F800000.U))
   val special = Mux(io.log, nan || inf || s || e === 0.U, nan || inf || big || tiny)
 
-  val v1 = RegNext(io.in.valid, false.B)
-  val log1 = RegNext(io.log); val special1 = RegNext(special); val specVal1 = RegNext(Mux(io.log, logSpecial, expSpecial))
+  def late[T <: Data](x: T): T = RegNext(RegNext(x))   // past the ROM read and stage 1
+  val v1 = RegNext(RegNext(io.in.valid, false.B), false.B)
+  val log1 = late(io.log); val special1 = late(special); val specVal1 = late(Mux(io.log, logSpecial, expSpecial))
   val sum1 = RegNext(a0 +& t1 +& t2)
-  val e1 = RegNext(e.zext - 127.S); val n1 = RegNext(n)
+  val e1 = late(e.zext - 127.S); val n1 = late(n)
 
   // Stage 2. FLOG2: (e - 127) + log2(1 + f), a signed fixed-point value, normalised and rounded.
   val r = (e1 << Frac) +& sum1
