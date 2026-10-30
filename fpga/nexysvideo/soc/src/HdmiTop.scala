@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: © 2026 Ziad Mubarak
 package nexysvideo
 
 import chisel3._
