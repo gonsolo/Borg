@@ -356,7 +356,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         def abs(x: UInt) = Cat(0.U(1.W), x(30, 0))
         val one = "h3F800000".U
         val is3D = ttype === T3D.U
-        val size = Seq(uintToFp32(dimW, 0.S), uintToFp32(dimH, 0.S), Mux(is3D, uintToFp32(dimD, 0.S), 0.U(32.W)))
         if (N >= 3) {
           // k 0..5: the differences d{u,v,w}/dx, d{u,v,w}/dy into lodTmp;
           // k 6..8 and 9..11: the scaled sums in x and in y.
@@ -370,7 +369,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
             val src = Mux(k < 9.U, lodTmp(j), lodTmp(j +& 3.U))
             // 1D arrays carry the layer in v: only u counts (dt = 0 for 1D).
             fmaA := Mux((j === 2.U && !is3D) || (j === 1.U && ttype === T1D.U), 0.U, abs(src))
-            fmaB := VecInit(size)(j)
+            fmaB := uintToFp32(MuxLookup(j, dimW)(Seq(1.U -> dimH, 2.U -> Mux(is3D, dimD, 0.U))), 0.S)
             fmaC := Mux(j === 0.U, 0.U, Mux(k < 9.U, lodSum(0), lodSum(1)))
           }
         }
