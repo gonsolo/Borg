@@ -301,10 +301,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // The units' register writes; at most one unit runs at a time.
   lanes.map(_.io.memWrite).foreach { mw => mw.en := false.B; mw.addr := 0.U; mw.data := 0.U }
 
-  private val zTest = Module(new ZTestUnit(cfg))
-  io.zTestSlot := attach(zTest.io, _.ztest)
-  io.zTestReq := zTest.io.req
-  zTest.io.done := io.zTestDone
+  private val zTestUnit = Module(new ZTestUnit(cfg))
+  io.zTestSlot := attach(zTestUnit.io, _.ztest)
+  io.zTestReq := zTestUnit.io.req
+  zTestUnit.io.done := io.zTestDone
 
   private val memUnit = Module(new MemUnit(cfg))
   private val memSlot = attach(memUnit.io, f => f.load || f.store || f.sout || f.fattr)
