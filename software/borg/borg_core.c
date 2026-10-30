@@ -57,6 +57,8 @@ static struct {
   uint32_t blend_cfg, blend_const, stencil_cfg, stencil_front, stencil_back, depth_cfg;
   int raster_valid;
 } g_st;
+// Depth bias constant and slope factors (FP32) of the next draw only (0xC5).
+static uint32_t g_bias[2];
 // The viewport and scissor of the draws that follow (0xC2); valid = none sent, the target's full size.
 static struct { int valid; uint32_t sx, sy, ox, oy, zscale, zoff, scx, scy; } g_vp;
 static struct {
@@ -527,6 +529,8 @@ static uint32_t setup_room_tris(void) {
 }
 
 void borg_core_list_draw(void) {
+  const uint32_t bias_c = g_bias[0], bias_s = g_bias[1];
+  g_bias[0] = g_bias[1] = 0;
   int shift = draw_record_shift(g_draw_vert.num_varyings);
   if (!g_draw_vert_ok || shift < 0 || g_draw_vertex_count <= 0 || !g_sh[0].bytes || !g_sh[1].bytes) return;
   // One record stride, at most 65,535 triangles and one arena per render: otherwise render
@@ -562,6 +566,7 @@ void borg_core_list_draw(void) {
     LREG(st, n, stencil_back, g_st.stencil_back); LREG(st, n, depth_cfg, g_st.depth_cfg);
   }
   LREG(st, n, cull_cfg, borg_cull_cfg & 7);
+  LREG(st, n, depth_bias_const, bias_c); LREG(st, n, depth_bias_slope, bias_s);
   if (g_vp.valid) {
     LREG(st, n, viewport_sx, g_vp.sx); LREG(st, n, viewport_sy, g_vp.sy);
     LREG(st, n, viewport_ox, g_vp.ox); LREG(st, n, viewport_oy, g_vp.oy);
@@ -694,6 +699,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xBB: return BC_PKT_LEN_PASS;
   case 0xC0: return BC_PKT_LEN_TEXL;
   case 0xC4: return BC_PKT_LEN_TEXS;
+  case 0xC5: return BC_PKT_LEN_BIAS;
   case 0xBF: return BC_PKT_LEN_ATT;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
@@ -796,6 +802,9 @@ int borg_core_packet(const uint8_t *p) {
     g_vp.valid = 1;
     return BC_STATE;
   }
+  case 0xC5:   // depth bias: DEPTH_BIAS_CONST, DEPTH_BIAS_SLOPE
+    g_bias[0] = le32(p + 1); g_bias[1] = le32(p + 5);
+    return BC_STATE;
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
     int srgb, fmt = wire_format(p[1], &srgb);
     if (fmt < 0) return BC_BAD;
