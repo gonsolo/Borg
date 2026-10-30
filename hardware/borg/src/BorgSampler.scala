@@ -335,7 +335,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(isFetch || isSize || (sdOk && sdTag === (sAddr >> 4))) { k := 0.U; state := sLod }
         .otherwise {
           read(sAddr + (k << 2)) { d =>
-            sd(k(1, 0)) := d
+            sd(k(1, 0)) := Mux(k === 0.U, d, fpToFixed(d, 8, 24).asUInt)   // LOD bias, min, max as Q.8
             when(k === 3.U) { sdOk := true.B; sdTag := sAddr >> 4; k := 0.U; state := sLod }
               .otherwise { k := k + 1.U }
           }
@@ -416,11 +416,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       // All Q.8.
       val q = (levels - 1.U).zext << 8
       // lambda = base + clamp(sampler bias + shader bias, +-maxSamplerLodBias).
-      val base0 = Mux(lodMode(ctl) === LodExplicit.U, fpToFixed(a.lod, 8, 24), quadLod)
-      val biasSum = fpToFixed(sd(1), 8, 24) +& Mux(lodMode(ctl) === LodBias.U, fpToFixed(a.lod, 8, 24), 0.S)
+      val lod = fpToFixed(a.lod, 8, 24)
+      val base0 = Mux(lodMode(ctl) === LodExplicit.U, lod, quadLod)
+      val biasSum = sd(1)(23, 0).asSInt +& Mux(lodMode(ctl) === LodBias.U, lod, 0.S)
       val maxB = (MaxLodBias << 8).S
       val biased = base0 + Mux(biasSum > maxB, maxB, Mux(biasSum < -maxB, -maxB, biasSum))
-      val minL = fpToFixed(sd(2), 8, 24); val maxL = fpToFixed(sd(3), 8, 24)
+      val minL = sd(2)(23, 0).asSInt; val maxL = sd(3)(23, 0).asSInt
       val lam = Mux(biased < minL, minL, Mux(biased > maxL, maxL, biased))
       val mag = lam <= 0.S
       val filt = Mux(isFetch, false.B, Mux(isGather, true.B, Mux(mag, magLin, minLin)))
