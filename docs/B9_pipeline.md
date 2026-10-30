@@ -160,6 +160,54 @@ slot without a quad gives its turn away.
 not affordable; `quadSlots = 1` is step 1 exactly. SRAM macros for the register files would
 change that; to be measured before Wafer gets more slots.
 
+### As built
+
+Stages a to d are built; `quadSlots` is 4 by default and 1 on Wafer, where the core is step 1
+exactly. Where it differs from the table above:
+
+- Register files: the step-1 copies, addressed by slot, all three in block RAM on ULX3S.
+- Waits: no counters and no `WAITCNT` yet. A slot with a unit in flight does not issue (the
+  implicit wait); the other slots run. Each unit serves one slot at a time.
+- Write port: a unit writes back in a cycle W leaves free, after two starved cycles it forces
+  a bubble; one unit at a time is granted the port.
+- Fragment order: the dispatcher starts every quad, then holds back its tile-buffer work (early
+  tests, destination read, late tests and write) while an older quad on the same 2 × 2 pixels
+  is in flight. An age matrix over the slots records which quads are older.
+- Triangles overlap: a quad keeps its triangle's state from the cycle it starts (uniform page,
+  FATTR's record, coverage deltas, top-left edges, facing, occlusion window), so the sequencer
+  moves to the next triangle without waiting. A setup load waits only until no quad in flight
+  reads the page it overwrites; a state switch between draws still waits for every quad.
+- Memory port: a core access keeps the port until it is answered, so a setup DMA started
+  under quads in flight cannot take its data.
+- Loads whose active lanes share an address make one access; FATTR's cache holds whole
+  components (three words).
+- Vertex, setup and compute run on slot 0, as programs started over MMIO; MMIO register reads
+  and writes reach slot 0 only.
+
+vkcube per frame (cycles, image identical at every step):
+
+| Step | vkcube | stencilcube |
+|---|---|---|
+| Step 1 | 1,648,559 | 3,479,980 |
+| b: non-blocking units, 1 slot | 1,599,464 | |
+| d: 2 slots | 1,125,247 | |
+| d: 4 slots | 968,584 | 2,098,583 |
+| FATTR cache of whole components | 942,305 | |
+| One access for a shared address | 911,197 | 1,960,745 |
+| Triangles overlap | 852,544 | 1,587,920 |
+| Tables in block RAM (area) | 854,324 | 1,592,729 |
+
+ULX3S with 4 slots: 91% of the logic cells with triangles overlapping; routing did not finish. With
+the exp/log, sRGB and register-file tables moved into block RAM and the sampler's conversions
+shared, 84% (66 of 208 block RAMs) and 20.8 MHz; one slot was 84% and 18.5 MHz.
+
+Stage e waits: a register scoreboard (a slot issues past a unit until it reads the result) and
+borgc moving TEX ahead gained 1.5% together on vkcube, and `WAITCNT` could gain no more.
+
+The limit now is the texture unit: a TEX holds it about 137 cycles, the sampler about 29 cycles
+per lane, lanes one after another. Next levers: the sampler's lanes pipelined, a texel cache
+with burst fills for SDRAM, then several memory reads in flight.
+
 ## Wafer
 
 Superseded: Wafer runs step 1 with three read ports (see "As built"). The plan was:
