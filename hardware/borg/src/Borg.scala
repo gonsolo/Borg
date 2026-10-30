@@ -286,23 +286,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val coreMem = core.io.memBusy
     def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt = Mux(coreMem, sel(core.io.gpuMem), fallback)
     def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool = Mux(coreMem, sel(core.io.gpuMem), fallback)
+    // A core access keeps the port until answered: a DMA starting under it waits.
+    val coreHolds = RegInit(false.B)
+    val dOn = d.io.busy && !coreHolds
 
-    io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
+    io.gpuMem.req   := Mux(dOn, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
                        Mux(ld.io.busy, ld.io.gpuMem.req,
                        Mux(geoBusy, geoReq, coreOrB(_.req, false.B)))))
-    io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
+    io.gpuMem.addr  := Mux(dOn, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
                        Mux(ld.io.busy, ld.io.gpuMem.addr,
                        Mux(geoBusy, geoAddr, coreOr(_.addr, 0.U)))))
-    io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
+    io.gpuMem.wr    := Mux(dOn, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
                        Mux(ld.io.busy, false.B,  // the loader only reads
                        Mux(geoBusy, geoWr, coreOrB(_.wr, false.B)))))
     // Every memory behind this port stores a write word as one halfword. The setup store and
     // STORE write wider words, so they go out as a two-beat burst, low halfword first.
     val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, 0.U))
-    val wideWr   = !d.io.busy && !f.io.busy && !ld.io.busy &&
+    val wideWr   = !dOn && !f.io.busy && !ld.io.busy &&
       Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
     // Registered, so no combinational path from waccept back into wdata.
     val upperHalf = RegInit(false.B)
@@ -314,21 +317,23 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     locally {
       val g = core.io.gpuMem
       g.data    := io.gpuMem.data
-      g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
+      g.ready   := io.gpuMem.ready && !dOn && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
       g.waccept := false.B
+      val coreOn = !dOn && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
+      when(io.gpuMem.ready) { coreHolds := false.B }.elsewhen(coreOn && (g.req || g.wr)) { coreHolds := true.B }
     }
     core.io.root := rdlRegs.io.hw.root_addr
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, Mux(wideWr, 2.U, 1.U))
     f.io.gpuMem.data  := io.gpuMem.data
-    f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
+    f.io.gpuMem.ready := io.gpuMem.ready && !dOn && f.io.busy
     // waccept is only high in the flusher's own burst; a f.io.busy guard would loop through
     // io_read_en, which arcilator mishandles.
     f.io.gpuMem.waccept := io.gpuMem.waccept
     d.io.gpuMem.data  := io.gpuMem.data
-    d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
+    d.io.gpuMem.ready := io.gpuMem.ready && dOn
     d.io.gpuMem.waccept := false.B
     ld.io.gpuMem.data  := io.gpuMem.data
-    ld.io.gpuMem.ready := io.gpuMem.ready && ld.io.busy && !d.io.busy && !f.io.busy
+    ld.io.gpuMem.ready := io.gpuMem.ready && ld.io.busy && !dOn && !f.io.busy
     ld.io.gpuMem.waccept := false.B
 
     rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
