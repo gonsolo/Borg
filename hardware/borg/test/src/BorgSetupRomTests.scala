@@ -26,7 +26,9 @@ object BorgSetupRomTests extends TestSuite {
     * (scaled), det, and the screen corners. */
   def reference(t: Tri) = {
     val (sx, sy, ox, oy) = (W / 2, W / 2, W / 2, W / 2)
-    val v = t.c.map { case Seq(x, y, _, w) => Seq(x * sx + w * ox, y * sy + w * oy, w) }
+    // A corner in front of the eye snaps to 1/256 pixel (subPixelPrecisionBits).
+    def snap(c: Double, w: Double) = if (w > 0) math.rint(c / w * 256) / 256 * w else c
+    val v = t.c.map { case Seq(x, y, _, w) => Seq(snap(x * sx + w * ox, w), snap(y * sy + w * oy, w), w) }
     def cross(a: Seq[Double], b: Seq[Double]) =
       Seq(a(1) * b(2) - a(2) * b(1), a(2) * b(0) - a(0) * b(2), a(0) * b(1) - a(1) * b(0))
     val rows0 = Seq(cross(v(1), v(2)), cross(v(2), v(0)), cross(v(0), v(1)))

@@ -63,7 +63,7 @@ private[borg] object BorgSetupRom {
 
   private val program: (Seq[BigInt], Int) = {
     import Instructions._
-    import Opcodes.{CSRRS, CSRRW, FADD_S, ADDI, LUI, SUB, XOR, SLTIU}
+    import Opcodes.{CSRRS, CSRRW, FADD_S, ADDI, LUI, SUB, XOR, SLT, SLTIU}
     val uu = 1; val rOne = 2          // a uniform word read by CSR; 1.0
     val rS = Seq(3, 4, 5, 6, 7, 22)   // screen x, y of corners 0..2, from after the planes
     val rW  = Seq(9, 10, 11);  val rX  = Seq(12, 13, 14); val rY = Seq(15, 16, 17)
@@ -168,6 +168,26 @@ private[borg] object BorgSetupRom {
       ld(uu, uY(k)); p += FMA(rs1 = uu, rs2 = rSy, rs3 = ra, rd = rY(k))
     }
     for (k <- 0 until 3) p += FNEG(rs1 = rW(k), rd = rNW(k))
+
+    // A corner in front of the eye snaps to the 1/256 pixel the limits report
+    // (subPixelPrecisionBits): X' = round(X'/W * 256) / 256 * W, Y' alike. Adding and
+    // subtracting 1.5 * 2^15 rounds to 2^-8.
+    locally {
+      val (magic, negMagic, r, tmp, v, mask) = (21, 22, 23, 24, 25, 26)
+      p += LUI(magic, 0x47400); p += LUI(negMagic, 0xC7400)
+      for (k <- 0 until 3) {
+        rcp(rW(k), rNW(k), r, tmp, steps = 2)
+        p += SLT(mask, 0, rW(k))                                       // W > +0, as an integer
+        p += SUB(mask, 0, mask)
+        for (c <- Seq(rX(k), rY(k))) {
+          p += MUL(rs1 = c, rs2 = r, rd = v)
+          p += ADD(rs1 = v, rs2 = magic, rd = v); p += ADD(rs1 = v, rs2 = negMagic, rd = v)
+          p += MUL(rs1 = v, rs2 = rW(k), rd = v)
+          p += IXOR(rs1 = c, rs2 = v, rd = v); p += IAND(rs1 = v, rs2 = mask, rd = v)
+          p += IXOR(rs1 = c, rs2 = v, rd = c)
+        }
+      }
+    }
 
     // Edge plane k = (column i) x (column j), sign-flipped when det M < 0 so inside is >= 0.
     // Not divided by det M and no FMA: each component is round(p) - round(q), so a triangle
