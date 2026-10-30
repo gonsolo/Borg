@@ -25,6 +25,7 @@ class DrawMmioIO extends Bundle {
   val depthBiasConst = UInt(32.W)  // FP32 depthBiasConstantFactor
   val depthBiasSlope = UInt(32.W)  // FP32 depthBiasSlopeFactor
   val depthD32      = Bool()       // D32_SFLOAT: r per triangle, else D16's 2^-16
+  val depthD24      = Bool()       // D24_UNORM kept as FP32
 }
 
 class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
@@ -264,8 +265,8 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
             20.U -> Mux(d.singleSample, 0.U, "hBEC00000".U),   // -0.375
             21.U -> Mux(d.singleSample, 0.U, "h3EC00000".U),   // +0.375
             22.U -> d.depthBiasSlope, 23.U -> d.depthBiasConst,
-            // D16's r is 2^-15 (the spec's 2 x 2^-n): 2^-16 is under one D16 step.
-            24.U -> Mux(d.depthD32, 0.U, "h38000000".U)))
+            // r is the spec's 2 x 2^-n: 2^-15 for D16, 2^-23 for D24 (one step is under it).
+            24.U -> Mux(d.depthD24, "h34000000".U, Mux(d.depthD32, 0.U, "h38000000".U))))
         when(stageIdx === (BorgSetupRom.Uniforms - 1).U) { state := sRunSetup }
         stageIdx := stageIdx + 1.U
       }

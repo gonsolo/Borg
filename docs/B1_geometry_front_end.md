@@ -175,7 +175,8 @@ to the triangle's depth offset, so every sample of every pixel carries it:
 - `m = max(|dz/dx|, |dz/dy|)` of FragCoord.z, the approximation the spec
   allows;
 - `r = 2^-15` for D16_UNORM (the spec's largest; 2^-16 is a hair under
-  one D16 step); for D32_SFLOAT `2^(e - 23)`, `e` the exponent
+  one D16 step), `2^-23` for D24_UNORM (`DEPTH_FORMAT.clamp`, kept as
+  FP32); for D32_SFLOAT `2^(e - 23)`, `e` the exponent
   of the triangle's largest depth, which is exactly `ulp(max z)`. The largest
   depth is the depth plane at the three corners, or 1.0 with a corner behind
   the eye.

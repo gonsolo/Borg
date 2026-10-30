@@ -803,6 +803,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     d.depthScale := w(10); d.depthOffset := w(11)
     d.singleSample := singleSample
     d.depthBiasConst := w(14); d.depthBiasSlope := w(15); d.depthD32 := depthD32Reg
+    d.depthD24 := depthClampReg
     s.io.csrWriteLanes := core.io.csrWrite
     core.io.drawMode := drawMode
     core.io.drawSingle := (cfg.samples == 1).B || singleSample

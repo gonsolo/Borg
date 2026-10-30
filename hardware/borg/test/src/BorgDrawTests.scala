@@ -678,22 +678,24 @@ object BorgDrawTests extends TestSuite {
   /** Depth bias, o = m * slope + r * constant added to the triangle's depth.
     * Constant: against a full-precision clear depth half an r below the
     * triangle's 0.5, a bias of -1 passes LESS and -0.4 does not -- r = 2^-15
-    * for D16, ulp(0.5) = 2^-24 for D32_SFLOAT. Slope: a ramp of 0.1 per
+    * for D16, 2^-23 for D24, ulp(0.5) = 2^-24 for D32_SFLOAT. Slope: a ramp of 0.1 per
     * pixel over a flat 0.5 quad; slope factor -2.5 moves the crossing 2.5
     * pixels, sample for sample. */
   def depthBias(rig: DrawRig): Unit = {
     val quad = Seq(at(0, 0, 1, z = 0.5), at(8, 0, 1, z = 0.5), at(0, 8, 1, z = 0.5),
                    at(8, 0, 1, z = 0.5), at(8, 8, 1, z = 0.5), at(0, 8, 1, z = 0.5))
     val less = 1 | (1 << 3)
-    def run(clear: Double, const: Double, d32: Boolean) = rig.draw(quad, depthCfg = less, extra = Seq(
-      BorgGpuRegs.depth_format_offset -> BigInt(if (d32) 1 else 0),
+    def run(clear: Double, const: Double, fmt: Int) = rig.draw(quad, depthCfg = less, extra = Seq(
+      BorgGpuRegs.depth_format_offset -> BigInt(fmt),
       BorgGpuRegs.clear_depth_offset -> rig.f32(clear),
       BorgGpuRegs.depth_bias_const_offset -> rig.f32(const)))
     val full = Size * Size * 4
-    val results = for ((d32, r) <- Seq(false -> math.pow(2, -15), true -> math.pow(2, -24))) yield {
-      val none = run(0.5, 0, d32); val below = run(0.5 - r / 2, -1, d32)
-      val short = run(0.5 - r / 2, -0.4, d32); val up = run(0.5, 1, d32)
-      println(f"  ${if (d32) "D32_SFLOAT" else "D16_UNORM "} (r = $r%.3g): no bias $none, -1 $below, -0.4 $short, +1 $up")
+    val formats = Seq(("D16_UNORM ", 0, -15), ("D24_UNORM ", 3, -23), ("D32_SFLOAT", 1, -24))
+    val results = for ((name, fmt, e) <- formats) yield {
+      val r = math.pow(2, e)
+      val none = run(0.5, 0, fmt); val below = run(0.5 - r / 2, -1, fmt)
+      val short = run(0.5 - r / 2, -0.4, fmt); val up = run(0.5, 1, fmt)
+      println(f"  $name (r = $r%.3g): no bias $none, -1 $below, -0.4 $short, +1 $up")
       (none, below, short, up)
     }
     utest.assert(results.forall(_ == ((0, full, 0, 0))))
