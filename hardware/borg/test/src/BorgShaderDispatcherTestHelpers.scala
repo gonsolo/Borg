@@ -74,7 +74,7 @@ object BorgShaderDispatcherTestHelpers {
     // historical hardcoded behaviour (LESS, depth writes on) so every
     // pre-existing test in this file keeps its original meaning.
     d.io.depthCompareOp.poke(CMP_LESS.U)
-    d.io.depthWriteEn.poke(true.B); d.io.depthUnorm.poke(true.B)
+    d.io.depthWriteEn.poke(true.B); d.io.depthUnorm.poke(true.B); d.io.depthClamp.poke(false.B)
     // Step 50 item 9: blending off by default (only present in a hasBlend
     // build), so every pre-existing test keeps the unconditional-overwrite
     // behaviour it was written against.

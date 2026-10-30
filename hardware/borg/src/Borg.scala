@@ -95,6 +95,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def depthToFp16(z: UInt): UInt =
     if (zBits == 32) Fp16Fp32.narrow(z) else z
   val depthD32Reg     = RegInit(false.B)        // DEPTH_FORMAT
+  val depthClampReg   = RegInit(false.B)        // DEPTH_FORMAT bit 1: a fixed-point attachment kept as FP32
   val clearDepthReg   = RegInit(0.U(32.W))      // CLEAR_DEPTH (FP32)
   val clearDepthSet   = RegInit(false.B)        // CLEAR_DEPTH written since reset
   val attachMsReg     = RegInit(false.B)
@@ -340,6 +341,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
     rast.io.depthCompareOp := rdlRegs.io.hw.depth_cfg_compare_op
     rast.io.depthUnorm     := !depthD32Reg
+    rast.io.depthClamp     := depthClampReg
     rast.io.rawColor       := FlushFormat.isRaw(attFormat)
     rast.io.srgbColor      := attSrgb
     rast.io.depthWriteEn   := rdlRegs.io.hw.depth_cfg_write_en.asBool
@@ -397,6 +399,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tile.io.clear.color.b := Mux(seqClear, attClearB, 0.U)
     when(bus.is_writing && bus.address === BorgGpuRegs.depth_format_offset) {
       depthD32Reg := bus.data_in(0) && (zBits == 32).B
+      depthClampReg := bus.data_in(1)
     }
     when(bus.is_writing && bus.address === BorgGpuRegs.clear_depth_offset) {
       clearDepthReg := bus.data_in

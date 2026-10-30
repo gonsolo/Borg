@@ -26,6 +26,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val depthCompareOp = Input(UInt(3.W))
   val depthWriteEn   = Input(Bool())
   val depthUnorm     = Input(Bool())    // D16: a draw-mode depth is clamped to [0, 1] and rounded
+  val depthClamp     = Input(Bool())    // D24 kept as FP32: clamped to [0, 1] only
   val blendCfg = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
 
   // Stencil: the triangle's facing, the state, and the tile's stencil plane, read with the colour
@@ -139,7 +140,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val covDeltaOf = io.covDelta.map(tri(_))
   private val frontFacingOf = io.frontFacing.map(tri(_))
   val cov  = new QuadCoverage(cfg, io.drawMode, topLeftOf, covDeltaOf, io.sampleCfg)
-  val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.sampleCfg)
+  val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.depthClamp, io.sampleCfg)
   val ops  = new FragmentOps(cfg, io, outs.at(eq), cov.at(eq), scissorOf(eq), tileIndex, frontFacingOf.map(_(eq)))
   io.laneCoverage := cov.at(io.csrSlot).laneMask
 

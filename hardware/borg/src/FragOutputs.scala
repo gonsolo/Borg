@@ -10,7 +10,7 @@ import chisel3.util._
   * discard and sample_mask from the fragment shader's CSR writes (docs/B8_isa_v2.md), and in draw
   * mode FragCoord.z and the per-sample depths from the raster ROM's. Each quad slot keeps its
   * own; [[at]] gives one slot's. */
-class FragOutputs(cfg: BorgConfig, drawMode: Bool, depthUnorm: Bool, sampleCfg: SampleMaskConfig) {
+class FragOutputs(cfg: BorgConfig, drawMode: Bool, depthUnorm: Bool, depthClamp: Bool, sampleCfg: SampleMaskConfig) {
   private val N = cfg.fragLanes
   private val all = ((1 << cfg.samples) - 1).U(cfg.samples.W)
   private def perSlot[T <: Data](x: => T): Vec[T] = VecInit(Seq.fill(cfg.quadSlots)(x))
@@ -34,14 +34,14 @@ class FragOutputs(cfg: BorgConfig, drawMode: Bool, depthUnorm: Bool, sampleCfg: 
 
   /** Into a D16 attachment: clamped to [0, 1] and rounded to the format before the test, as
     * Vulkan converts first; the round trip is the flush's quantizer and the load's dequantizer, so
-    * a reloaded value equals a freshly rendered one. */
+    * a reloaded value equals a freshly rendered one. Into D24, kept as FP32: clamped only. */
   def zClamp(z: UInt): UInt = {
     val w = cfg.tileDepthBits
     val one = (if (w == 32) 0x3F800000L else 0x3C00L).U(w.W)
     val clamped = Mux(z(w - 1), 0.U(w.W), Mux(z > one, one, z))
     val rounded = if (w == 32) DepthQuantize.dequantize16Fp32(DepthQuantize.quantize16Fp32(clamped))
                   else DepthQuantize.dequantize16(DepthQuantize.quantize16(clamped))
-    Mux(drawMode && depthUnorm, rounded, z)
+    Mux(drawMode && depthUnorm, rounded, Mux(drawMode && depthClamp, clamped, z))
   }
 
   /** Alpha to coverage: the first round(alpha * samples) samples, monotonic as Vulkan asks. */

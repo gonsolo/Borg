@@ -27,6 +27,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val depthCompareOp  = Input(UInt(3.W))
   val depthWriteEn    = Input(Bool())
   val depthUnorm      = Input(Bool())
+  val depthClamp      = Input(Bool())
   val blendCfg        = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
   val frontFacing     = if (cfg.hasStencil) Some(Input(Bool())) else None
   val stencilCfg      = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
@@ -106,6 +107,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.fragPcReg      := io.fragPcReg
   dispatcher.io.depthCompareOp := io.depthCompareOp
   dispatcher.io.depthUnorm     := io.depthUnorm
+  dispatcher.io.depthClamp     := io.depthClamp
   dispatcher.io.depthWriteEn   := io.depthWriteEn
   dispatcher.io.blendCfg.foreach(_ := io.blendCfg.get)
   dispatcher.io.frontFacing.foreach(_ := io.frontFacing.get)

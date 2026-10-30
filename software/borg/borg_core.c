@@ -819,9 +819,10 @@ int borg_core_packet(const uint8_t *p) {
     g_att_fmt = att;
     return BC_ATT;
   }
-  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour, 4 per sample
+  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour, 4 per sample,
+               // 5 clamp depth to [0, 1] (D24 kept as FP32)
     int srgb, fmt = wire_format(p[1], &srgb);
-    if (fmt < 0 || p[2] > 31) return BC_BAD;
+    if (fmt < 0 || p[2] > 63) return BC_BAD;
     if (fmt != g_flush_format || srgb != g_srgb || ((p[2] >> 3) & 1) != g_nocolor || ((p[2] >> 4) & 1) != g_ms) {
       g_flush_format = fmt;
       g_srgb = srgb;
@@ -831,7 +832,7 @@ int borg_core_packet(const uint8_t *p) {
     }
     BREG_W(flush_zb_base, (p[2] & 1) ? BORG_ZB_SPI : 0);
     BREG_W(flush_sb_base, (p[2] & 2) ? BORG_SB_SPI : 0);
-    BREG_W(depth_format, (p[2] >> 2) & 1);
+    BREG_W(depth_format, ((p[2] >> 2) & 1) | ((p[2] >> 5) & 1) << 1);
     BREG_W(attach_ms, g_ms);
     return BC_PASS;
   }
