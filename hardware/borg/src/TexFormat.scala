@@ -46,16 +46,19 @@ object TexFormat {
     w
   }
 
-  /** v / (2^b - 1) as FP32, for 1 <= b <= 24: 0.vvvv... in binary, so the mantissa is v's bits
-    * repeated, no division. Truncated, within half an FP32 ULP. */
-  def unormToFp32(v: UInt, b: UInt): UInt = {
+  /** The channel widths of the formats of these kinds. */
+  def widthsOf(kinds: Int*): Seq[Int] = all.filter(f => kinds.contains(f.kind)).flatMap(_.ch.map(_._2)).filter(_ > 0).distinct.sorted
+
+  /** v / (2^b - 1) as FP32, b one of `widths` (at most 24): 0.vvvv... in binary, so the mantissa
+    * is v's bits repeated, no division. Truncated, within half an FP32 ULP. */
+  def unormToFp32(v: UInt, b: UInt, widths: Seq[Int] = widthsOf(UNORM, SRGB)): UInt = {
     val v24 = v(23, 0)
     // v's bits repeated from the top of a 48-bit window: 0.vvvv.
-    val rep = VecInit((1 to 24).map { bw =>
+    val rep = MuxLookup(b, 0.U(48.W))(widths.map { bw =>
       val bits = v24(bw - 1, 0)
       val n = (48 + bw - 1) / bw
-      Cat(Seq.fill(n)(bits))(n * bw - 1, n * bw - 48)
-    })(b - 1.U)
+      bw.U -> Cat(Seq.fill(n)(bits))(n * bw - 1, n * bw - 48)
+    })
     val lz = PriorityEncoder(Reverse(rep))               // leading zeros of 0.rep
     val norm = (rep << lz)(47, 0)                        // 1.xxxx at bit 47
     val one  = v24 === ((1.U(25.W) << b) - 1.U)          // all ones: exactly 1.0
@@ -70,7 +73,7 @@ object TexFormat {
     val mag = Mux(neg, ((1.U(33.W) << b) - v(31, 0))(31, 0), v)   // |v|
     val magBits = b - 1.U
     val isMin = neg && mag === (1.U(33.W) << magBits)(31, 0)      // -2^(b-1): exactly -1
-    val u = unormToFp32(mag, magBits)
+    val u = unormToFp32(mag, magBits, widthsOf(SNORM).map(_ - 1))
     Mux(isMin, "hBF800000".U(32.W), Cat(neg && u =/= 0.U, u(30, 0)))
   }
 
