@@ -101,12 +101,12 @@ object BorgTests extends TestSuite {
   def encodeInstruction(config: FloatConfig, op: Op, rs1: Int, rs2: Int, rd: Int): BigInt = {
     // 32-bit RISC-V R-type / R4-type encoding (Single Source of Truth)
     val instVal: BigInt = op match {
-      case ADD     => Instructions.ADD(rs1, rs2, rd)
-      case MUL     => Instructions.MUL(rs1, rs2, rd)
-      case FMA(r3) => Instructions.FMA(rs1, rs2, r3, rd)
+      case ADD     => Opcodes.FADD_S(rd, rs1, rs2)
+      case MUL     => Opcodes.FMUL_S(rd, rs1, rs2)
+      case FMA(r3) => Opcodes.FMADD_S(rd, rs1, rs2, r3)
       case FNEG    => Instructions.FNEG(rs1, rd)
       case FMOV    => Instructions.FMOV(rs1, rd)
-      case FRCP    => Instructions.FRCP(rs1, rd)
+      case FRCP    => Opcodes.FRCP_V2(rd, rs1)
     }
     instVal
   }

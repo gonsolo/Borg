@@ -28,67 +28,28 @@ object Instructions {
   }
 
   // @doc:isa-encoders
-  // ISA v2 only: no window operand (funct3 = 0) and no r0, which is x0 in these forms.
-  private def rv(f3: Int, regs: Int*) = f3 == 0 && regs.forall(_ != 0)
-  private def only(ok: Boolean, v2: => BigInt): BigInt = { require(ok, "no v1 form: no window operand, no r0"); v2 }
-  private def r2(v2: (Int, Int, Int) => BigInt)(rs1: Int, rs2: Int, rd: Int, f3: Int): BigInt = only(rv(f3, rs1, rs2, rd), v2(rd, rs1, rs2))
-  private def r12(v2: (Int, Int) => BigInt)(rs1: Int, rd: Int, f3: Int): BigInt = only(rv(f3, rs1, rd), v2(rd, rs1))
-
-  def ADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(FADD_S(_, _, _))(rs1, rs2, rd, funct3)
-  def MUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(FMUL_S(_, _, _))(rs1, rs2, rd, funct3)
-  def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12((d, a) => FSGNJN_S(d, a, a))(rs1, rd, funct3)
-  def FMOV(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12((d, a) => FSGNJ_S(d, a, a))(rs1, rd, funct3)
-  def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = only(funct3 == 0, FRCP_V2(rd, rs1))
-  def IADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(Opcodes.ADD(_, _, _))(rs1, rs2, rd, funct3)
-  def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SLL(_, _, _))(rs1, rs2, rd, funct3)
-  def ISHR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SRA(_, _, _))(rs1, rs2, rd, funct3)
-  def IMUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(Opcodes.MUL(_, _, _))(rs1, rs2, rd, funct3)
-  def ISUB(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SUB(_, _, _))(rs1, rs2, rd, funct3)
-  def IAND(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(AND(_, _, _))(rs1, rs2, rd, funct3)
-  def IOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(OR(_, _, _))(rs1, rs2, rd, funct3)
-  def IXOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(XOR(_, _, _))(rs1, rs2, rd, funct3)
-  def ISLT(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SLT(_, _, _))(rs1, rs2, rd, funct3)
-  def I2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_S_W(_, _))(rs1, rd, funct3)
-  def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_W_S(_, _, 1))(rs1, rd, funct3)
-  def F2H(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_H_S(_, _))(rs1, rd, funct3)
-  def H2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = r12(FCVT_S_H(_, _))(rs1, rd, funct3)
-  def FRSQ(rs1: Int, rd: Int, funct3: Int = 0): BigInt = only(funct3 == 0, FRSQ_V2(rd, rs1))
+  // Pseudo-instructions and checked encoders; plain instructions are Opcodes' (rd, rs1, rs2).
+  def FNEG(rs1: Int, rd: Int): BigInt = FSGNJN_S(rd, rs1, rs1)
+  def FMOV(rs1: Int, rd: Int): BigInt = FSGNJ_S(rd, rs1, rs1)
   /** fine = true: DPdxFine/DPdyFine (each lane's own row/column); else coarse. */
-  def DDX(rs1: Int, rd: Int, funct3: Int = 0, fine: Boolean = false): BigInt =
-    only(funct3 == 0, DDX_V2(rd, rs1, if (fine) 1 else 0))
-  def DDY(rs1: Int, rd: Int, funct3: Int = 0, fine: Boolean = false): BigInt =
-    only(funct3 == 0, DDY_V2(rd, rs1, if (fine) 1 else 0))
+  def DDX(rs1: Int, rd: Int, fine: Boolean = false): BigInt = DDX_V2(rd, rs1, if (fine) 1 else 0)
+  def DDY(rs1: Int, rd: Int, fine: Boolean = false): BigInt = DDY_V2(rd, rs1, if (fine) 1 else 0)
   /** BRZ rs1, offset: if rs1 == 0, jump by offset words from this instruction (-512..511). */
-  def BRZ(rs1: Int, offset: Int, funct3: Int = 0): BigInt = {
-    require(offset >= -512 && offset < 512, s"branch offset out of range: $offset")
-    only(rv(funct3, rs1), BEQ(4 * offset, rs1, 0))
+  def BRZ(rs1: Int, offset: Int): BigInt = BEQ(branch(rs1, offset), rs1, 0)
+  def BRNZ(rs1: Int, offset: Int): BigInt = BNE(branch(rs1, offset), rs1, 0)
+  private def branch(rs1: Int, offset: Int): Int = {
+    require(rs1 != 0 && offset >= -512 && offset < 512, s"branch on x$rs1 by $offset words")
+    4 * offset
   }
-  def EXPUSH(rs1: Int, funct3: Int = 0): BigInt = only(funct3 == 0, EXPUSH_V2(rs1))
-  def EXELSE(funct3: Int = 0): BigInt = only(funct3 == 0, EXELSE_V2())
-  def EXPOP(funct3: Int = 0): BigInt = only(funct3 == 0, EXPOP_V2())
-  def BARRIER(funct3: Int = 0): BigInt = only(funct3 == 0, BARRIER_V2())
-  def EXANY(rd: Int, funct3: Int = 0): BigInt = only(funct3 == 0, EXANY_V2(rd))
-  def ZTEST(funct3: Int = 0): BigInt = only(funct3 == 0, ZTEST_V2())
-  def BRNZ(rs1: Int, offset: Int, funct3: Int = 0): BigInt = {
-    require(offset >= -512 && offset < 512, s"branch offset out of range: $offset")
-    only(rv(funct3, rs1), BNE(4 * offset, rs1, 0))
-  }
-  def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt =
-    only(rv(funct3, rs1, rs2, rs3, rd), FMADD_S(rd, rs1, rs2, rs3))
   def SMASK(rd: Int): BigInt = CSRRS(rd, 0, Csr.SampleMask)
   def ATTIDX(rd: Int): BigInt = CSRRS(rd, 0, Csr.Attachment)
-  def TLD(rd: Int, word: Int = 0): BigInt = only(word < 2, TLD_V2(rd, word))
+  def TLD(rd: Int, word: Int = 0): BigInt = { require(word < 2, s"TLD word $word"); TLD_V2(rd, word) }
   def JMP(offset: Int): BigInt = {
     require(offset >= -(1 << 17) && offset < (1 << 17), s"JMP offset out of range: $offset")
     JAL(0, 4 * offset)
   }
-  def ISRL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SRL(_, _, _))(rs1, rs2, rd, funct3)
-  def ISLTU(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = r2(SLTU(_, _, _))(rs1, rs2, rd, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
-  def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
-    indexFields(index)
-    only(funct3 == 0, SOUT_V2(rs2, index))
-  }
+  def SOUT(rs2: Int, index: Int): BigInt = { indexFields(index); SOUT_V2(rs2, index) }
   /** FATTR: rd..rd+2 = component `index`'s per-vertex values (packed into rs2:rs1). */
   def FATTR(rd: Int, index: Int): BigInt = {
     require(rd <= 29, s"FATTR writes rd..rd+2, so rd <= 29: $rd")

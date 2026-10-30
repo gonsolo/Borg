@@ -63,8 +63,8 @@ object BorgCoreTestsC extends TestSuite {
         idleInputs(core)
         resetCore(core)
         writeReg(core, 0, 5); writeReg(core, 2, 5)
-        writeImem(core, 0, Instructions.ZTEST())
-        writeImem(core, 1, Instructions.IADD(rs1 = 2, rs2 = 2, rd = 1))  // r1 = 10
+        writeImem(core, 0, Opcodes.ZTEST_V2())
+        writeImem(core, 1, Opcodes.ADD(1, 2, 2))  // r1 = 10
         writeImem(core, 2, 0)
         core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
 
@@ -165,7 +165,7 @@ object BorgCoreTestsC extends TestSuite {
       * differ, so executing the wrong one -- a stale line from the wrong PC
       * -- changes the sum. */
     def countingProgram(n: Int): Seq[BigInt] =
-      (0 until n).map(i => Instructions.IADD(rs1 = 1, rs2 = 2 + i % 3, rd = 1)) :+ BigInt(0)
+      (0 until n).map(i => Opcodes.ADD(1, 1, 2 + i % 3)) :+ BigInt(0)
     def countingSum(n: Int): Int = (0 until n).map(i => Seq(1, 10, 100)(i % 3)).sum
     def countingRegs(core: BorgCore): Unit = {
       writeReg(core, 1, 0); writeReg(core, 2, 1); writeReg(core, 3, 10); writeReg(core, 4, 100)
@@ -215,18 +215,19 @@ object BorgCoreTestsC extends TestSuite {
       // r1 += 100 poison. 2200: five r1 += 1, JMP 1500. 1500: three
       // r1 += 100, HALT. r1 = 405; any wrong target changes it.
       import Instructions._
+      import Opcodes._
       for (cfg <- Seq(small, BorgConfig.Wafer)) {
         simulate(new BorgCore(cfg)) { core =>
           println(s"\n--- BorgCore: a 2300-word program, pcBits ${cfg.pcBits} ---")
           idleInputs(core)
           val img = Array.fill[BigInt](2300)(BigInt(0))
           img(0) = JMP(2100)
-          for (i <- 0 until 10) img(2100 + i) = IADD(rs1 = 1, rs2 = 3, rd = 1)
+          for (i <- 0 until 10) img(2100 + i) = ADD(1, 1, 3)
           img(2110) = BRNZ(rs1 = 2, offset = 2200 - 2110)
-          for (i <- 2111 until 2200) img(i) = IADD(rs1 = 1, rs2 = 4, rd = 1)
-          for (i <- 0 until 5) img(2200 + i) = IADD(rs1 = 1, rs2 = 2, rd = 1)
+          for (i <- 2111 until 2200) img(i) = ADD(1, 1, 4)
+          for (i <- 0 until 5) img(2200 + i) = ADD(1, 1, 2)
           img(2205) = JMP(1500 - 2205)
-          for (i <- 0 until 3) img(1500 + i) = IADD(rs1 = 1, rs2 = 4, rd = 1)
+          for (i <- 0 until 3) img(1500 + i) = ADD(1, 1, 4)
           countingRegs(core)
           val fetches = runFromImage(core, img.toSeq, preload = 1)
           val r1 = readReg(core, 1)
@@ -243,7 +244,7 @@ object BorgCoreTestsC extends TestSuite {
       simulate(new BorgCore(small)) { core =>
         idleInputs(core)
         // Leave a different program's words in IMEM first.
-        for (i <- 0 until small.maxInstructions) writeImem(core, i, Instructions.IADD(rs1 = 1, rs2 = 1, rd = 1))
+        for (i <- 0 until small.maxInstructions) writeImem(core, i, Opcodes.ADD(1, 1, 1))
         val prog = countingProgram(150)
         countingRegs(core)
         val f = runFromImage(core, prog, preload = 20)
@@ -258,7 +259,7 @@ object BorgCoreTestsC extends TestSuite {
       // to the one an old program's lines were written in.
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
-        val old = Seq.fill(config.maxInstructions - 1)(Instructions.IADD(rs1 = 1, rs2 = 4, rd = 1)) :+ BigInt(0)
+        val old = Seq.fill(config.maxInstructions - 1)(Opcodes.ADD(1, 1, 4)) :+ BigInt(0)
         countingRegs(core)
         runFromImage(core, old, preload = small.maxInstructions)
         for (_ <- 0 until 255) { core.io.icacheFlush.poke(true.B); core.clock.step(1) }
@@ -289,10 +290,10 @@ object BorgCoreTestsC extends TestSuite {
         idleInputs(core)
         // Words 0..89 straight-line padding (r1 += r2), then a 4-word loop at
         // 90..93 that counts r3 down from 10, all past the 72-word IMEM.
-        val pad = Seq.fill(90)(Instructions.IADD(rs1 = 1, rs2 = 2, rd = 1))
+        val pad = Seq.fill(90)(Opcodes.ADD(1, 1, 2))
         val loop = Seq(
-          Instructions.IADD(rs1 = 4, rs2 = 2, rd = 4),            // r4 += 1 (loop body)
-          Instructions.ISUB(rs1 = 3, rs2 = 2, rd = 3),            // r3 -= 1
+          Opcodes.ADD(4, 4, 2),            // r4 += 1 (loop body)
+          Opcodes.SUB(3, 3, 2),            // r3 -= 1
           Instructions.BRNZ(rs1 = 3, offset = -2),
           BigInt(0))
         val prog = pad ++ loop
@@ -421,7 +422,7 @@ object BorgCoreTestsC extends TestSuite {
         // 1: r2 = r1 + r1     (must NOT execute)
         // 2: halt
         writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 2))
-        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 1, Opcodes.FADD_S(2, 1, 1))
         writeImem(core, 2, 0)
 
         startAndWait(core)
@@ -442,7 +443,7 @@ object BorgCoreTestsC extends TestSuite {
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
         writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 2))
-        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 1, Opcodes.FADD_S(2, 1, 1))
         writeImem(core, 2, 0)
 
         startAndWait(core)

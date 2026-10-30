@@ -18,8 +18,8 @@ object FrcpFp32RangeTests extends TestSuite {
         println("\n--- BorgCore: FRCP/FRSQ over FP32's range ---")
         idleInputs(core)
         resetCore(core)
-        writeImem(core, 0, Instructions.FRCP(rs1 = 9, rd = 2))
-        writeImem(core, 1, Instructions.FRSQ(rs1 = 9, rd = 3))
+        writeImem(core, 0, Opcodes.FRCP_V2(2, 9))
+        writeImem(core, 1, Opcodes.FRSQ_V2(3, 9))
         writeImem(core, 2, 0)
         def run(x: Float): (Float, Float) = {
           writeReg(core, 9, floatToBits(x))

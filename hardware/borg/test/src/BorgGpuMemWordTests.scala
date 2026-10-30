@@ -195,10 +195,10 @@ object BorgGpuMemWordTests extends TestSuite {
 
     val imem = BorgGpuRegs.imem_offset.litValue.toInt
     val prog = Seq(
-      Instructions.IADD(rs1 = 10, rs2 = 1, rd = 5), // r5 = bindingABase + offsetA
+      Opcodes.ADD(5, 10, 1), // r5 = bindingABase + offsetA
       Opcodes.SLLI(rd = 5, rs1 = 5, shamtw = 2),
       Opcodes.SW(rs1 = 5, rs2 = 3),                 // binding0[offsetA] = valueA
-      Instructions.IADD(rs1 = 11, rs2 = 2, rd = 6), // r6 = bindingBBase + offsetB
+      Opcodes.ADD(6, 11, 2), // r6 = bindingBBase + offsetB
       Opcodes.SLLI(rd = 6, rs1 = 6, shamtw = 2),
       Opcodes.SW(rs1 = 6, rs2 = 4),                 // binding1[offsetB] = valueB
       Opcodes.LW(rd = 7, rs1 = 5),                  // r7 = binding0[offsetA]

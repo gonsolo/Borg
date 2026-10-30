@@ -21,7 +21,7 @@ object BorgCoreTestsB extends TestSuite {
         // Run fmul: r9=2.0, r1=3.0 → r2=6.0
         writeReg(core, 9, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.MUL(9, 1, 2))
+        writeImem(core, 0, Opcodes.FMUL_S(2, 9, 1))
         writeImem(core, 1, 0)
 
         startAndWait(core)
@@ -46,7 +46,7 @@ object BorgCoreTestsB extends TestSuite {
 
         // fadd r2, r30, r31 → r2 = coordLut[5] + coordLut[10] = 5.5 + 10.5 = 16.0
         writeReg(core, 1, 0)
-        writeImem(core, 0, Instructions.ADD(30, 31, 2))
+        writeImem(core, 0, Opcodes.FADD_S(2, 30, 31))
         writeImem(core, 1, 0)
 
         startAndWait(core)
@@ -69,8 +69,8 @@ object BorgCoreTestsB extends TestSuite {
         // IMEM[2]: halt
         writeReg(core, 9, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.MUL(9, 1, 2))
-        writeImem(core, 1, Instructions.ADD(2, 9, 3))
+        writeImem(core, 0, Opcodes.FMUL_S(2, 9, 1))
+        writeImem(core, 1, Opcodes.FADD_S(3, 2, 9))
         writeImem(core, 2, 0)
 
         startAndWait(core)
@@ -136,7 +136,7 @@ object BorgCoreTestsB extends TestSuite {
         def testFrcp(input: Float, expected: Float, label: String): Unit = {
           resetCore(core)
           writeReg(core, 9, floatToBits(input))
-          writeImem(core, 0, Instructions.FRCP(rs1 = 9, rd = 2))
+          writeImem(core, 0, Opcodes.FRCP_V2(2, 9))
           writeImem(core, 1, 0)  // halt
           startAndWait(core)
           val result = bitsToFloat(readReg(core, 2))
@@ -167,7 +167,7 @@ object BorgCoreTestsB extends TestSuite {
         def testFrsq(input: Float, expected: Float, label: String): Unit = {
           resetCore(core)
           writeReg(core, 9, floatToBits(input))
-          writeImem(core, 0, Instructions.FRSQ(rs1 = 9, rd = 2))
+          writeImem(core, 0, Opcodes.FRSQ_V2(2, 9))
           writeImem(core, 1, 0) // halt
           startAndWait(core)
           val result = bitsToFloat(readReg(core, 2))
@@ -206,7 +206,7 @@ object BorgCoreTestsB extends TestSuite {
         writeReg(core, 6, floatToBits(3.0f)) // broadcast constant 3.0
 
         // r1 = coordX·3 (differs per lane), then derivatives.
-        writeImem(core, 0, Instructions.MUL(rs1 = 30, rs2 = 6, rd = 1)) // r1 = coordX*3
+        writeImem(core, 0, Opcodes.FMUL_S(1, 30, 6)) // r1 = coordX*3
         writeImem(core, 1, Instructions.DDX(rs1 = 1,  rd = 7))          // ddx(coordX*3) = 3
         writeImem(core, 2, Instructions.DDX(rs1 = 30, rd = 2))          // ddx(coordX)   = 1
         writeImem(core, 3, Instructions.DDY(rs1 = 31, rd = 3))          // ddy(coordY)   = 1
@@ -242,7 +242,8 @@ object BorgCoreTestsB extends TestSuite {
         core.io.seqBusy.poke(false.B)
         resetCore(core)
         import Instructions._
-        Seq(MUL(rs1 = 30, rs2 = 31, rd = 1),              // v = x*y
+        import Opcodes._
+        Seq(FMUL_S(1, 30, 31),              // v = x*y
             DDX(rs1 = 1, rd = 2, fine = true),            // (4.5, 4.5, 5.5, 5.5)
             DDY(rs1 = 2, rd = 3),                         // lane2 - lane0 = 1
             DDY(rs1 = 1, rd = 4, fine = true),            // (4.5, 5.5, 4.5, 5.5)

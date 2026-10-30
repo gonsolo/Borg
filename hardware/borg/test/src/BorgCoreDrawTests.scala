@@ -35,10 +35,10 @@ object BorgCoreDrawTests extends TestSuite {
         writeReg(core, 9, BigInt("F0000010", 16))          // negative as signed
         writeReg(core, 1, 4)
         writeReg(core, 2, BigInt("7FFFFFFF", 16))
-        writeImem(core, 0, Instructions.ISRL(rs1 = 9, rs2 = 1, rd = 3))
-        writeImem(core, 1, Instructions.ISHR(rs1 = 9, rs2 = 1, rd = 4))
-        writeImem(core, 2, Instructions.ISLTU(rs1 = 2, rs2 = 9, rd = 5))   // 0x7FFFFFFF <u 0xF0000010
-        writeImem(core, 3, Instructions.ISLT(rs1 = 2, rs2 = 9, rd = 6))    // but not signed
+        writeImem(core, 0, Opcodes.SRL(3, 9, 1))
+        writeImem(core, 1, Opcodes.SRA(4, 9, 1))
+        writeImem(core, 2, Opcodes.SLTU(5, 2, 9))   // 0x7FFFFFFF <u 0xF0000010
+        writeImem(core, 3, Opcodes.SLT(6, 2, 9))    // but not signed
         writeImem(core, 4, 0)
         startAndWait(core)
         val got = (3 to 6).map(readReg(core, _))

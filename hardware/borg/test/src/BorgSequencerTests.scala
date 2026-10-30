@@ -230,11 +230,11 @@ object BorgSequencerTests extends TestSuite {
           for (i <- 0 until 12) uniform(i, 0)          // all-zero edges: every pixel inside
           val fragPc = 1
           val frag = Seq(
-            Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),                // r25 = 0 (index, no kill)
+            Opcodes.XOR(25, 25, 25),                // r25 = 0 (index, no kill)
             Opcodes.CSRRS(29, 0, Csr.Uniform0 + 12),      // r29 = depth = u12
             Opcodes.CSRRS(27, 0, Csr.Uniform0 + 12),      // r27 = colour = u12
-            if (useZTest) Instructions.ZTEST()
-            else Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),            // same length, no test
+            if (useZTest) Opcodes.ZTEST_V2()
+            else Opcodes.XOR(25, 25, 25),            // same length, no test
             Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 27),   // mem[lsBase] = colour
             BigInt(0))
           for ((w, i) <- frag.zipWithIndex)
@@ -285,10 +285,10 @@ object BorgSequencerTests extends TestSuite {
         resetAndWait(borg)
         val lsBase = 0x30000; val fragAddr = 0x5000; val fragPc = 1
         val frag = Seq(
-            Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),               // r25 = 0 (index, no kill)
-            Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),                  // r5 = 0
+            Opcodes.XOR(25, 25, 25),               // r25 = 0 (index, no kill)
+            Opcodes.XOR(5, 5, 5),                  // r5 = 0
             Opcodes.CSRRS(6, 0, Csr.Uniform0 + 12)) ++ // r6 = u12 = 1
-          Seq.fill(100)(Instructions.IADD(rs1 = 5, rs2 = 6, rd = 5)) ++   // r5 += 1, x100
+          Seq.fill(100)(Opcodes.ADD(5, 5, 6)) ++   // r5 += 1, x100
           Seq(Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 5), BigInt(0))
         Predef.assert(frag.length + fragPc > suiteCfg.maxInstructions)
         BorgDrawSim.clear(borg, mirror)
@@ -329,12 +329,12 @@ object BorgSequencerTests extends TestSuite {
         val adds = 138
         val consts = Seq(1, 16, 256)
         val frag = Seq(
-            Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),
-            Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),
+            Opcodes.XOR(25, 25, 25),
+            Opcodes.XOR(5, 5, 5),
             Opcodes.CSRRS(6, 0, Csr.Uniform0 + 12),
             Opcodes.CSRRS(7, 0, Csr.Uniform0 + 13),
             Opcodes.CSRRS(8, 0, Csr.Uniform0 + 14)) ++
-          (0 until adds).map(i => Instructions.IADD(rs1 = 5, rs2 = 6 + i % 3, rd = 5)) ++
+          (0 until adds).map(i => Opcodes.ADD(5, 5, 6 + i % 3)) ++
           Seq(Opcodes.LUI(rd = 16, imm20 = lsBase >> 12), Opcodes.SW(rs1 = 16, rs2 = 5), BigInt(0))
         val expect = (0 until adds).map(i => consts(i % 3)).sum
         Predef.assert(frag.length + fragPc > 128)

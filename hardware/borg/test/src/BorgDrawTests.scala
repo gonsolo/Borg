@@ -115,25 +115,27 @@ object BorgDrawTests extends TestSuite {
     }
 
     import Instructions._
+
+    import Opcodes._
     // Vertex pulling: vertex i is six words (X, Y, Z, W, r, g) at byte
     // u25 + 24*i; u26 = 24 and u27 = 4 are integers. Varyings r and g are
     // output components 0 and 1. The position goes out through out_pos0..3.
     val vs = Seq(
-      ldU(9, 26), IMUL(rs1 = 30, rs2 = 9, rd = 9),
-      ldU(13, 25), IADD(rs1 = 9, rs2 = 13, rd = 9),
+      ldU(9, 26), MUL(9, 30, 9),
+      ldU(13, 25), ADD(9, 9, 13),
       ldU(14, 27)) ++
       (0 until 6).flatMap { c =>
         val dst = if (c < 4) 1 + c else 10 + c - 4
-        Seq(Opcodes.LW(rd = dst, rs1 = 9)) ++ (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 14, rd = 9)) else Nil)
+        Seq(Opcodes.LW(rd = dst, rs1 = 9)) ++ (if (c < 5) Seq(ADD(9, 9, 14)) else Nil)
       } ++ (0 until 4).map(c => Opcodes.CSRRW(rs1 = 1 + c, csr = Csr.OutPos0 + c)) ++
       Seq(SOUT(rs2 = 10, index = 0), SOUT(rs2 = 11, index = 1), BigInt(0))
     // v = l0*a0 + l1*a1 + l2*a2 for r and g; blue is 0 (u20 = 0.0, the
     // constant window's first word).
     val fs = Seq(
       FATTR(rd = 10, index = 0),
-      MUL(rs1 = 5, rs2 = 10, rd = 26), FMA(rs1 = 6, rs2 = 11, rs3 = 26, rd = 26), FMA(rs1 = 7, rs2 = 12, rs3 = 26, rd = 26),
+      FMUL_S(26, 5, 10), FMADD_S(26, 6, 11, 26), FMADD_S(26, 7, 12, 26),
       FATTR(rd = 10, index = 1),
-      MUL(rs1 = 5, rs2 = 10, rd = 27), FMA(rs1 = 6, rs2 = 11, rs3 = 27, rd = 27), FMA(rs1 = 7, rs2 = 12, rs3 = 27, rd = 27),
+      FMUL_S(27, 5, 10), FMADD_S(27, 6, 11, 27), FMADD_S(27, 7, 12, 27),
       ldU(28, 20),
       BigInt(0))
     rom ++= vs.zipWithIndex.map { case (w, i) => (vsAddr + 4 * i) -> w }
@@ -309,6 +311,7 @@ object BorgDrawTests extends TestSuite {
     * framebuffer must equal the first exactly. */
   def renderToTexture(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val fbA = 0x10000; val fbB = 0x14000
     rig.fbBase = fbA
     val t = Seq(at(0, 0, 1.0, r = 1), at(8, 0, 4.0, g = 1), at(0, 8, 2.0))
@@ -324,15 +327,15 @@ object BorgDrawTests extends TestSuite {
     rig.rom(rig.fsConst + 20) = BigInt(rig.texDesc); rig.rom(rig.fsConst + 24) = BigInt(rig.sampDesc)   // u25, u26
     val fs2 = Seq(
       FATTR(rd = 10, index = 0),
-      MUL(rs1 = 5, rs2 = 10, rd = 13), FMA(rs1 = 6, rs2 = 11, rs3 = 13, rd = 13), FMA(rs1 = 7, rs2 = 12, rs3 = 13, rd = 13),
+      FMUL_S(13, 5, 10), FMADD_S(13, 6, 11, 13), FMADD_S(13, 7, 12, 13),
       FATTR(rd = 10, index = 1),
-      MUL(rs1 = 5, rs2 = 10, rd = 14), FMA(rs1 = 6, rs2 = 11, rs3 = 14, rd = 14), FMA(rs1 = 7, rs2 = 12, rs3 = 14, rd = 14),
+      FMUL_S(14, 5, 10), FMADD_S(14, 6, 11, 14), FMADD_S(14, 7, 12, 14),
       ldU(15, 21),
       ldU(16, 26),
       ldU(17, 25),
       Opcodes.TEXS(16, 15), Opcodes.TEXD(20, 13, 14, 17),
-      ldU(26, 20), ADD(rs1 = 20, rs2 = 26, rd = 26), ldU(27, 20), ADD(rs1 = 21, rs2 = 27, rd = 27),
-      ldU(28, 20), ADD(rs1 = 22, rs2 = 28, rd = 28), ldU(24, 20), ADD(rs1 = 23, rs2 = 24, rd = 24),
+      ldU(26, 20), FADD_S(26, 20, 26), ldU(27, 20), FADD_S(27, 21, 27),
+      ldU(28, 20), FADD_S(28, 22, 28), ldU(24, 20), FADD_S(24, 23, 24),
       BigInt(0))
     rig.fbBase = fbB
     val quad = Seq(at(8, 0, 1, r = 1, g = 0), at(0, 0, 1, r = 0, g = 0), at(8, 8, 1, r = 1, g = 1), at(0, 8, 1, r = 0, g = 1))
@@ -348,14 +351,15 @@ object BorgDrawTests extends TestSuite {
   /** ISA v2 (B8 step 8): the same colours through CSR writes instead of r26-r28. */
   def csrOutputs(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val t = Seq(at(0, 0, 1.0, r = 1), at(8, 0, 4.0, g = 1), at(0, 8, 2.0))
     rig.draw(t)
     val a = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
     val fsCsr = Seq(
       FATTR(rd = 10, index = 0),
-      MUL(rs1 = 5, rs2 = 10, rd = 13), FMA(rs1 = 6, rs2 = 11, rs3 = 13, rd = 13), FMA(rs1 = 7, rs2 = 12, rs3 = 13, rd = 13),
+      FMUL_S(13, 5, 10), FMADD_S(13, 6, 11, 13), FMADD_S(13, 7, 12, 13),
       FATTR(rd = 10, index = 1),
-      MUL(rs1 = 5, rs2 = 10, rd = 14), FMA(rs1 = 6, rs2 = 11, rs3 = 14, rd = 14), FMA(rs1 = 7, rs2 = 12, rs3 = 14, rd = 14),
+      FMUL_S(14, 5, 10), FMADD_S(14, 6, 11, 14), FMADD_S(14, 7, 12, 14),
       ldU(15, 20),
       Opcodes.CSRRW(rs1 = 13, csr = Csr.OutC0), Opcodes.CSRRW(rs1 = 14, csr = Csr.OutC1),
       Opcodes.CSRRW(rs1 = 15, csr = Csr.OutC2),
@@ -391,6 +395,7 @@ object BorgDrawTests extends TestSuite {
     * SMASK, counted with the occlusion query. */
   def masks(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
     val tri = Seq(at(0, 0, 1.0, r = 1), at(8, 0, 4.0, g = 1), at(0, 8, 2.0))
     def samplesIn(t: Seq[V], mask: Int) = (for (py <- 0 until Size; px <- 0 until Size; ((ox, oy), s) <- offsets.zipWithIndex
@@ -398,11 +403,11 @@ object BorgDrawTests extends TestSuite {
     // u22 = alpha (float), u23 = a mask (integer); r24 = alpha, r19 = mask.
     val zero = ldU(24, 20)
     def withAlpha(a: Float) = { rig.rom(rig.fsConst + 8) = BigInt(java.lang.Float.floatToRawIntBits(a)) & 0xFFFFFFFFL
-      rig.fs.init ++ Seq(zero, ldU(9, 22), ADD(rs1 = 24, rs2 = 9, rd = 24), BigInt(0)) }
+      rig.fs.init ++ Seq(zero, ldU(9, 22), FADD_S(24, 24, 9), BigInt(0)) }
     val shaderMask = rig.fs.init ++ Seq( ldU(19, 23), BigInt(0))
     val smaskId  = rig.fs.init ++ Seq(SMASK(rd = 19), BigInt(0))
     val smaskNot = rig.fs.init ++ Seq(SMASK(rd = 19), 
-                                      ldU(18, 23), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
+                                      ldU(18, 23), XOR(19, 19, 18), BigInt(0))
     val static = rig.draw(quad, topology = 1, sampleMaskCfg = 0x5)
     val a50 = rig.draw(quad, topology = 1, frag = withAlpha(0.5f), sampleMaskCfg = 0xF | 0x10)
     val a30 = rig.draw(quad, topology = 1, frag = withAlpha(0.3f), sampleMaskCfg = 0xF | 0x10)
@@ -469,12 +474,13 @@ object BorgDrawTests extends TestSuite {
     * which only works if every pass starts from the same depth. */
   def attachments(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val bases = Seq(0x10000, 0x14000, 0x18000)
     val t = Seq(at(0, 0, 1.0, r = 1), at(8, 0, 4.0, g = 1), at(0, 8, 2.0))
     // Attachment 2's previous content: every pixel (10, 20, 30, 40).
     for (i <- 0 until Size * Size) { rig.rom(bases(2) + 4 * i) = BigInt(0x281E140AL) }
     rig.rom(rig.fsConst + 8) = BigInt(java.lang.Float.floatToRawIntBits(0.25f))   // u22
-    val frag = rig.fs.init ++ Seq(Opcodes.CSRRS(10, 0, Csr.Attachment), I2F(rs1 = 10, rd = 10), ldU(26, 22), MUL(rs1 = 10, rs2 = 26, rd = 26), BigInt(0))
+    val frag = rig.fs.init ++ Seq(Opcodes.CSRRS(10, 0, Csr.Attachment), FCVT_S_W(10, 10), ldU(26, 22), FMUL_S(26, 10, 26), BigInt(0))
     def fp16(f: Float) = java.lang.Float.floatToFloat16(f).toInt & 0xFFFF
     rig.fbBase = bases(0)
     val count = rig.draw(t, frag = frag, depthCfg = 1 | (1 << 3), extra = Seq(
@@ -519,6 +525,7 @@ object BorgDrawTests extends TestSuite {
   def renderListParts(rig: DrawRig): Unit = renderListWith(rig, 2)
   def renderListWith(rig: DrawRig, rowBytes: Int): Unit = {
     import Instructions._
+    import Opcodes._
     val one = 0x40                               // one sample: a load is then exact
     val tris = Seq(
       Seq(at(0, 0, 1, r = 1.0, g = 0.25), at(8, 0, 1, r = 0.5, g = 0.25), at(0, 8, 1, r = 0.25, g = 1.0)),
@@ -528,9 +535,9 @@ object BorgDrawTests extends TestSuite {
     // State B: the varyings swapped, and its own constant window (blue = l0 * 1.0).
     val fsB = Seq(
       FATTR(rd = 10, index = 1),
-      MUL(rs1 = 5, rs2 = 10, rd = 26), FMA(rs1 = 6, rs2 = 11, rs3 = 26, rd = 26), FMA(rs1 = 7, rs2 = 12, rs3 = 26, rd = 26),
+      FMUL_S(26, 5, 10), FMADD_S(26, 6, 11, 26), FMADD_S(26, 7, 12, 26),
       FATTR(rd = 10, index = 0),
-      MUL(rs1 = 5, rs2 = 10, rd = 27), FMA(rs1 = 6, rs2 = 11, rs3 = 27, rd = 27), FMA(rs1 = 7, rs2 = 12, rs3 = 27, rd = 27),
+      FMUL_S(27, 5, 10), FMADD_S(27, 6, 11, 27), FMADD_S(27, 7, 12, 27),
       ldU(28, 20),
       BigInt(0))
     val fsConstB = 0xB180; val fsAddrB = 0x5400
@@ -618,6 +625,7 @@ object BorgDrawTests extends TestSuite {
     * edge pixels, so the four identical copies resolve exactly. */
   def singleSample(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val one = 0x40
     val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
     // No edge through a pixel centre (x + y = 8.5 on the long one), so the
@@ -651,14 +659,14 @@ object BorgDrawTests extends TestSuite {
     // Masks act on the one sample.
     val zero = ldU(24, 20)
     def withAlpha(a: Float) = { rig.rom(rig.fsConst + 8) = BigInt(java.lang.Float.floatToRawIntBits(a)) & 0xFFFFFFFFL
-      rig.fs.init ++ Seq(zero, ldU(9, 22), ADD(rs1 = 24, rs2 = 9, rd = 24), BigInt(0)) }
+      rig.fs.init ++ Seq(zero, ldU(9, 22), FADD_S(24, 24, 9), BigInt(0)) }
     val staticOff = rig.draw(quad, topology = 1, sampleMaskCfg = 0xE | one)
     val staticOn  = rig.draw(quad, topology = 1, sampleMaskCfg = 0x1 | one)
     val a60 = rig.draw(quad, topology = 1, frag = withAlpha(0.6f), sampleMaskCfg = 0xF | 0x10 | one)
     val a40 = rig.draw(quad, topology = 1, frag = withAlpha(0.4f), sampleMaskCfg = 0xF | 0x10 | one)
     val smaskId = rig.fs.init ++ Seq(SMASK(rd = 19), BigInt(0))
     val smaskNot = rig.fs.init ++ Seq(SMASK(rd = 19), 
-                                      ldU(18, 23), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
+                                      ldU(18, 23), XOR(19, 19, 18), BigInt(0))
     rig.rom(rig.fsConst + 12) = BigInt(0x1)
     val id = rig.draw(quad, topology = 1, frag = smaskId, sampleMaskCfg = 0xF | 0x20 | one)
     val not = rig.draw(quad, topology = 1, frag = smaskNot, sampleMaskCfg = 0xF | 0x20 | one)
@@ -710,16 +718,17 @@ object BorgDrawTests extends TestSuite {
     * stores the same bytes. Edge pixels resolve in linear. */
   def srgbAttachment(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val tri = Seq(at(0.25, 0.25, 1.0), at(8, 0.5, 4.0), at(0.5, 8, 2.0))
     val in = (for (py <- 0 until Size; px <- 0 until Size if inside(tri, px + 0.5, py + 0.5)) yield (px, py)).toSet
     def u(k: Int, v: Float): Unit = rig.rom(rig.fsConst + 4 * k) = BigInt(java.lang.Float.floatToRawIntBits(v)) & 0xFFFFFFFFL
     val g = java.lang.Float.float16ToFloat(SrgbCodec.decodeTable(128).toShort)
     u(1, 0.5f); u(2, g); u(3, 1.0f)
     val write = rig.fs.init ++ Seq(ldU(9, 20),
-      ldU(26, 21), ADD(rs1 = 9, rs2 = 26, rd = 26), ldU(27, 22), ADD(rs1 = 9, rs2 = 27, rd = 27),
-      ldU(28, 23), ADD(rs1 = 9, rs2 = 28, rd = 28), ldU(24, 23), ADD(rs1 = 9, rs2 = 24, rd = 24), BigInt(0))
-    val copy = Seq(TLD(rd = 20), H2F(rs1 = 20, rd = 26), Opcodes.SRLI(rd = 21, rs1 = 20, shamtw = 16), H2F(rs1 = 21, rd = 27),
-      TLD(rd = 22, word = 1), H2F(rs1 = 22, rd = 28), Opcodes.SRLI(rd = 23, rs1 = 22, shamtw = 16), H2F(rs1 = 23, rd = 24), BigInt(0))
+      ldU(26, 21), FADD_S(26, 9, 26), ldU(27, 22), FADD_S(27, 9, 27),
+      ldU(28, 23), FADD_S(28, 9, 28), ldU(24, 23), FADD_S(24, 9, 24), BigInt(0))
+    val copy = Seq(TLD(rd = 20), FCVT_S_H(26, 20), Opcodes.SRLI(rd = 21, rs1 = 20, shamtw = 16), FCVT_S_H(27, 21),
+      TLD(rd = 22, word = 1), FCVT_S_H(28, 22), Opcodes.SRLI(rd = 23, rs1 = 22, shamtw = 16), FCVT_S_H(24, 23), BigInt(0))
     val cfg = Seq(BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RGBA8 | 16))
     val c1 = rig.draw(tri, frag = write, extra = cfg)
     val first = in.toSeq.map { case (x, y) => rig.pixel(x, y) }.distinct
@@ -739,6 +748,7 @@ object BorgDrawTests extends TestSuite {
     * overlapping triangles each add 0.375 to the destination, in FP32. */
   def rawFormats(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val one = 0x40
     val tri = Seq(at(0.25, 0.25, 1.0), at(8, 0.5, 4.0), at(0.5, 8, 2.0))
     val in = (for (py <- 0 until Size; px <- 0 until Size if inside(tri, px + 0.5, py + 0.5)) yield (px, py)).toSet
@@ -749,8 +759,8 @@ object BorgDrawTests extends TestSuite {
     val store = Seq(ldU(26, 21),
                     ldU(27, 23), BigInt(0))
     val addOne = Seq(TLD(rd = 20), ldU(26, 22),
-                     IADD(rs1 = 20, rs2 = 26, rd = 26), TLD(rd = 21, word = 1), 
-                     ldU(27, 24), IADD(rs1 = 21, rs2 = 27, rd = 27), BigInt(0))
+                     ADD(26, 20, 26), TLD(rd = 21, word = 1), 
+                     ldU(27, 24), ADD(27, 21, 27), BigInt(0))
     val bytes = Map(FlushFormat.RAW32 -> 4, FlushFormat.RAW16 -> 2, FlushFormat.RAW8 -> 1, FlushFormat.RAW64 -> 8)
     def bytesAt(fmt: Int, x: Int, y: Int): BigInt = {
       val n = bytes(fmt)
@@ -786,7 +796,7 @@ object BorgDrawTests extends TestSuite {
     }
     // R32_SFLOAT, blend ONE/ONE in the shader: dst + 0.375, twice.
     u(2, f32(0.375f))
-    val blend = Seq(TLD(rd = 20), ldU(26, 22), ADD(rs1 = 20, rs2 = 26, rd = 26), BigInt(0))
+    val blend = Seq(TLD(rd = 20), ldU(26, 22), FADD_S(26, 20, 26), BigInt(0))
     rig.draw(tri ++ tri, frag = blend, sampleMaskCfg = 0xF | one, extra = Seq(
       BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RAW32), BorgGpuRegs.plane_clear_offset -> BigInt(0)))
     for (y <- 0 until Size; x <- 0 until Size) {
@@ -797,8 +807,8 @@ object BorgDrawTests extends TestSuite {
     // R32G32_SFLOAT, a blend that needs the whole pixel: x' = 0.5 + x*y,
     // y' = y + 1, from (0, 2) twice -> (0.5, 3) -> (2, 4).
     u(2, f32(0.5f)); u(3, f32(1.0f))
-    val blend64 = Seq(TLD(rd = 20), TLD(rd = 21, word = 1), MUL(rs1 = 20, rs2 = 21, rd = 18),
-                      ldU(26, 22), ADD(rs1 = 18, rs2 = 26, rd = 26), ldU(27, 23), ADD(rs1 = 21, rs2 = 27, rd = 27), BigInt(0))
+    val blend64 = Seq(TLD(rd = 20), TLD(rd = 21, word = 1), FMUL_S(18, 20, 21),
+                      ldU(26, 22), FADD_S(26, 18, 26), ldU(27, 23), FADD_S(27, 21, 27), BigInt(0))
     rig.draw(tri ++ tri, frag = blend64, sampleMaskCfg = 0xF | one, extra = Seq(
       BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RAW64), BorgGpuRegs.plane_clear_offset -> BigInt(0),
       BorgGpuRegs.att_clear_ext0_offset -> f32(2.0f)))
@@ -814,10 +824,10 @@ object BorgDrawTests extends TestSuite {
     def pick(dst: Int, lo: Int, hi: Int) = Seq(
       ldU(dst, lo),
       ldU(19, hi),
-      IXOR(rs1 = dst, rs2 = 19, rd = 19), IAND(rs1 = 19, rs2 = 20, rd = 19), IXOR(rs1 = dst, rs2 = 19, rd = dst))
+      XOR(19, dst, 19), AND(19, 19, 20), XOR(dst, dst, 19))
     val store128 = Seq(Opcodes.CSRRS(20, 0, Csr.Attachment), 
-                       ldU(18, 26), ISRL(rs1 = 20, rs2 = 18, rd = 20),
-                       IXOR(rs1 = 9, rs2 = 9, rd = 18), ISUB(rs1 = 18, rs2 = 20, rd = 20)) ++
+                       ldU(18, 26), SRL(20, 20, 18),
+                       XOR(18, 9, 9), SUB(20, 18, 20)) ++
                    pick(26, 21, 24) ++ pick(27, 23, 25) :+ BigInt(0)
     val w23Clear = Seq(BorgGpuRegs.att_clear_w2_0_offset -> BigInt(0x0C0FFEE0L), BorgGpuRegs.att_clear_w3_0_offset -> BigInt(0x0FACADE0L))
     def at128(x: Int, y: Int): BigInt = {
@@ -890,9 +900,10 @@ object BorgDrawTests extends TestSuite {
     * primitive p, odd ones included (Vulkan's {v_p, v_p+2, v_p+1}). */
   def flatStrip(rig: DrawRig): Unit = {
     import Instructions._
+    import Opcodes._
     val q = Seq(at(8, 0, 1, r = 0.2), at(0, 0, 1, r = 0.6), at(8, 8, 1, r = 0.4), at(0, 8, 1, r = 0.8))
-    val flat = Seq(FATTR(rd = 10, index = 0), IXOR(rs1 = 9, rs2 = 9, rd = 26), IOR(rs1 = 26, rs2 = 10, rd = 26),
-                   IXOR(rs1 = 9, rs2 = 9, rd = 27), IXOR(rs1 = 9, rs2 = 9, rd = 28), BigInt(0))
+    val flat = Seq(FATTR(rd = 10, index = 0), XOR(26, 9, 9), OR(26, 26, 10),
+                   XOR(27, 9, 9), XOR(28, 9, 9), BigInt(0))
     val tris = Seq(Seq(q(0), q(1), q(2)), Seq(q(1), q(3), q(2)))              // the strip's primitives
     for (indexed <- Seq(false, true)) {
       rig.draw(q, topology = 1, frag = flat, sampleMaskCfg = 0xF | 0x40, indices = if (indexed) Seq(0, 1, 2, 3) else Nil)

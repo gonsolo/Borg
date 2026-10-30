@@ -92,8 +92,8 @@ object BorgCoreRvTests extends TestSuite {
         pokeQuad(core)
         resetCore(core)
         // r1 = 77; lane 0 masked off (r30 = lane x: 0, 1, 0, 1) for the second write.
-        for ((w, i) <- Seq(ADDI(1, 0, 77), CSRRW(0, 1, Csr.OutC2), Instructions.F2I(30, 5),
-                           Instructions.EXPUSH(rs1 = 5), CSRRW(0, 1, Csr.OutDepth), Instructions.EXPOP(),
+        for ((w, i) <- Seq(ADDI(1, 0, 77), CSRRW(0, 1, Csr.OutC2), Opcodes.FCVT_W_S(5, 30, 1),
+                           Opcodes.EXPUSH_V2(5), CSRRW(0, 1, Csr.OutDepth), Opcodes.EXPOP_V2(),
                            BigInt(0)).zipWithIndex) writeImem(core, i, w)
         core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
         val seen = scala.collection.mutable.ArrayBuffer[(Int, Int, BigInt)]()

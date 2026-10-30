@@ -29,8 +29,8 @@ object BorgCoreTestsD extends TestSuite {
         writeReg(core, 1, intBits(-1))                  // -1 at the datapath width
         writeReg(core, 2, floatToBits(1.0f))
         writeReg(core, 3, floatToBits(0.0f))
-        writeImem(core, 0, Instructions.ADD(3, 2, 3))
-        writeImem(core, 1, Instructions.IADD(8, 1, 8))
+        writeImem(core, 0, Opcodes.FADD_S(3, 3, 2))
+        writeImem(core, 1, Opcodes.ADD(8, 8, 1))
         writeImem(core, 2, Instructions.BRNZ(rs1 = 8, offset = -2))
         writeImem(core, 3, 0)
 
@@ -58,7 +58,7 @@ object BorgCoreTestsD extends TestSuite {
           writeReg(core, 1, floatToBits(1.0f))
           writeReg(core, 2, floatToBits(0.0f))
           writeImem(core, 0, Instructions.BRNZ(rs1 = 8, offset = 2))
-          writeImem(core, 1, Instructions.ADD(1, 1, 2))
+          writeImem(core, 1, Opcodes.FADD_S(2, 1, 1))
           writeImem(core, 2, 0)
           startAndWait(core)
           val r2 = bitsToFloat(readReg(core, 2))
@@ -83,7 +83,7 @@ object BorgCoreTestsD extends TestSuite {
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
         writeImem(core, 0, Instructions.BRZ(rs1 = 8, offset = 2))
-        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 1, Opcodes.FADD_S(2, 1, 1))
         writeImem(core, 2, 0)
 
         startAndWait(core)
@@ -124,10 +124,10 @@ object BorgCoreTestsD extends TestSuite {
         // Lane 0 is masked, so its r6 must keep the sentinel.
         writeReg(core, 6, floatToBits(9.0f))     // sentinel in every lane
         writeReg(core, 7, floatToBits(1.0f))
-        writeImem(core, 0, Instructions.F2I(30, 5))
-        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
-        writeImem(core, 2, Instructions.ADD(7, 7, 6))   // r6 = 2.0, masked lanes skip
-        writeImem(core, 3, Instructions.EXPOP())
+        writeImem(core, 0, Opcodes.FCVT_W_S(5, 30, 1))
+        writeImem(core, 1, Opcodes.EXPUSH_V2(5))
+        writeImem(core, 2, Opcodes.FADD_S(6, 7, 7))   // r6 = 2.0, masked lanes skip
+        writeImem(core, 3, Opcodes.EXPOP_V2())
         writeImem(core, 4, 0)
 
         startAndWait(core)
@@ -151,10 +151,10 @@ object BorgCoreTestsD extends TestSuite {
         // than latched off for the rest of the program.
         writeReg(core, 6, floatToBits(9.0f))
         writeReg(core, 7, floatToBits(1.0f))
-        writeImem(core, 0, Instructions.F2I(30, 5))
-        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
-        writeImem(core, 2, Instructions.EXPOP())
-        writeImem(core, 3, Instructions.ADD(7, 7, 6))   // r6 = 2.0 in ALL lanes
+        writeImem(core, 0, Opcodes.FCVT_W_S(5, 30, 1))
+        writeImem(core, 1, Opcodes.EXPUSH_V2(5))
+        writeImem(core, 2, Opcodes.EXPOP_V2())
+        writeImem(core, 3, Opcodes.FADD_S(6, 7, 7))   // r6 = 2.0 in ALL lanes
         writeImem(core, 4, 0)
 
         startAndWait(core)
@@ -179,12 +179,12 @@ object BorgCoreTestsD extends TestSuite {
         writeReg(core, 6, floatToBits(9.0f))
         writeReg(core, 7, floatToBits(1.0f))
         writeReg(core, 8, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.F2I(30, 5))
-        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
-        writeImem(core, 2, Instructions.ADD(7, 7, 6))    // then: r6 = 2.0
-        writeImem(core, 3, Instructions.EXELSE())
-        writeImem(core, 4, Instructions.ADD(8, 30, 6))   // else: overwritten below
-        writeImem(core, 5, Instructions.EXPOP())
+        writeImem(core, 0, Opcodes.FCVT_W_S(5, 30, 1))
+        writeImem(core, 1, Opcodes.EXPUSH_V2(5))
+        writeImem(core, 2, Opcodes.FADD_S(6, 7, 7))    // then: r6 = 2.0
+        writeImem(core, 3, Opcodes.EXELSE_V2())
+        writeImem(core, 4, Opcodes.FADD_S(6, 8, 30))   // else: overwritten below
+        writeImem(core, 5, Opcodes.EXPOP_V2())
         writeImem(core, 6, 0)
 
         startAndWait(core)
@@ -213,13 +213,13 @@ object BorgCoreTestsD extends TestSuite {
         // show up as lane 0 executing the inner else.
         writeReg(core, 6, floatToBits(9.0f))
         writeReg(core, 7, floatToBits(1.0f))
-        writeImem(core, 0, Instructions.F2I(30, 5))
-        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))   // lane 0 masked off
-        writeImem(core, 2, Instructions.EXPUSH(rs1 = 5))   // inner, same cond
-        writeImem(core, 3, Instructions.EXELSE())          // inner else
-        writeImem(core, 4, Instructions.ADD(7, 7, 6))      // lane 0 must NOT run this
-        writeImem(core, 5, Instructions.EXPOP())
-        writeImem(core, 6, Instructions.EXPOP())
+        writeImem(core, 0, Opcodes.FCVT_W_S(5, 30, 1))
+        writeImem(core, 1, Opcodes.EXPUSH_V2(5))   // lane 0 masked off
+        writeImem(core, 2, Opcodes.EXPUSH_V2(5))   // inner, same cond
+        writeImem(core, 3, Opcodes.EXELSE_V2())          // inner else
+        writeImem(core, 4, Opcodes.FADD_S(6, 7, 7))      // lane 0 must NOT run this
+        writeImem(core, 5, Opcodes.EXPOP_V2())
+        writeImem(core, 6, Opcodes.EXPOP_V2())
         writeImem(core, 7, 0)
 
         startAndWait(core)
@@ -240,7 +240,7 @@ object BorgCoreTestsD extends TestSuite {
 
         // EXPOP with nothing pushed. Wrong results are unavoidable; the point
         // is that the shader is detectably broken rather than silently so.
-        writeImem(core, 0, Instructions.EXPOP())
+        writeImem(core, 0, Opcodes.EXPOP_V2())
         writeImem(core, 1, 0)
         startAndWait(core)
 
@@ -275,16 +275,16 @@ object BorgCoreTestsD extends TestSuite {
         writeReg(core, 9, 0)   // total passes
 
         writeReg(core, 6, 2)                                           // constant 2
-        writeImem(core, 0, Instructions.F2I(30, 5))                    // r5 = int(x), 0 or 1
-        writeImem(core, 1, Instructions.IMUL(5, 6, 1))                 // r1 = x*2
-        writeImem(core, 2, Instructions.IADD(1, 6, 1))                 // r1 = x*2 + 2 (counter: 2 or 4)
+        writeImem(core, 0, Opcodes.FCVT_W_S(5, 30, 1))                    // r5 = int(x), 0 or 1
+        writeImem(core, 1, Opcodes.MUL(1, 5, 6))                 // r1 = x*2
+        writeImem(core, 2, Opcodes.ADD(1, 1, 6))                 // r1 = x*2 + 2 (counter: 2 or 4)
         // LOOP (starts at instruction 3):
-        writeImem(core, 3, Instructions.IADD(9, 7, 9))                 // r9 += 1 (unmasked pass counter)
-        writeImem(core, 4, Instructions.EXPUSH(rs1 = 1))               // mask lanes with counter == 0
-        writeImem(core, 5, Instructions.IADD(2, 7, 2))                 // r2 += 1
-        writeImem(core, 6, Instructions.IADD(1, 8, 1))                 // r1 -= 1
-        writeImem(core, 7, Instructions.EXANY(rd = 3))                 // r3 = any lane still active this pass
-        writeImem(core, 8, Instructions.EXPOP())
+        writeImem(core, 3, Opcodes.ADD(9, 9, 7))                 // r9 += 1 (unmasked pass counter)
+        writeImem(core, 4, Opcodes.EXPUSH_V2(1))               // mask lanes with counter == 0
+        writeImem(core, 5, Opcodes.ADD(2, 2, 7))                 // r2 += 1
+        writeImem(core, 6, Opcodes.ADD(1, 1, 8))                 // r1 -= 1
+        writeImem(core, 7, Opcodes.EXANY_V2(3))                 // r3 = any lane still active this pass
+        writeImem(core, 8, Opcodes.EXPOP_V2())
         writeImem(core, 9, Instructions.BRNZ(rs1 = 3, offset = -6))
         writeImem(core, 10, 0)
 
@@ -327,7 +327,7 @@ object BorgCoreTestsD extends TestSuite {
         // exactly as it did.
         writeReg(core, 15, floatToBits(2.0f))
         writeReg(core, 1, floatToBits(3.0f))
-        writeImem(core, 0, Instructions.ADD(15, 1, 2))
+        writeImem(core, 0, Opcodes.FADD_S(2, 15, 1))
         writeImem(core, 1, 0)
         startAndWait(core)
 

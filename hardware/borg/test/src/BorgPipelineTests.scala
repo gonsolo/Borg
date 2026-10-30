@@ -58,7 +58,7 @@ object BorgPipelineTests extends TestSuite {
 
   val tests = Tests {
     utest.test("independent_instructions_issue_every_cycle") {
-      val prog = (3 to 10).map(rd => Instructions.IADD(1, 2, rd))
+      val prog = (3 to 10).map(rd => Opcodes.ADD(rd, 1, 2))
       val (cp, r) = check("8 independent IADDs", ints, prog, 3 to 10)
       utest.assert(r.forall(_ == 8))
       // One instruction per cycle, then the last one's way to write-back.
@@ -66,7 +66,7 @@ object BorgPipelineTests extends TestSuite {
     }
 
     utest.test("dependent_instruction_issues_at_write_back") {
-      val prog = (3 to 10).map(rd => Instructions.IADD(rd - 1, 2, rd))
+      val prog = (3 to 10).map(rd => Opcodes.ADD(rd, rd - 1, 2))
       val (cp, r) = check("8 chained IADDs", Seq(2 -> BigInt(3)), prog, Seq(10))
       utest.assert(r == Seq(BigInt(27)))   // r3 = r2 + r2, then + r2 per step
       // Each IADD issues while the one it reads is in write-back.
@@ -75,7 +75,7 @@ object BorgPipelineTests extends TestSuite {
 
     utest.test("immediate_is_no_hazard") {
       // Each ADDI's immediate (the rs2 field) equals the rd of the IADD before it.
-      val prog = (3 to 9 by 2).flatMap(rd => Seq(Instructions.IADD(1, 2, rd), Opcodes.ADDI(rd + 1, 1, rd)))
+      val prog = (3 to 9 by 2).flatMap(rd => Seq(Opcodes.ADD(rd, 1, 2), Opcodes.ADDI(rd + 1, 1, rd)))
       val (cp, r) = check("IADD, ADDI with imm = rd before", ints, prog, 3 to 10)
       utest.assert(r == (3 to 10).map(rd => BigInt(if (rd % 2 == 1) 8 else 4 + rd)))
       utest.assert(cp == prog.length + piped.cBusyLoad)
@@ -85,8 +85,8 @@ object BorgPipelineTests extends TestSuite {
       // r5 counts the iterations of a loop over r1 = 5 .. 1.
       val minusOne = (BigInt(1) << 32) - 1
       val prog = Seq(
-        Instructions.IADD(5, 6, 5),   // r5 += 1
-        Instructions.IADD(1, 2, 1),   // r1 -= 1
+        Opcodes.ADD(5, 5, 6),   // r5 += 1
+        Opcodes.ADD(1, 1, 2),   // r1 -= 1
         Instructions.BRNZ(1, -2))
       val (_, r) = check("loop of 5", Seq(1 -> BigInt(5), 2 -> minusOne, 5 -> BigInt(0), 6 -> BigInt(1)), prog, Seq(1, 5))
       utest.assert(r == Seq(BigInt(0), BigInt(5)))
@@ -94,8 +94,8 @@ object BorgPipelineTests extends TestSuite {
 
     utest.test("write_after_write_keeps_program_order") {
       // An FP result and an integer one to the same register, both orders.
-      val prog = Seq(Instructions.ADD(7, 7, 3), Instructions.IADD(1, 2, 3),
-                     Instructions.IADD(1, 2, 4), Instructions.ADD(7, 7, 4))
+      val prog = Seq(Opcodes.FADD_S(3, 7, 7), Opcodes.ADD(3, 1, 2),
+                     Opcodes.ADD(4, 1, 2), Opcodes.FADD_S(4, 7, 7))
       val (_, r) = check("FADD/IADD to one register", ints :+ (7 -> floatToBits(1.0f)), prog, Seq(3, 4))
       utest.assert(r == Seq(BigInt(8), floatToBits(2.0f)))
     }
@@ -107,7 +107,7 @@ object BorgPipelineTests extends TestSuite {
     }
 
     utest.test("load_feeds_the_next_instruction") {
-      val prog = Seq(Opcodes.ADDI(1, 0, 0x100), Opcodes.LW(2, 1, 0), Instructions.IADD(2, 2, 3),
+      val prog = Seq(Opcodes.ADDI(1, 0, 0x100), Opcodes.LW(2, 1, 0), Opcodes.ADD(3, 2, 2),
                      Opcodes.SW(4, 1, 3), Opcodes.ADDI(5, 0, 1))
       val mem = scala.collection.mutable.Map(BigInt(0x100) -> BigInt(21))
       val r = withMem(piped, prog, Seq(2, 3, 5), mem)
@@ -117,8 +117,8 @@ object BorgPipelineTests extends TestSuite {
 
     utest.test("unit_result_waits_for_write_back") {
       // FEXP2 issues right behind IADDs still in flight; its result needs a free write-back cycle.
-      val prog = Seq(Instructions.IADD(1, 2, 3), Instructions.IADD(1, 2, 4), Instructions.IADD(1, 2, 5),
-                     Opcodes.FEXP2(7, 9), Instructions.IADD(1, 2, 6))
+      val prog = Seq(Opcodes.ADD(3, 1, 2), Opcodes.ADD(4, 1, 2), Opcodes.ADD(5, 1, 2),
+                     Opcodes.FEXP2(7, 9), Opcodes.ADD(6, 1, 2))
       val (_, r) = check("IADDs, FEXP2, IADD", ints :+ (9 -> floatToBits(3.0f)), prog, 3 to 7)
       utest.assert(r == Seq.fill(4)(BigInt(8)) :+ floatToBits(8.0f))
     }
@@ -133,8 +133,8 @@ object BorgPipelineTests extends TestSuite {
     utest.test("expush_leaves_the_instruction_before_it_unmasked") {
       // r5 = 0, 1, 0, 1 across the quad: EXPUSH masks lane 0, the only one readable. r8's ADD is
       // still in flight when EXPUSH changes the mask; r6's issues after it.
-      val prog = Seq(Instructions.F2I(30, 5)) ++ (10 to 14).map(Instructions.ADD(7, 7, _)) ++
-        Seq(Instructions.ADD(7, 7, 8), Instructions.EXPUSH(rs1 = 5), Instructions.ADD(7, 7, 6), Instructions.EXPOP())
+      val prog = Seq(Opcodes.FCVT_W_S(5, 30, 1)) ++ (10 to 14).map(Opcodes.FADD_S(_, 7, 7)) ++
+        Seq(Opcodes.FADD_S(8, 7, 7), Opcodes.EXPUSH_V2(5), Opcodes.FADD_S(6, 7, 7), Opcodes.EXPOP_V2())
       val ops = Seq(6 -> floatToBits(9.0f), 8 -> floatToBits(9.0f), 7 -> floatToBits(1.0f))
       val (cycles, r) = run(SIMT, ops, prog, Seq(6, 8), quad = true)
       println(s"  lane 0 r6, r8 = ${r.map(b => bitsToFloat(b))}, cycles $cycles")
