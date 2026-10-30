@@ -8,6 +8,12 @@ lint_off -rule UNUSEDSIGNAL -file "*Borg.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgGpuRegs.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgCore.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgLane.sv"
+// The core's units, split out of BorgCore and BorgLane: each decodes only the instruction
+// bits it needs, and the special functions' table lookup keeps only the bits it indexes by.
+lint_off -rule UNUSEDSIGNAL -file "*ExpLogUnit.sv"
+lint_off -rule UNUSEDSIGNAL -file "*MemUnit.sv"
+lint_off -rule UNUSEDSIGNAL -file "*TexUnit.sv"
+lint_off -rule UNUSEDSIGNAL -file "*SpecialFn.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Shifter.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Time.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Cpu.sv"
