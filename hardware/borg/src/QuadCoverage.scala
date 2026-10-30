@@ -16,8 +16,8 @@ import chisel3.util._
   * symmetric, d_2 = -d_1 and d_3 = -d_0); the test e >= -d_s compares the bit patterns in float
   * order, exactly. Zf = 1 - Zn moves the other way at every sample: its deltas are Zn's negated.
   * Each quad slot keeps its own values; [[at]] gives one slot's coverage. */
-class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeft: Vec[Bool],
-                   covDelta: Option[Vec[Vec[UInt]]], sampleCfg: SampleMaskConfig) {
+class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeftOf: UInt => Vec[Bool],
+                   covDeltaOf: Option[UInt => Vec[Vec[UInt]]], sampleCfg: SampleMaskConfig) {
   private val N = cfg.fragLanes
   private val w = cfg.totalBits
   private val nPlanes = 5
@@ -34,8 +34,8 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeft: Vec[Bool],
   def fnegBits(x: UInt): UInt = x ^ (1.U << (w - 1))
   def isOutside(data: UInt): Bool = data(w - 1).asBool && data(w - 2, 0) =/= 0.U
 
-  // The triangle's per-sample thresholds, shared by the slots.
-  private val (threshRaw, thresh) = covDelta.map { cd =>
+  // Slot q's triangle's per-sample thresholds.
+  private def thresholds(q: UInt) = covDeltaOf.map { f => val cd = f(q)
     val deltas = (0 until cfg.coveragePlanesStored).map(e => (cd(e)(0), cd(e)(1)))
     val planeDeltas = deltas :+ ((fnegBits(deltas(3)._1), fnegBits(deltas(3)._2)))
     val raw = VecInit(planeDeltas.map { case (d0, d1) => VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0)) })
@@ -44,6 +44,8 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeft: Vec[Bool],
 
   /** Slot q's coverage. */
   class View(q: UInt) {
+    private val (threshRaw, thresh) = thresholds(q)
+    private val topLeft = topLeftOf(q)
     /** Per lane, per sample: inside the triangle. */
     val geom: Vec[Vec[Bool]] = cfg.samples match {
       case 1 =>
@@ -86,6 +88,7 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeft: Vec[Bool],
 
   /** The raster ROM's writes for slot q, while it runs. */
   def capture(csr: Vec[CsrWriteIO], rast: Bool, q: UInt): Unit = for (i <- 0 until N) {
+    val topLeft = topLeftOf(q)
     val c = csr(i)
     def at(n: Int) = c.en && rast && c.addr === n.U
     def out(e: Int): Bool = isOutside(c.data) || (drawMode && c.data(w - 2, 0) === 0.U && !topLeft(e))

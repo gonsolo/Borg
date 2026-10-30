@@ -100,6 +100,9 @@ class QuadSlot(cfg: BorgConfig) extends Bundle {
   val running      = Bool()
   val startPending = Bool()   // triggered: running from the next cycle
   val byRasterizer = Bool()   // triggered, not started by MMIO: reads uniformPage
+  // A quad's triangle: the uniform page and FATTR's record as its trigger saw them.
+  val page         = UInt(1.W)
+  val attrBase     = UInt(GpuMemIO.AddrBits.W)
   // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
   val fetchRast    = Bool()
   val fetchSetup   = Bool()
@@ -301,8 +304,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   zTest.io.done := io.zTestDone
 
   private val memUnit = Module(new MemUnit(cfg))
-  io.helperSlot := attach(memUnit.io, f => f.load || f.store || f.sout || f.fattr)
+  private val memSlot = attach(memUnit.io, f => f.load || f.store || f.sout || f.fattr)
+  io.helperSlot := memSlot
   memUnit.io.record     := io.record
+  memUnit.io.record.attrBase := Mux(slots(memSlot).byRasterizer, slots(memSlot).attrBase, io.record.attrBase)
   memUnit.io.laneHelper := io.laneHelper
   memUnit.io.seqBusy    := io.seqBusy
 
@@ -414,6 +419,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       trigSlot.byRasterizer := true.B
       trigSlot.fetchRast := io.coreTrigger.isRast
       trigSlot.fetchSetup := io.coreTrigger.isSetup
+      when(!io.coreTrigger.fragment) { trigSlot.page := io.uniformPage; trigSlot.attrBase := io.record.attrBase }
       if (BorgDebug.trace) printf("[CORE] coreTrigger pc=%d isRast=%d\n",
         io.coreTrigger.pc, io.coreTrigger.isRast)
     }
@@ -465,7 +471,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val opEn = decoding || stages(cfg.cBusyLoad - 1, 1).orR
     val funct3 = RegEnable(opFlags.funct3, opEn)
     val addr = if (cfg.maxUniforms > 32) {
-      Cat(Mux(slot.byRasterizer, io.uniformPage, io.control.uniformWritePage), regs.rs1(4, 0))
+      Cat(Mux(slot.byRasterizer, slot.page, io.control.uniformWritePage), regs.rs1(4, 0))
     } else {
       regs.rs1(4, 0)
     }

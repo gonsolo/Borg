@@ -40,6 +40,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val scissor         = Input(new ScissorConfig)
   val pixelOrigin     = Input(new Coord(14))   // the render window's origin
   val uniformPageReg  = Input(UInt(1.W))
+  val quadPage        = Input(UInt(1.W))      // the page a new quad's triangle is in
+  val occOutside      = Input(Bool())
+  val pageBusy        = Output(Vec(2, Bool()))
 
   val iter          = Output(new Coord(cfg.coordWidth))
   val shaderIter    = Output(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))  // per-lane pre-advance positions
@@ -88,7 +91,8 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   iterator.io.cmdPop    <> io.cmdPop
   // An advance without a free slot is dropped; firmware retries while iterValid.
   iterator.io.advance   := io.advance && !dispatcher.io.slotStall
-  iterator.io.phaseIdle := dispatcher.io.idle
+  // With more than one slot a quad keeps its inputs, and the next command's quads may start.
+  iterator.io.phaseIdle := dispatcher.io.idle || (cfg.quadSlots > 1).B
 
   dispatcher.io.pixelReady     := iterator.io.pixelReady
   dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex
@@ -121,6 +125,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
   dispatcher.io.drawMode := io.drawMode
   dispatcher.io.topLeft := io.topLeft
+  dispatcher.io.uniformPage := io.quadPage
+  dispatcher.io.occOutside := io.occOutside
+  io.pageBusy := dispatcher.io.pageBusy
   dispatcher.io.sampleCfg := io.sampleCfg
   io.laneCoverage := dispatcher.io.laneCoverage
   dispatcher.io.rawColor := io.rawColor

@@ -69,6 +69,11 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val drawMode     = Input(Bool())
   val topLeft      = Input(Vec(3, Bool()))
   val sampleCfg    = Input(new SampleMaskConfig(cfg.samples))
+  // The triangle's uniform page and whether it lies outside the occlusion query; with more
+  // than one slot, a quad keeps these and the triangle state above from its start.
+  val uniformPage  = Input(UInt(1.W))
+  val occOutside   = Input(Bool())
+  val pageBusy     = Output(Vec(2, Bool()))   // a quad in flight reads the page
   val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))   // gl_SampleMaskIn
   // A RAW attachment stores out_c0's bytes unblended; RAW and sRGB read each lane's destination
   // word before the shader starts, for TLD (sRGB: linear FP16, R | G << 16, B | A << 16).
@@ -124,9 +129,18 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val (tileIndexOf, scissorOf, iterOf) = (held(io.shaderTileIndex), held(io.scissorPass), held(io.shaderIter))
   val tileIndex = tileIndexOf(eq)
   io.quadIter := iterOf(io.iterSlot)
-  val cov  = new QuadCoverage(cfg, io.drawMode, io.topLeft, io.covDelta, io.sampleCfg)
+  // The triangle's state, taken as the quad starts: the sequencer moves on once the tile command is out.
+  private def tri[T <: Data](live: T): UInt => T = if (S == 1) (_ => live) else {
+    val r = Reg(Vec(S, chiselTypeOf(live)))
+    when(io.pixelReady) { r(newSlot) := live }
+    q => r(q)
+  }
+  private val (topLeftOf, pageOf, occOf) = (tri(io.topLeft), tri(io.uniformPage), tri(io.occOutside))
+  private val covDeltaOf = io.covDelta.map(tri(_))
+  private val frontFacingOf = io.frontFacing.map(tri(_))
+  val cov  = new QuadCoverage(cfg, io.drawMode, topLeftOf, covDeltaOf, io.sampleCfg)
   val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.sampleCfg)
-  val ops  = new FragmentOps(cfg, io, outs.at(eq), cov.at(eq), scissorOf(eq), tileIndex)
+  val ops  = new FragmentOps(cfg, io, outs.at(eq), cov.at(eq), scissorOf(eq), tileIndex, frontFacingOf.map(_(eq)))
   io.laneCoverage := cov.at(io.csrSlot).laneMask
 
   val dstWord = RegInit(perSlot(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W)))))))
@@ -151,6 +165,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.coreTrigger.pc      := 0.U
   io.coreTrigger.isRast  := false.B
   io.coreTrigger.isSetup := false.B
+  io.coreTrigger.fragment := false.B
   io.triggerSlot         := newSlot
 
   io.tileWrite.en       := false.B
@@ -198,6 +213,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     when(phase(q) === sFragGo) { fragReq(q) := true.B }
   }
 
+  // A quad waits for the engine while an older one at the same position is in flight: the tile
+  // buffer sees a pixel's fragments in triangle order.
+  val older = RegInit(perSlot(0.U(S.W)))
+  private val busyNow = VecInit(phase.map(_ =/= sIdle)).asUInt
+  for (q <- 0 until S) older(q) := Mux(io.pixelReady && newSlot === q.U, busyNow, older(q) & busyNow)
+  private val behind = VecInit((0 until S).map(q => (0 until S).map(p =>
+    older(q)(p) && tileIndexOf(p.U)(0) === tileIndexOf(q.U)(0)).foldLeft(false.B)(_ || _)))
+
   // ZTEST: run the early tests if this is a fragment shader that has not run them; otherwise (an
   // MMIO or compute run, a second ZTEST, no support) answer at once.
   val zq = io.zTestSlot
@@ -205,18 +228,21 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.zTestDone := false.B
   when(io.zTestReq && !earlyActive) {
     if (earlySupported) {
-      when(phase(zq) === sFrag && !earlyDone(zq)) { earlyReq := true.B }.otherwise { io.zTestDone := true.B }
+      when(phase(zq) === sFrag && !earlyDone(zq)) { earlyReq := !behind(zq) }.otherwise { io.zTestDone := true.B }
     } else {
       io.zTestDone := true.B
     }
   }
 
+  private val dstGo  = VecInit(dstReq.zip(behind).map { case (r, b) => r && !b })
+  private val lateGo = VecInit(lateReq.zip(behind).map { case (r, b) => r && !b })
+
   // The engine, when free, to one request: ZTEST's, then a destination read, then the late tests.
   private def grantEngine(q: UInt, to: UInt): Unit = {
     eq := q; laneCtr := 0.U; sampleCtr.foreach(_ := 0.U); phase(q) := to
   }
-  private val dstAny = dstReq.asUInt.orR; private val lateAny = lateReq.asUInt.orR
-  private val dstWin = PriorityEncoder(dstReq); private val lateWin = PriorityEncoder(lateReq)
+  private val dstAny = dstGo.asUInt.orR; private val lateAny = lateGo.asUInt.orR
+  private val dstWin = PriorityEncoder(dstGo); private val lateWin = PriorityEncoder(lateGo)
   when(!engineBusy && earlyReq) {
     earlyActive := true.B
     grantEngine(zq, sZRead)
@@ -224,13 +250,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }.elsewhen(!engineBusy && dstAny) { grantEngine(dstWin, sDstRead) }
    .elsewhen(!engineBusy && lateAny) { grantEngine(lateWin, sZRead) }
   for (q <- 0 until S) {
-    val granted = !engineBusy && !earlyReq && Mux(dstAny, dstWin === q.U && dstReq(q), !dstAny && lateWin === q.U && lateReq(q))
+    val granted = !engineBusy && !earlyReq && Mux(dstAny, dstWin === q.U && dstGo(q), lateWin === q.U && lateGo(q))
     when(dstReq(q) && !granted) { phase(q) := sDstQ }
     when(lateReq(q) && !granted) { phase(q) := sZQ }
   }
 
   // The tile buffer's read: address in the first cycle, data held from the third. The destination
-  // word cannot go stale under the shader: quads of a tile command cover distinct pixels.
+  // word cannot go stale under the shader: an older quad on the same pixels has finished.
   when(phase(eq) === sDstRead) {
     io.tileRead.en  := true.B
     io.tileRead.idx := tileIndex(laneIdx)
@@ -296,6 +322,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   when(!io.pixelReady && fragReq.asUInt.orR) {
     io.coreTrigger.valid := true.B
     io.coreTrigger.pc    := io.fragPcReg
+    io.coreTrigger.fragment := true.B
     io.triggerSlot       := fragWin
     if (BorgDebug.trace) printf("[DISP] -> sFrag slot=%d pc=%d\n", fragWin, io.fragPcReg)
   }
@@ -313,6 +340,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.insideFlag   := cov.at(eq).anyInside
   io.phase        := phase(0)
   io.idle         := phase.map(_ === sIdle).reduce(_ && _)
+  for (p <- 0 until 2) io.pageBusy(p) := (0 until S).map(q => phase(q) =/= sIdle && pageOf(q.U) === p.U).reduce(_ || _)
+  when(occOf(eq)) { io.occSamples := 0.U }
   require(phase(0).getWidth <= io.phase.getWidth, "the phase port must hold every state")
 
   // A helper lane: no covered sample, outside the scissor, discarded, or after ZTEST none of its

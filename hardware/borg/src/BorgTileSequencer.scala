@@ -411,7 +411,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       covDeltaActive.foreach(_ := covDeltaCache.get(1))
       topLeftActive := topLeftCache(1)
       state       := sEnqueueTile
-    }.otherwise {
+    }.elsewhen(!io.iter.pageBusy(if (setupPages > 1) cacheVictim else 0.U)) {
       val victim = if (setupPages > 1) cacheVictim else 0.U
       // covDelta comes in a second snoop-only transfer: BorgDMA's uniform
       // destination is 5 bits, so appending it would alias the edge planes.
@@ -458,13 +458,15 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
   private def handleEnqueueTile(): Unit = {
     when(io.listMode && triState =/= curState) {
-      // Another draw's state: play its block, load its fragment shader and
-      // constants, come back. sNextBinTri drained the dispatcher first.
-      io.playReq := true.B
-      curState   := triState
-      savedPage  := uniformPage
-      resumeTri  := true.B
-      state      := sPlayState
+      // Another draw's state: once the quads in flight are done, play its block, load its
+      // fragment shader and constants, come back.
+      when(io.iter.dispatcherIdle) {
+        io.playReq := true.B
+        curState   := triState
+        savedPage  := uniformPage
+        resumeTri  := true.B
+        state      := sPlayState
+      }
     }.otherwise {
       io.iter.enqueue.valid := true.B
       if (BorgDebug.trace) printf("[SEQ] sEnqueueTile tileX=%d tileY=%d\n", tileX, tileY)
@@ -487,8 +489,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleNextBinTri(): Unit = {
-    // The last pixel may still read the uniforms the next DMA overwrites.
-    when(io.iter.dispatcherIdle) {
+    // One slot drains here; with more, a quad keeps its triangle state and the setup load waits
+    // only for the page it overwrites.
+    when(io.iter.dispatcherIdle || (cfg.quadSlots > 1).B) {
       val nextBinIdx = binTriIdx + 1.U
       when(nextBinIdx < binTriCount) {
         binTriIdx := nextBinIdx

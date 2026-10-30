@@ -82,6 +82,7 @@ class SeqIteratorIO(val coordWidth: Int) extends Bundle {
   val clear = Output(Bool())
   // Drained before the tile flush.
   val dispatcherIdle = Input(Bool())
+  val pageBusy = Input(Vec(2, Bool()))   // a quad in flight still reads the uniform page
   val enqueue = Valid(new Coord(coordWidth))
   val iterate = Output(Bool())
   val complete = Input(Bool())
@@ -370,6 +371,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.iter.enqueue       := p2.io.iter.enqueue
   io.iter.iterate       := p2.io.iter.iterate
   p2.io.iter.dispatcherIdle := io.iter.dispatcherIdle
+  p2.io.iter.pageBusy       := io.iter.pageBusy
   p2.io.iter.complete       := io.iter.complete
   p2.io.iter.stall          := io.iter.stall
 

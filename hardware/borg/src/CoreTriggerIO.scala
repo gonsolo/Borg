@@ -14,6 +14,8 @@ class CoreTriggerIO extends Bundle {
   val isRast = Output(Bool())
   // Fetch from BorgSetupRom; only the draw walker sets it.
   val isSetup = Output(Bool())
+  // A quad's fragment shader: its slot keeps the uniform page and record of its edge test.
+  val fragment = Output(Bool())
 }
 
 object CoreTriggerIO {

@@ -225,6 +225,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.coreTrigger.isRast := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.isRast,
                                                 nonSeqTrigger.isRast)
     core.io.coreTrigger.isSetup := s.io.coreTrigger.valid && s.io.coreTrigger.isSetup
+    core.io.coreTrigger.fragment := !s.io.coreTrigger.valid && nonSeqTrigger.fragment
     // Sequencers and compute run on slot 0.
     val otherTrigger = s.io.coreTrigger.valid || compute.map(_.io.coreTrigger.valid).getOrElse(false.B)
     core.io.triggerSlot := Mux(otherTrigger, 0.U(cfg.slotBits.W), rast.io.triggerSlot)
@@ -574,6 +575,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A compute dispatch reads uniform page 0 -- the page its workgroup IDs are written to.
     core.io.uniformPage := Mux(computeBusy, 0.U,
                            Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage))
+    rast.io.quadPage := core.io.uniformPage
     core.io.seqBusy     := s.io.seqShaderActive
 
     val read_addr_del = RegNext(bus.address)
@@ -606,10 +608,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     val tri = s.io.curTriIndex
     val inWindow = !s.io.busy || (tri >= occFirst && tri < occLast)
+    rast.io.occOutside := !inWindow
     when(bus.is_writing && bus.address === BorgGpuRegs.occ_ctrl_offset) {
       occEnable := bus.data_in(0)
       when(bus.data_in(1)) { occCount := 0.U }
-    }.elsewhen(occEnable && inWindow && attFirst) {
+    }.elsewhen(occEnable && attFirst) {
       occCount := occCount + rast.io.occSamples
     }
 
@@ -758,6 +761,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.iter.stall           := rast.io.slotStall
       // Flushing waits for it, or the flusher reads slot 15 before the dispatcher writes it.
       s.io.iter.dispatcherIdle  := rast.io.dispatcherIdle
+      s.io.iter.pageBusy        := rast.io.pageBusy
 
       s.io.coreStatus.running        := core.io.status.running
       s.io.coreStatus.autoRunPending := core.io.status.autoRunPending

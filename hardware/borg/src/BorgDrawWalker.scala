@@ -109,6 +109,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.coreTrigger.pc      := 0.U
   io.coreTrigger.isRast  := false.B
   io.coreTrigger.isSetup := false.B
+  io.coreTrigger.fragment := false.B
   io.uniformWrite.en   := false.B
   io.uniformWrite.addr := 0.U
   io.uniformWrite.data := 0.U

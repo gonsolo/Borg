@@ -105,6 +105,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.coreTrigger.pc     := segStartPC
   io.coreTrigger.isRast := false.B
   io.coreTrigger.isSetup := false.B
+  io.coreTrigger.fragment := false.B
 
   io.lanes.mode     := state =/= sIdle
   io.lanes.laneMask := laneOn.asUInt

@@ -12,7 +12,7 @@ import chisel3.util._
   * every covered sample. Under ZTEST (`early`) only depth and stencil change, colour is rewritten
   * as read, and earlyPass keeps each sample's result for the late pass. */
 class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs#View, cov: QuadCoverage#View,
-                  scissorPass: Vec[Bool], tileIndex: Vec[UInt]) {
+                  scissorPass: Vec[Bool], tileIndex: Vec[UInt], frontFacing: Option[Bool]) {
   val perSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 
   /** VkCompareOp on depths in float order: negative below positive, -0 equal to +0. */
@@ -86,7 +86,7 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
                             else outs.zClamp(outs.frag_z(lane)))
 
     // Stencil tests before depth but writes after it on every outcome, so it has its own enable.
-    val stencilRes = Option.when(cfg.hasStencil)(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get,
+    val stencilRes = Option.when(cfg.hasStencil)(BorgStencil.evaluate(io.stencilCfg.get, frontFacing.get,
       io.stencilRead.get(smp), depthPasses(outs.zAt(lane, smp), rd.z)))
 
     // Covered, not discarded, inside the scissor, and in the late pass inside alpha to coverage and
