@@ -661,12 +661,20 @@ static void list_trigger(uint32_t list, uint32_t load) {
   BREG_W(render_list, 0);
 }
 
+// Occlusion query (0xC6): while one is active, every render's OCC_COUNT adds to a heap word.
+static struct { int on; uint32_t addr, sum; } g_occ;
+
 void borg_core_list_flush(void) {
   if (g_list.n == 0) return;
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8, 0);
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8 + 4, 0);
   list_trigger(BORG_LIST_SPI, g_list.load);
   list_reset();
+  if (g_occ.on) {
+    g_occ.sum += BREG_R(occ_count);
+    BDRAM_W(g_occ.addr, g_occ.sum);
+    BREG_W(occ_ctrl, 3);   // enable, clear
+  }
 }
 #endif
 
@@ -700,6 +708,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xC0: return BC_PKT_LEN_TEXL;
   case 0xC4: return BC_PKT_LEN_TEXS;
   case 0xC5: return BC_PKT_LEN_BIAS;
+  case 0xC6: return BC_PKT_LEN_OCC;
   case 0xBF: return BC_PKT_LEN_ATT;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
@@ -719,7 +728,7 @@ int borg_core_packet(const uint8_t *p) {
   // Texture, push-constant and geometry packets overwrite memory the queued draws read, and a
   // target or pass packet starts another render: the queued draws come first.
   switch (p[0]) {
-  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF:
+  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF: case 0xC6:
     borg_core_list_flush();
   }
 #endif
@@ -800,6 +809,13 @@ int borg_core_packet(const uint8_t *p) {
     g_vp.sx = b[0]; g_vp.sy = b[1]; g_vp.ox = b[2]; g_vp.oy = b[3]; g_vp.zscale = b[4]; g_vp.zoff = b[5];
     g_vp.scx = x0 | x1 << 13; g_vp.scy = y0 | y1 << 13 | 1u << 26;
     g_vp.valid = 1;
+    return BC_STATE;
+  }
+  case 0xC6: { // occlusion query: 1 begins counting into the heap word at the offset, 0 ends
+    uint32_t off = le32(p + 2);
+    if (p[1] > 1 || (off & 3u) || off >= BORG_HEAP_BYTES) return BC_BAD;
+    g_occ.on = p[1]; g_occ.addr = BORG_HEAP_SPI + off; g_occ.sum = 0;
+    BREG_W(occ_ctrl, p[1] ? 3 : 0);
     return BC_STATE;
   }
   case 0xC5:   // depth bias: DEPTH_BIAS_CONST, DEPTH_BIAS_SLOPE

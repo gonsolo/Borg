@@ -55,6 +55,7 @@ extern "C" {
 #define BC_PKT_LEN_TEXL    (1 + 12 * 4 + 1)                // 0xC0 (host only): byte offsets of texture levels 1..12
 #define BC_PKT_LEN_TEXS    (1 + 1 + 1 + 4 + 1)             // 0xC4 (host only): texture slot, sampler slot, texel base
 #define BC_PKT_LEN_BIAS    (1 + 4 + 4 + 1)                 // 0xC5 (host only): depth bias of the next draw
+#define BC_PKT_LEN_OCC     (1 + 1 + 4 + 1)                 // 0xC6 (host only): occlusion query begin/end, heap offset
 #ifdef BORG_HOST
 #define BC_TEX_SLOTS       32
 #else
