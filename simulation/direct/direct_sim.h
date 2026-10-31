@@ -151,7 +151,7 @@ public:
       bool fire = v.mmio_req_ready;
       tick();
       if (fire) break;
-      if (++guard > 100000) { fprintf(stderr, "[direct] mmio req stuck @%x\n", addr); break; }
+      if (++guard > 100000000) { fprintf(stderr, "[direct] mmio req stuck @%x\n", addr); break; }
     }
     v.mmio_req_valid = 0;
     guard = 0;
@@ -159,7 +159,7 @@ public:
       model.eval();
       if (v.mmio_resp_valid) { uint32_t d = v.mmio_resp_data; tick(); return d; }
       tick();
-      if (++guard > 100000) { fprintf(stderr, "[direct] mmio resp stuck @%x\n", addr); return 0; }
+      if (++guard > 100000000) { fprintf(stderr, "[direct] mmio resp stuck @%x\n", addr); return 0; }
     }
   }
   void mmio_write(uint32_t addr, uint32_t d) { mmio(addr, true, d); }
