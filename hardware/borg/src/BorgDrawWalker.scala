@@ -49,6 +49,10 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val coreTrigger = new CoreTriggerIO
   val coreStatus  = Flipped(new CoreStatusIO)
   val csrWrite    = Flipped(Vec(cfg.fragLanes, new CsrWriteIO(cfg.totalBits)))
+  val csrSlot     = Input(UInt(cfg.slotBits.W))
+  val slotBusy    = Input(Vec(cfg.quadSlots, Bool()))
+  val triggerSlot = Output(UInt(cfg.slotBits.W))
+  val uniformPage = Output(UInt(1.W))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val seqShaderActive = Output(Bool())
   val ids    = Output(new InvocationIdsIO(cfg))
@@ -59,6 +63,9 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   *
   * Per instance and primitive: assemble the corners, fetch indices (with restart), run the
   * vertex shader once for all three corners, run the setup ROM, cull, bin, store the facing.
+  * The front (up to the setup run) works on one context, the back (setup result, cull, bin,
+  * store) finishes the one before: with two uniform pages and slots, context c on slot and
+  * page c, so a triangle's setup overlaps the next one's vertex shader. The back keeps order.
   * The vertex shader and the setup ROM write the rest of the record themselves (SOUT).
   * The triangle index counts every primitive, culled or not, so record t is primitive t.
   */
@@ -66,8 +73,16 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgDrawWalkerIO(cfg))
 
   private val (sIdle :: sLoadVS :: sLoadConst :: sWaitDMA :: sAssemble :: sFetchIdx :: sIdxDone :: sRunVS ::
-               sWaitVS :: sStage :: sRunSetup :: sWaitSetup :: sBin :: sWaitBin :: sStoreMeta :: sNext :: sPaused :: Nil) = Enum(17)
+               sWaitVS :: sStage :: sRunSetup :: sNext :: sHold :: Nil) = Enum(13)
+  private val (bIdle :: bWaitSetup :: bBin :: bWaitBin :: bStore :: bPaused :: Nil) = Enum(6)
   private val state = RegInit(sIdle)
+  private val bState = RegInit(bIdle)
+  private val ctxs = if (cfg.maxUniforms > 32 && cfg.quadSlots >= 2) 2 else 1
+  private val fc = RegInit(0.U(1.W))            // the front's context: its slot and uniform page
+  private val cPage = RegInit(0.U(1.W))         // the page the constants load into
+  private val constLoad = RegInit(false.B)
+  private val resumeTo = RegInit(sIdle)         // where the front goes on after a full bin
+  private val bResume = RegInit(false.B)
   private val nextAfterDMA = RegInit(sIdle)
   private val resuming = RegInit(false.B)
 
@@ -82,8 +97,16 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val restartAt = RegInit(0.U(32.W))
   private val sawRestart = RegInit(false.B)
   private val clip  = Reg(Vec(3, Vec(4, UInt(32.W))))   // X, Y, Z, W per corner
-  private val screen = Reg(Vec(6, UInt(32.W)))          // setup_screen0..5
-  private val det   = Reg(UInt(32.W))                   // setup ROM r6
+  // Per context, the triangle handed to the back: its index, the corners' W, then its setup's
+  // screen corners (setup_screen0..5) and det M; done once its setup has finished.
+  private val eValid = RegInit(VecInit(Seq.fill(ctxs)(false.B)))
+  private val eDone  = RegInit(VecInit(Seq.fill(ctxs)(false.B)))
+  private val eTri   = Reg(Vec(ctxs, UInt(16.W)))
+  private val eClipW = Reg(Vec(ctxs, Vec(3, UInt(32.W))))
+  private val eScreen = Reg(Vec(ctxs, Vec(6, UInt(32.W))))
+  private val eDet   = Reg(Vec(ctxs, UInt(32.W)))
+  private val head   = RegInit(0.U(1.W))           // the context the back finishes next: triangle order
+  private val bTri   = eTri(head)
   private val isBack = RegInit(false.B)
   private val stageIdx = RegInit(0.U(5.W))
   private val dmaDescReg = RegInit(0.U.asTypeOf(new DMADescriptor))
@@ -97,13 +120,24 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Where the vertex shader's SOUT component 0 goes: record word 48. */
   private val attrOffset = 48 * 4
 
-  private val coreWasActive = RegNext(io.coreStatus.running || io.coreStatus.autoRunPending, false.B)
-  private val coreFinished  = coreWasActive && !io.coreStatus.running && !io.coreStatus.autoRunPending
+  private val bRecordBase = (io.mmio.setupBase +& (bTri << d.recordShift))(GpuMemIO.AddrBits - 1, 0)
+  private val slotWasBusy = RegNext(io.slotBusy, VecInit(Seq.fill(cfg.quadSlots)(false.B)))
+  private def finished(s: UInt): Bool = slotWasBusy(s) && !io.slotBusy(s)
+  private def slotFree(c: UInt): Bool = !eValid(c) || eDone(c)
+  // The front's DMAs and the back's bins and store never overlap (a snoop read beside them returns 0).
+  private val frontDma = state === sWaitDMA || state === sLoadVS || state === sLoadConst || state === sFetchIdx
+  private val backMem  = bState === bBin || bState === bWaitBin || bState === bStore
+  private def retire(): Unit = { eValid(head) := false.B; if (ctxs > 1) head := ~head; bState := bIdle }
+  private val hold = bState === bPaused && !bResume   // a full bin: the front stops where it can
 
   io.busy := state =/= sIdle
   io.done := false.B
-  io.paused := state === sPaused
-  io.seqShaderActive := state === sRunVS || state === sWaitVS || state === sRunSetup || state === sWaitSetup
+  // Pass 2 takes the core and the pages: no setup may still run.
+  io.paused := hold && state === sHold && (0 until ctxs).map(c => slotFree(c.U)).reduce(_ && _)
+  io.seqShaderActive := state === sRunVS || state === sWaitVS || state === sRunSetup ||
+    (0 until ctxs).map(c => eValid(c) && !eDone(c)).reduce(_ || _)
+  io.triggerSlot := (if (ctxs > 1) fc else 0.U)
+  io.uniformPage := Mux(constLoad, cPage, fc)
   io.dma.start := false.B
   io.dma.desc  := dmaDescReg
   io.coreTrigger.valid   := false.B
@@ -115,7 +149,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.uniformWrite.addr := 0.U
   io.uniformWrite.data := 0.U
   io.binner.start       := false.B
-  io.binner.triIndex    := tri
+  io.binner.triIndex    := bTri
   io.binner.bbox.min.x  := bboxMinX
   io.binner.bbox.min.y  := bboxMinY
   io.binner.bbox.max.x  := bboxMaxX
@@ -123,9 +157,9 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.binner.clearCounts := false.B
   io.binner.countReadAddr := 0.U
   io.binner.countReadEn   := false.B
-  io.store.active := state === sStoreMeta
+  io.store.active := bState === bStore
   io.store.req    := false.B
-  io.store.addr   := recordBase + (BorgSetupRom.Record.Meta * 4).U
+  io.store.addr   := bRecordBase + (BorgSetupRom.Record.Meta * 4).U
   // Meta word: bits 31:2 the draw's state block (a word address, 0 outside a
   // render list), bit 1 = back-facing; bit 0 is unused.
   io.store.wdata  := Cat(io.stateAddr(GpuMemIO.AddrBits - 1, 2), isBack, 0.U(1.W))
@@ -180,33 +214,45 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     is(sLoadVS) {
-      {
+      when(!backMem) {
         val desc = Wire(new DMADescriptor)
         desc.baseAddr := io.mmio.vertShaderAddr
         desc.length   := io.mmio.vertShaderLen
         desc.dest     := 0.U                      // IMEM (and the I-cache's codeBase)
         desc.offset   := 0.U
         dma(desc, sLoadConst)
+        cPage := 0.U
       }
     }
     is(sLoadConst) {
-      // The vertex shader's constants, once per draw; the setup ROM writes only below them.
-      val first = BorgSetupRom.Record.VsConstFirst
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.mmio.vsConstBase
-      desc.length   := (32 - first).U
-      desc.dest     := 1.U
-      desc.offset   := first.U
-      val next = Mux(resuming, sBin, sAssemble)
-      when(io.mmio.vsConstBase =/= 0.U) { dma(desc, next) }.otherwise { state := next }
+      when(!backMem) {
+        // The vertex shader's constants, once per draw; the setup ROM writes only below them.
+        val first = BorgSetupRom.Record.VsConstFirst
+        val desc = Wire(new DMADescriptor)
+        desc.baseAddr := io.mmio.vsConstBase
+        desc.length   := (32 - first).U
+        desc.dest     := 1.U
+        desc.offset   := first.U
+        // Into every context's page; after a full bin the front goes on where it stopped.
+        val next = Mux(resuming, resumeTo, sAssemble)
+        when(io.mmio.vsConstBase =/= 0.U) { dma(desc, next); constLoad := true.B }
+          .otherwise { state := next; resuming := false.B }
+      }
     }
     is(sWaitDMA) {
-      when(!io.dma.busy) { state := nextAfterDMA }
+      when(!io.dma.busy) {
+        state := nextAfterDMA
+        when(constLoad) {
+          constLoad := false.B
+          when(cPage =/= (ctxs - 1).U) { cPage := cPage + 1.U; state := sLoadConst }
+            .otherwise { resuming := false.B }
+        }
+      }
     }
     is(sAssemble) {
       when(inst >= d.instanceCount) {
-        io.done := true.B
-        state   := sIdle
+        when(hold) { resumeTo := sAssemble; state := sHold }
+          .elsewhen(!eValid.reduce(_ || _)) { io.done := true.B; state := sIdle }
       }.elsewhen(lastPos >= d.vertexCount) {
         inst := inst + 1.U; prim := 0.U; base := 0.U   // next instance
       }.otherwise {
@@ -217,14 +263,16 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     is(sFetchIdx) {
-      val byteAddr = d.indexBase +& Mux(idx16, pos(k) << 1, pos(k) << 2)
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := Cat(byteAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W))
-      desc.length   := 1.U
-      desc.dest     := 2.U                        // snoop only
-      desc.offset   := 0.U
-      dma(desc, Mux(k === 2.U, sIdxDone, sFetchIdx))
-      k := k + 1.U
+      when(!backMem) {
+        val byteAddr = d.indexBase +& Mux(idx16, pos(k) << 1, pos(k) << 2)
+        val desc = Wire(new DMADescriptor)
+        desc.baseAddr := Cat(byteAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W))
+        desc.length   := 1.U
+        desc.dest     := 2.U                        // snoop only
+        desc.offset   := 0.U
+        dma(desc, Mux(k === 2.U, sIdxDone, sFetchIdx))
+        k := k + 1.U
+      }
     }
     is(sIdxDone) {
       when(sawRestart) {
@@ -238,11 +286,14 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     is(sRunVS) {
-      io.coreTrigger.valid := true.B
-      state := sWaitVS
+      when(hold) { resumeTo := sRunVS; state := sHold }
+        .elsewhen(slotFree(fc)) {
+          io.coreTrigger.valid := true.B
+          state := sWaitVS
+        }
     }
     is(sWaitVS) {
-      when(coreFinished) {
+      when(finished(fc)) {
         state := sStage
         stageIdx := 0.U
       }
@@ -254,7 +305,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         state := sNext
       }.otherwise {
         io.uniformWrite.en   := true.B
-        io.uniformWrite.addr := stageIdx
+        io.uniformWrite.addr := Cat(fc, stageIdx)   // the front's page
         io.uniformWrite.data := MuxLookup(stageIdx, 0.U)(
           (for (c <- 0 until 3; j <- 0 until 4) yield (4 * c + j).U -> clip(c)(j)) ++ Seq(
             12.U -> d.viewport(0), 13.U -> d.viewport(1), 14.U -> d.viewport(2), 15.U -> d.viewport(3),
@@ -272,13 +323,36 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     is(sRunSetup) {
-      io.coreTrigger.valid   := true.B
-      io.coreTrigger.isSetup := true.B
-      state := sWaitSetup
+      // The staged page is gone after a full bin: stage it again.
+      when(hold) { resumeTo := sStage; stageIdx := 0.U; state := sHold }
+        .elsewhen(!eValid(fc)) {
+          io.coreTrigger.valid   := true.B
+          io.coreTrigger.isSetup := true.B
+          eValid(fc) := true.B; eDone(fc) := false.B; eTri(fc) := tri
+          for (c <- 0 until 3) eClipW(fc)(c) := clip(c)(3)
+          if (ctxs > 1) fc := ~fc
+          state := sNext
+        }
     }
-    is(sWaitSetup) {
-      when(coreFinished) {
-        // det M: zero is a degenerate triangle; its sign is the facing.
+    is(sHold) {
+      // Pass 2 ran in between: its fragment shader and constants replaced ours.
+      when(io.resume) { resuming := true.B; state := sLoadVS }
+    }
+    is(sNext) {
+      tri  := tri + 1.U
+      prim := prim + 1.U
+      state := sAssemble
+    }
+  }
+
+  for (c <- 0 until ctxs) when(eValid(c) && finished(c.U)) { eDone(c) := true.B }
+  private val screen = eScreen(head); private val det = eDet(head)
+  switch(bState) {
+    is(bIdle) {
+      when(eValid(head)) { bState := bWaitSetup }
+    }
+    is(bWaitSetup) {
+      when(eDone(head) && !frontDma) {
         // det M: zero is degenerate, the sign is the facing; Vulkan's CCW front has det < 0.
         val degenerate = det(30, 0) === 0.U
         val back = !det(31) ^ io.mmio.frontFaceInvert
@@ -286,7 +360,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val culled = degenerate || Mux(back, io.mmio.cullMode(1), io.mmio.cullMode(0))
         // A corner at or behind the eye has no screen position: bin the whole grid.
         def front(w: UInt) = !w(31) && w(30, 0) =/= 0.U
-        val allFront = clip.map(c => front(c(3))).reduce(_ && _)
+        val allFront = eClipW(head).map(front).reduce(_ && _)
         def minOf(a: UInt, b: UInt) = Mux(ordered(a) <= ordered(b), a, b)
         def maxOf(a: UInt, b: UInt) = Mux(ordered(a) >= ordered(b), a, b)
         val xs = Seq(screen(0), screen(2), screen(4)); val ys = Seq(screen(1), screen(3), screen(5))
@@ -306,29 +380,24 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         bboxMinY := Mux(allFront, Cat(ly(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
         bboxMaxX := Mux(allFront, hx(cfg.coordWidth - 1, 0), full)
         bboxMaxY := Mux(allFront, hy(cfg.coordWidth - 1, 0), full)
-        state := Mux(culled || outside, sNext, sBin)
+        when(culled || outside) { retire() }.otherwise { bState := bBin }
       }
     }
-    is(sBin) {
+    is(bBin) {
       io.binner.start := true.B
-      resuming := false.B
-      state := sWaitBin
+      bState := bWaitBin
     }
-    is(sWaitBin) {
-      when(!io.binner.busy) { state := Mux(io.binner.full, sPaused, sStoreMeta) }
+    is(bWaitBin) {
+      when(!io.binner.busy) { bState := Mux(io.binner.full, bPaused, bStore) }
     }
-    is(sPaused) {
-      // Pass 2 ran in between: its fragment shader and constants replaced ours.
-      when(io.resume) { resuming := true.B; state := sLoadVS }
+    is(bPaused) {
+      // Bins again once the front has reloaded the vertex shader and its constants.
+      when(io.resume) { bResume := true.B }
+      when(bResume && !resuming && !frontDma) { bResume := false.B; bState := bBin }
     }
-    is(sStoreMeta) {
+    is(bStore) {
       io.store.req := true.B
-      when(io.store.ready) { state := sNext }
-    }
-    is(sNext) {
-      tri  := tri + 1.U
-      prim := prim + 1.U
-      state := sAssemble
+      when(io.store.ready) { retire() }
     }
   }
 
@@ -338,9 +407,9 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       printf("[DRAW] state %d -> %d inst=%d prim=%d base=%d tri=%d k=%d vidx=(%d,%d,%d)\n",
         last, state, inst, prim, base, tri, k, vidx(0), vidx(1), vidx(2))
     }
-    when(state === sWaitSetup && coreFinished) {
-      printf("[DRAW] setup tri=%d det=0x%x screen=(0x%x,0x%x) (0x%x,0x%x) (0x%x,0x%x) W=(0x%x,0x%x,0x%x)\n",
-        tri, det, screen(0), screen(1), screen(2), screen(3), screen(4), screen(5), clip(0)(3), clip(1)(3), clip(2)(3))
+    when(bState === bWaitSetup && eDone(head)) {
+      printf("[DRAW] setup tri=%d det=0x%x screen=(0x%x,0x%x) (0x%x,0x%x) (0x%x,0x%x)\n",
+        bTri, eDet(head), eScreen(head)(0), eScreen(head)(1), eScreen(head)(2), eScreen(head)(3), eScreen(head)(4), eScreen(head)(5))
     }
   }
 
@@ -362,7 +431,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // Clip-space position: out_pos0..3 of each corner's lane (or run).
-  when(state === sWaitVS) {
+  when(state === sWaitVS && io.csrSlot === fc) {
     for (lane <- 0 until cfg.fragLanes; comp <- 0 until 4) {
       val pw = io.csrWrite(lane)
       when(pw.en && pw.addr === (Csr.OutPos0 + comp).U) {
@@ -371,9 +440,9 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
   // Setup ROM: screen corners and det M.
-  when(state === sWaitSetup && io.csrWrite(0).en) {
-    for (r <- 0 until 6) when(io.csrWrite(0).addr === (Csr.SetupScreen0 + r).U) { screen(r) := io.csrWrite(0).data(31, 0) }
-    when(io.csrWrite(0).addr === Csr.SetupDet.U) { det := io.csrWrite(0).data(31, 0) }
+  for (c <- 0 until ctxs) when(eValid(c) && !eDone(c) && io.csrSlot === c.U && io.csrWrite(0).en) {
+    for (r <- 0 until 6) when(io.csrWrite(0).addr === (Csr.SetupScreen0 + r).U) { eScreen(c)(r) := io.csrWrite(0).data(31, 0) }
+    when(io.csrWrite(0).addr === Csr.SetupDet.U) { eDet(c) := io.csrWrite(0).data(31, 0) }
   }
 }
 

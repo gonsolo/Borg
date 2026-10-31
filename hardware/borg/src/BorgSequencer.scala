@@ -125,6 +125,9 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val coreStatus = Flipped(new CoreStatusIO)
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
+  val slotBusy    = Input(Vec(cfg.quadSlots, Bool()))
+  val csrSlot     = Input(UInt(cfg.slotBits.W))
+  val triggerSlot = Output(UInt(cfg.slotBits.W))   // Pass 1's vertex and setup runs
 
   // Every lane's write-back: the vertex shader shades three corners at once.
   val draw       = Input(new DrawMmioIO)
@@ -311,6 +314,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dw.io.draw := io.draw
   dw.io.coreStatus := io.coreStatus
   dw.io.csrWrite   := io.csrWriteLanes
+  dw.io.csrSlot    := io.csrSlot
+  dw.io.slotBusy   := io.slotBusy
+  io.triggerSlot   := dw.io.triggerSlot
   dw.io.dma.busy := io.dma.busy
   dw.io.dma.snoop := io.dma.snoop
   dw.io.dma.uniformSnoop := io.dma.uniformSnoop
@@ -360,7 +366,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.uniformWrite.en   := Mux(pass1Active, dw.io.uniformWrite.en, p2.io.uniformWrite.en)
   io.uniformWrite.addr := Mux(pass1Active, dw.io.uniformWrite.addr, p2.io.uniformWrite.addr)
   io.uniformWrite.data := Mux(pass1Active, dw.io.uniformWrite.data, p2.io.uniformWrite.data)
-  io.uniformWritePage  := Mux(pass1Active, 0.U, p2.io.uniformWritePage)
+  io.uniformWritePage  := Mux(pass1Active, dw.io.uniformPage, p2.io.uniformWritePage)
 
   io.flusher.tileOffset := p2.io.flusher.tileOffset
   io.flusher.trigger := p2.io.flusher.trigger

@@ -230,9 +230,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                                                 nonSeqTrigger.isRast)
     core.io.coreTrigger.isSetup := s.io.coreTrigger.valid && s.io.coreTrigger.isSetup
     core.io.coreTrigger.fragment := !s.io.coreTrigger.valid && nonSeqTrigger.fragment
-    // Sequencers and compute run on slot 0.
+    // Pass 1 picks its slot, compute runs on slot 0.
     val otherTrigger = s.io.coreTrigger.valid || compute.map(_.io.coreTrigger.valid).getOrElse(false.B)
-    core.io.triggerSlot := Mux(otherTrigger, 0.U(cfg.slotBits.W), rast.io.triggerSlot)
+    core.io.triggerSlot := Mux(s.io.coreTrigger.valid, s.io.triggerSlot,
+                           Mux(otherTrigger, 0.U(cfg.slotBits.W), rast.io.triggerSlot))
     // ids, record and drawMode: see wireDraw.
     core.io.barrier.foreach(compute.get.io.barrier := _)
 
@@ -814,6 +815,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     d.depthBiasConst := w(14); d.depthBiasSlope := w(15); d.depthD32 := depthD32Reg
     d.depthD24 := depthClampReg
     s.io.csrWriteLanes := core.io.csrWrite
+    s.io.csrSlot := core.io.csrSlot
+    s.io.slotBusy := core.io.slotBusy
     core.io.drawMode := drawMode
     core.io.drawSingle := (cfg.samples == 1).B || singleSample
     core.io.setupShort := ((cfg.samples == 1).B || singleSample) && w(14) === 0.U && w(15) === 0.U
