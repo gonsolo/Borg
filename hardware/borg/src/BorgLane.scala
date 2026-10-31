@@ -31,6 +31,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val decode      = Input(Bool())   // operand reads: the instruction issuing
   val advance     = Input(Bool())   // the stages move on (not held by a stall FSM)
   val seqBusy     = Input(Bool())
+  val idsHere     = Input(Bool())   // the decoding slot is the one the ids are for
 
   val iter        = Input(new Coord(cfg.coordWidth))
   val pixelOrigin = Input(new Coord(14))   // the render window's origin
@@ -145,7 +146,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def resolveCoordReg(raw: UInt, idx: UInt): UInt = {
     val isCoordReg = idx === 30.U || idx === 31.U
     // A sequencer's program reads 0 (the setup ROM uses r31 as zero) unless it supplies ids.
-    val idsMode = io.ids.mode
+    val idsMode = io.ids.mode && io.idsHere
     Mux(isCoordReg, Mux(!io.seqBusy || idsMode, Mux(idx === 30.U, coordX, coordY), 0.U), raw)
   }
 

@@ -31,6 +31,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
 
   val csrWrite    = Vec(N, new CsrWriteIO(cfg.totalBits))   // fragment outputs, rast_*, setup_*
   val csrSlot     = Output(UInt(cfg.slotBits.W))            // the quad slot csrWrite comes from
+  val slotBusy    = Output(Vec(cfg.quadSlots, Bool()))       // a slot runs or is about to
   // The slot each per-quad input is for: iter the issuing one's, laneHelper the memory unit's,
   // laneCoverage and laneDst csrSlot's (the instruction in write-back).
   val iterSlot    = Output(UInt(cfg.slotBits.W))
@@ -143,6 +144,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val nextSlot  = Wire(UInt(cfg.slotBits.W))
   private val startSlot = slots(0)   // MMIO's
   private val trigSlot  = slots(io.triggerSlot)
+  // The vertex stage's slot: only its r30/r31 read the ids, a setup beside it reads 0.
+  private val idsSlot = RegEnable(io.triggerSlot, 0.U(cfg.slotBits.W), io.coreTrigger.valid && io.ids.mode)
   private val slot = slots(issueSlot)
   val programCounter = slot.pc
   val running = slot.running
@@ -197,6 +200,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val canIssue = Wire(Bool())
   val decoding = running && canIssue
   val issuing = decoding && fetchReady && fetchedInstruction =/= 0.U
+  // The lanes resolve r30/r31 a cycle after decode, for the slot that decoded.
+  private val idsHere = RegEnable(issueSlot === idsSlot, false.B, decoding)
   val redirecting = Wire(Bool())   // the PC goes to pcAfterThis
   val wbBusy = Wire(Bool())        // the pipeline writes back this cycle
   val unitBusy = WireDefault(false.B)   // the fetched instruction's unit has one in flight
@@ -255,6 +260,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val slotX = BorgLane.later(true.B)(RegEnable(issueSlot, issuing), cfg.cBusyLoad - cfg.cOperands)
   val execMask = exec.io.mask(slotX)
   io.csrSlot := BorgLane.later(true.B)(slotX, cfg.cOperands - 1)
+  io.slotBusy := VecInit(slots.map(q => q.running || q.startPending))
 
   val (uniformData, funct3Del) = wireUniformRead()
   val ovs = wireRvOperands()
@@ -270,6 +276,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.decode      := decoding
     lane.io.advance     := true.B
     lane.io.seqBusy     := io.seqBusy
+    lane.io.idsHere     := idsHere
     lane.io.uniformData := uniformData
     lane.io.funct3Del   := funct3Del
     lane.io.ovA         := ovs._1
