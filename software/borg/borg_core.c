@@ -815,6 +815,7 @@ int borg_core_packet(const uint8_t *p) {
     uint32_t off = le32(p + 2);
     if (p[1] > 1 || (off & 3u) || off >= BORG_HEAP_BYTES) return BC_BAD;
     g_occ.on = p[1]; g_occ.addr = BORG_HEAP_SPI + off; g_occ.sum = 0;
+    if (g_occ.on) BDRAM_W(g_occ.addr, 0);
     BREG_W(occ_ctrl, p[1] ? 3 : 0);
     return BC_STATE;
   }
