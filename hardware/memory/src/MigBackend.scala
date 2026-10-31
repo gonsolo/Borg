@@ -23,24 +23,24 @@ import chisel3.util._
 
 class MigUiIO extends Bundle {
     // Backend -> MIG
-    val app_addr = Output(UInt(29.W))
-    val app_cmd = Output(UInt(3.W))
-    val app_en = Output(Bool())
-    val app_wdf_data = Output(UInt(128.W))
-    val app_wdf_mask = Output(UInt(16.W))
-    val app_wdf_wren = Output(Bool())
-    val app_wdf_end = Output(Bool())
+    val app_addr = Output(UInt(29.W))  // start address of the 128-bit block
+    val app_cmd = Output(UInt(3.W)) // 0 = write, 1 = read
+    val app_en = Output(Bool()) //  read/write command is valid
+    val app_wdf_data = Output(UInt(128.W)) // 128-bit block of write data
+    val app_wdf_mask = Output(UInt(16.W)) // mask for the 16 bytes, mask bit = 0: write, mask bit = 1: leave byte in memory as it was
+    val app_wdf_wren = Output(Bool()) // write data is valid
+    val app_wdf_end = Output(Bool()) // last piece of write data
 
     // Mig -> Backend
-    val app_rdy = Input(Bool())
-    val app_wdf_rdy = Input(Bool())
-    val app_rd_data = Input(UInt(128.W))
-    val app_rd_data_valid = Input(Bool())
+    val app_rdy = Input(Bool()) // MIG ready to accept command
+    val app_wdf_rdy = Input(Bool()) // MIG ready to accept write data
+    val app_rd_data = Input(UInt(128.W)) // 128 bit block read from memory
+    val app_rd_data_valid = Input(Bool()) 
     val init_calib_complete = Input(Bool())
 }
 
 class MigUiDriverIO extends Bundle {
-    val start = Input(Bool())
+    val start = Input(Bool()) 
     val isWrite = Input(Bool())
     val addr = Input(UInt(24.W))
     val wdata = Input(UInt(16.W))
@@ -77,5 +77,48 @@ class MigUiDriver extends Module {
     io.done := state === sDone
     io.rdata := rdataReg
 
+    io.mig.app_addr := Cat(addrReg(23, 3), 0.U(3.W)) 
+    io.mig.app_wdf_data := Fill(8, wdataReg)
+    val wordIdx = addrReg(2, 0)
+    val writeEn = "b11".U(16.W) << (wordIdx * 2.U)
+    io.mig.app_wdf_mask := (~writeEn)(15, 0)    
 
-}
+    switch(state) {
+        is(sIdle) {
+            when(io.start) {
+                isWriteReg := io.isWrite
+                addrReg := io.addr
+                wdataReg := io.wdata 
+                when(io.isWrite){
+                    state := sData
+                }.otherwise{
+                    state := sCmd
+                }
+            }
+        }
+        is(sData) {
+            when(io.mig.app_wdf_rdy) {
+                state := sCmd
+            }
+        }
+        is(sCmd) {
+            when(io.mig.app_rdy) {
+                when(isWriteReg) {
+                    state := sDone 
+                }.otherwise{
+                    state := sRead
+                }
+            }
+        }
+        is(sRead) {
+            when(io.mig.app_rd_data_valid) {
+                rdataReg := (io.mig.app_rd_data >> (wordIdx * 16.U))(15, 0)
+                state := sDone
+            }
+        }
+        is(sDone) {
+            state := sIdle
+        }
+    }
+
+}   
