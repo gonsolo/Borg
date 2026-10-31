@@ -73,7 +73,6 @@ class MigUiDriver extends Module {
     io.mig.app_wdf_end := state === sData
     io.mig.app_cmd := Mux(isWriteReg, 0.U, 1.U)
     
-    // Back to MigBackend
     io.done := state === sDone
     io.rdata := rdataReg
 
