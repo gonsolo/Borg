@@ -303,6 +303,7 @@ object BorgDrawTests extends TestSuite {
     val issue = (0 until 7).map { i => rawWrite(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt, i); reg(BorgGpuRegs.perf_issue_offset) }
     println(f"  $n triangles: ${total / n} cycles each (shader ${shader / n}, issued ${issue(0) / n}, " +
       f"waits: register ${issue(1) / n}, drain ${issue(3) / n}, unit ${issue(5) / n})")
+    println(s"  setup ROM ${BorgSetupRom.shortPc} instructions (single sample, no bias), raster ROM ${BorgRasterRom.instructions.size}")
     utest.assert(covered > 0)
   }
 

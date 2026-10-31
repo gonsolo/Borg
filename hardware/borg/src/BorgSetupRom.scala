@@ -299,8 +299,8 @@ private[borg] object BorgSetupRom {
       ld(uu, uDepthScale); p += FMUL_S(t, t, uu)
       p += SOUT(rs2 = t, index = Record.SampleDepth + d)
     }
-    p += BigInt(0)                                                  // HALT
-    (p.toSeq, shortPc)
+    // Each part scheduled on its own: the short path still ends at shortPc.
+    (RomSchedule(p.take(shortPc).toSeq) ++ RomSchedule(p.slice(shortPc, p.length).toSeq) :+ BigInt(0), shortPc)   // HALT
   }
   val instructions: Seq[BigInt] = program._1
   val shortPc: Int = program._2
