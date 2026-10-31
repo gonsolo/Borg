@@ -103,6 +103,9 @@ class QuadSlot(cfg: BorgConfig) extends Bundle {
   // A quad's triangle: the uniform page and FATTR's record as its trigger saw them.
   val page         = UInt(1.W)
   val attrBase     = UInt(GpuMemIO.AddrBits.W)
+  // The vertex or setup run's record: where its SOUTs go, as its trigger saw them.
+  val outBase      = UInt(GpuMemIO.AddrBits.W)
+  val outInterleave = Bool()
   // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
   val fetchRast    = Bool()
   val fetchSetup   = Bool()
@@ -311,6 +314,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.helperSlot := memSlot
   memUnit.io.record     := io.record
   memUnit.io.record.attrBase := Mux(slots(memSlot).byRasterizer, slots(memSlot).attrBase, io.record.attrBase)
+  memUnit.io.record.outBase  := Mux(slots(memSlot).byRasterizer, slots(memSlot).outBase, io.record.outBase)
+  memUnit.io.record.outInterleave := Mux(slots(memSlot).byRasterizer, slots(memSlot).outInterleave, io.record.outInterleave)
   memUnit.io.laneHelper := io.laneHelper
   memUnit.io.seqBusy    := io.seqBusy
 
@@ -422,7 +427,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       trigSlot.byRasterizer := true.B
       trigSlot.fetchRast := io.coreTrigger.isRast
       trigSlot.fetchSetup := io.coreTrigger.isSetup
-      when(!io.coreTrigger.fragment) { trigSlot.page := io.uniformPage; trigSlot.attrBase := io.record.attrBase }
+      when(!io.coreTrigger.fragment) {
+        trigSlot.page := io.uniformPage; trigSlot.attrBase := io.record.attrBase
+        trigSlot.outBase := io.record.outBase; trigSlot.outInterleave := io.record.outInterleave
+      }
       if (BorgDebug.trace) printf("[CORE] coreTrigger pc=%d isRast=%d\n",
         io.coreTrigger.pc, io.coreTrigger.isRast)
     }
