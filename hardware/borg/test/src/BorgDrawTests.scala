@@ -292,6 +292,20 @@ object BorgDrawTests extends TestSuite {
 
   /** The 8x8 quad, split on its (0,0)-(8,8) diagonal, which no sample lies
     * on: every pixel's four samples exactly once, whatever the topology. */
+  /** Cycles per triangle of a vertex-bound draw: 64 one-pixel triangles, so vertex shading, setup and
+    * binning dominate. A measurement for running triangles on several slots (B9). */
+  def vertexBound(rig: DrawRig): Unit = {
+    val tri = Seq(at(1, 1, 1), at(2, 1, 1), at(1, 2, 1))
+    val n = 64
+    val covered = rig.draw(Seq.fill(n)(tri).flatten)
+    def reg(r: UInt): BigInt = rawRead(rig.borg, r.litValue.toInt)
+    val (total, shader) = (reg(BorgGpuRegs.perf_total_offset), reg(BorgGpuRegs.perf_frag_offset))
+    val issue = (0 until 7).map { i => rawWrite(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt, i); reg(BorgGpuRegs.perf_issue_offset) }
+    println(f"  $n triangles: ${total / n} cycles each (shader ${shader / n}, issued ${issue(0) / n}, " +
+      f"waits: register ${issue(1) / n}, drain ${issue(3) / n}, unit ${issue(5) / n})")
+    utest.assert(covered > 0)
+  }
+
   def topologies(rig: DrawRig): Unit = {
     val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
     val full = Size * Size * 4
@@ -968,6 +982,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("strips_fans_indices_restart_and_instances") {
       run("topologies", suiteCfg)(topologies)
+    }
+    utest.test("vertex_bound_draw_cycles") {
+      run("vertex-bound draw", suiteCfg)(vertexBound)
     }
   }
 }
