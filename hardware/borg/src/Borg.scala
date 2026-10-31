@@ -77,6 +77,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val attClearB   = WireDefault(0.U(16.W))
   private val attClearA   = WireDefault(0.U(8.W))
   private val attClearExt = WireDefault(0.U(32.W))    // RAW64's word 1
+  // The memory port's grants (wireRasterizer), for the binner's and setup store's ready (wireBinner).
+  private val memDmaOn = WireDefault(false.B)
+  private val memGeoOn = WireDefault(false.B)
   private val attLoad     = WireDefault(false.B)
   private val attFirst    = WireDefault(true.B)
   private val attLast     = WireDefault(true.B)
@@ -288,27 +291,31 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val coreMem = core.io.memBusy
     def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt = Mux(coreMem, sel(core.io.gpuMem), fallback)
     def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool = Mux(coreMem, sel(core.io.gpuMem), fallback)
-    // A core access keeps the port until answered: a DMA starting under it waits.
+    // An access keeps the port until answered: a DMA starting under the core's, the binner's or
+    // the setup store's waits, and the binner and store wait for the core's.
     val coreHolds = RegInit(false.B)
-    val dOn = d.io.busy && !coreHolds
+    val geoHolds  = RegInit(false.B)
+    val dOn = d.io.busy && !coreHolds && !geoHolds
+    val geoOn = geoBusy && !coreHolds && !dOn
+    memDmaOn := dOn; memGeoOn := geoOn
 
     io.gpuMem.req   := Mux(dOn, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
                        Mux(ld.io.busy, ld.io.gpuMem.req,
-                       Mux(geoBusy, geoReq, coreOrB(_.req, false.B)))))
+                       Mux(geoOn, geoReq, coreOrB(_.req, false.B)))))
     io.gpuMem.addr  := Mux(dOn, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
                        Mux(ld.io.busy, ld.io.gpuMem.addr,
-                       Mux(geoBusy, geoAddr, coreOr(_.addr, 0.U)))))
+                       Mux(geoOn, geoAddr, coreOr(_.addr, 0.U)))))
     io.gpuMem.wr    := Mux(dOn, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
                        Mux(ld.io.busy, false.B,  // the loader only reads
-                       Mux(geoBusy, geoWr, coreOrB(_.wr, false.B)))))
+                       Mux(geoOn, geoWr, coreOrB(_.wr, false.B)))))
     // Every memory behind this port stores a write word as one halfword. The setup store and
     // STORE write wider words, so they go out as a two-beat burst, low halfword first.
-    val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, 0.U))
+    val wordData = Mux(geoOn, geoWdata, coreOr(_.wdata, 0.U))
     val wideWr   = !dOn && !f.io.busy && !ld.io.busy &&
-      Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
+      Mux(geoOn, !b.io.busy, coreOrB(_.wr, false.B))
     // Registered, so no combinational path from waccept back into wdata.
     val upperHalf = RegInit(false.B)
     when(io.gpuMem.ready) { upperHalf := false.B }
@@ -319,10 +326,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     locally {
       val g = core.io.gpuMem
       g.data    := io.gpuMem.data
-      g.ready   := io.gpuMem.ready && !dOn && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
+      g.ready   := io.gpuMem.ready && !dOn && !f.io.busy && !ld.io.busy && !geoOn && coreMem
       g.waccept := false.B
-      val coreOn = !dOn && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
+      val coreOn = !dOn && !f.io.busy && !ld.io.busy && !geoOn && coreMem
       when(io.gpuMem.ready) { coreHolds := false.B }.elsewhen(coreOn && (g.req || g.wr)) { coreHolds := true.B }
+      val geoGranted = geoOn && !f.io.busy && !ld.io.busy
+      when(io.gpuMem.ready) { geoHolds := false.B }.elsewhen(geoGranted && (geoReq || geoWr)) { geoHolds := true.B }
     }
     core.io.root := rdlRegs.io.hw.root_addr
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, Mux(wideWr, 2.U, 1.U))
@@ -892,10 +901,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     s.io.binner.full := b.io.full
 
     b.io.gpuMem.data  := io.gpuMem.data
-    b.io.gpuMem.ready := io.gpuMem.ready && b.io.busy && !d.io.busy && !f.io.busy
+    b.io.gpuMem.ready := io.gpuMem.ready && b.io.busy && !memDmaOn && !f.io.busy && !ld.io.busy && memGeoOn
     b.io.gpuMem.waccept := false.B   // binner writes single words, never bursts
 
     s.io.store.ready := io.gpuMem.ready && s.io.store.active &&
-                        !d.io.busy && !f.io.busy && !b.io.busy
+                        !memDmaOn && !f.io.busy && !ld.io.busy && !b.io.busy && memGeoOn
   }
 }
