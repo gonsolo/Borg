@@ -178,7 +178,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
   private val states = Enum(28)                            // (three patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
-               sLevel :: sLevelDims :: sLayer :: _ :: sAxisMul :: Nil) = states.take(12)
+               sLevel :: sLevelDims :: sLayer :: sLodLam :: sAxisMul :: Nil) = states.take(12)
   private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
                sAccWait :: sTapNext :: sResp :: Nil) = states.slice(12, 24)
   private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
@@ -252,6 +252,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val nLev   = RegInit(1.U(2.W)); private val lvIdx = RegInit(0.U(1.W))
   private val lvl    = Reg(Vec(2, UInt(4.W)))
   private val lvlW   = Reg(Vec(2, UInt(9.W)))             // level weights, 256 = 1
+  private val lamR   = Reg(SInt(25.W))                    // clamped lambda, Q.8
+  private val biasedR = Reg(SInt(25.W))                   // before the clamp, for textureQueryLod
   private val linear = RegInit(false.B)
   private val layerN = RegInit(0.U(12.W))
   private val levelOff = RegInit(0.U(GpuMemIO.AddrBits.W))
@@ -410,24 +412,29 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(act(lane) && isSize) {
         acc(0) := at(dimW); acc(1) := at(dimH); acc(2) := Mux(ttype === T3D.U, at(dimD), dimD); acc(3) := levels
         state := sResp
-      }.elsewhen(act(lane)) { state := sLaneSetup }
+      }.elsewhen(act(lane)) { state := sLodLam }
         .otherwise {
           acc.foreach(_ := 0.U)
           state := sResp                                   // inactive: answer zeros
         }
     }
-    is(sLaneSetup) {
+    is(sLodLam) {
       val a = args(lane)
-      // All Q.8.
-      val q = (levels - 1.U).zext << 8
-      // lambda = base + clamp(sampler bias + shader bias, +-maxSamplerLodBias).
+      // All Q.8. lambda = base + clamp(sampler bias + shader bias, +-maxSamplerLodBias).
       val lod = fpToFixed(a.lod, 8, 24)
       val base0 = Mux(lodMode(ctl) === LodExplicit.U, lod, quadLod)
       val biasSum = sd(1)(23, 0).asSInt +& Mux(lodMode(ctl) === LodBias.U, lod, 0.S)
       val maxB = (MaxLodBias << 8).S
       val biased = base0 + Mux(biasSum > maxB, maxB, Mux(biasSum < -maxB, -maxB, biasSum))
       val minL = sd(2)(23, 0).asSInt; val maxL = sd(3)(23, 0).asSInt
-      val lam = Mux(biased < minL, minL, Mux(biased > maxL, maxL, biased))
+      lamR := Mux(biased < minL, minL, Mux(biased > maxL, maxL, biased))
+      biasedR := biased
+      state := sLaneSetup
+    }
+    is(sLaneSetup) {
+      val a = args(lane)
+      val q = (levels - 1.U).zext << 8
+      val lam = lamR
       val mag = lam <= 0.S
       val filt = Mux(isFetch, false.B, Mux(isGather, true.B, Mux(mag, magLin, minLin)))
       val lamPos = Mux(mag, 0.S, lam)
@@ -463,7 +470,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(isQuery) {
         val lamC = Mux(lam < 0.S, 0.S, Mux(lam > q, q, lam))
         val lvlQ = Mux(mipLin, lamC, (((lamC + 127.S) >> 8) << 8).asSInt)
-        acc(0) := q8ToFp32(lvlQ); acc(1) := q8ToFp32(biased)
+        acc(0) := q8ToFp32(lvlQ); acc(1) := q8ToFp32(biasedR)
         state := sResp
       }
     }
