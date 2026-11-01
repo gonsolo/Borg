@@ -7,12 +7,12 @@ import chisel3.{fromBooleanToLiteral, fromIntToWidth, fromIntToLiteral, fromBigI
 import chisel3.simulator.EphemeralSimulator._
 import utest._
 
-// W1, R1–R2: MigUiDriver tests (the test acts as the MIG).
+// W1, R1, R2: MigUiDriver tests (the test acts as the MIG).
 //
 // These tests drive MigUiDriver's request side and verify that:
-//   W1 — a write to word 3 sends the right data, mask (0xFF3F), command and address, then pulses done
-//   R1 — a read of word 5 returns slot 5 of the 128-bit block on rdata
-//   R2 — while the MIG is not ready, the driver holds app_en and waits, then finishes once app_rdy goes high
+//   W1: a write to word 3 sends the right data, mask (0xFF3F), command and address, then pulses done
+//   R1: a read of word 5 returns slot 5 of the 128-bit block on rdata
+//   R2: while the MIG is not ready, the driver holds app_en and waits, then finishes once app_rdy goes high
 
 object MigUiDriverTests extends TestSuite {
 
@@ -37,9 +37,9 @@ object MigUiDriverTests extends TestSuite {
 
   val tests: Tests = Tests {
     test("W1_write_word") {
-        simulate(new MigUiDriver) { dut =>
+      simulate(new MigUiDriver) { dut =>
         initDriver(dut)
-       
+
         dut.io.mig.app_wdf_rdy.poke(true.B)
         dut.io.mig.app_rdy.poke(true.B)
 
@@ -47,25 +47,58 @@ object MigUiDriverTests extends TestSuite {
         dut.io.addr.poke(3.U)
         dut.io.wdata.poke(0xCDAB.U)
         dut.io.start.poke(true.B)
-        dut.clock.step(1)
+
+        dut.clock.step(1) // now in sData
         dut.io.start.poke(false.B)
 
         dut.io.mig.app_wdf_wren.expect(true.B)
         dut.io.mig.app_wdf_mask.expect(0xFF3F.U)
         dut.io.mig.app_wdf_data.expect(BigInt("CDAB" * 8, 16).U)
 
-        dut.clock.step(1)
+        dut.clock.step(1) // now in sCmd
         dut.io.mig.app_en.expect(true.B)
         dut.io.mig.app_cmd.expect(0.U)
         dut.io.mig.app_addr.expect(0.U)
 
-        dut.clock.step(1)
+        dut.clock.step(1) // now in sDone
         dut.io.done.expect(true.B)
-        
-        dut.clock.step(1)
+
+        dut.clock.step(1) // back in sIdle
         dut.io.done.expect(false.B)
 
-        }
+      }
     }
+
+    test("R1_read_word") {
+      simulate(new MigUiDriver) { dut => 
+        initDriver(dut)
+
+        dut.io.mig.app_rdy.poke(true.B)
+
+        dut.io.isWrite.poke(false.B)
+        dut.io.addr.poke(5.U)
+        dut.io.start.poke(true.B)
+
+        dut.clock.step(1) // now in sCmd
+        dut.io.start.poke(false.B)
+
+        dut.io.mig.app_en.expect(true.B)
+        dut.io.mig.app_cmd.expect(1.U)
+        dut.io.mig.app_addr.expect(0.U)
+
+        dut.clock.step(1) // now in sRead
+
+        dut.io.mig.app_rd_data.poke(BigInt("A007A006A005A004A003A002A001A000", 16).U)
+        dut.io.mig.app_rd_data_valid.poke(true.B)
+
+        dut.clock.step(1) // now in sDone
+
+        dut.io.mig.app_rd_data_valid.poke(false.B)
+        dut.io.done.expect(true.B)
+        dut.io.rdata.expect(0xA005.U)
+
+      }
+    }
+
   }
 }
