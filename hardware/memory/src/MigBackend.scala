@@ -56,6 +56,13 @@ class ToggleSyncIO extends Bundle {
   val pulse = Output(Bool())   // 1 for one cycle per flip
 }
 
+class MigBackendIO extends Bundle {
+    val backend =  Flipped(new MemBackendIO)
+    val mig = new MigUiIO
+    val ui_clk = Input(Clock())
+    val ui_rst = Input(Bool())
+}
+
 class MigUiDriver extends Module {
     val io = IO(new MigUiDriverIO)
 
@@ -140,4 +147,70 @@ class ToggleSync extends Module {
     val s2 = RegNext(s1, false.B)
     val s3 = RegNext(s2, false.B)
     io.pulse := s2 =/= s3
+}
+
+// Adapter from MemBackendIO to the Xilinx MIG
+// Runs on the SoC clock
+class MigBackend extends Module {
+    val io = IO(new MigBackendIO)
+
+    val sIdle :: sWait :: sDone :: Nil = Enum(3)
+    val state = RegInit(sIdle)
+
+    val isWriteReg = RegInit(false.B)
+    val addrReg = RegInit(0.U(24.W))
+    val wdataReg = RegInit(0.U(16.W))
+    val reqToggle = RegInit(false.B)
+    val rdataReg = RegInit(0.U(16.W))
+
+    val (driver, doneToggle) = withClockAndReset(io.ui_clk, io.ui_rst) {
+        val reqSync = Module(new ToggleSync)
+        reqSync.io.in := reqToggle
+
+        val driver = Module(new MigUiDriver)
+        driver.io.start := reqSync.io.pulse
+        driver.io.isWrite := isWriteReg
+        driver.io.addr := addrReg
+        driver.io.wdata := wdataReg
+
+        io.mig <> driver.io.mig
+
+        val doneToggle = RegInit(false.B)
+        when(driver.io.done) { 
+            doneToggle := !doneToggle
+        }
+
+        (driver, doneToggle) 
+    }
+
+    val doneSync = Module(new ToggleSync)
+    doneSync.io.in := doneToggle
+
+    val calibrated = RegNext(RegNext(io.mig.init_calib_complete, false.B), false.B)
+
+    io.backend.busy := state =/= sIdle || !calibrated
+    io.backend.done := state === sDone
+    io.backend.dataOut := rdataReg
+    io.backend.accept := false.B   // TODO: burst writes (lenIn > 1, accept) 
+
+    switch(state) {
+        is(sIdle) {
+            when(io.backend.startRead || io.backend.startWrite) {
+                addrReg := io.backend.addrIn
+                wdataReg := io.backend.dataIn
+                isWriteReg := io.backend.startWrite
+                reqToggle := !reqToggle
+                state := sWait
+            }
+        }
+        is(sWait) {
+            when(doneSync.io.pulse) {
+                rdataReg := driver.io.rdata
+                state := sDone
+            }
+        }
+        is(sDone) {
+            state := sIdle
+        }
+    }
 }
