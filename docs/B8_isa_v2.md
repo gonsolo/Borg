@@ -156,6 +156,7 @@ reads and writes registers only where an instruction names them.
 | r25 kill | CSR write `discard` (sticky) |
 | r19 sample mask, `SMASK` | CSR `sample_mask` (read: coverage; write: output mask) |
 | `ATTIDX` | CSR `attachment` (0xCCF; attachment + 4 * slice) |
+| - | CSR `slot` (0xCD0): the quad slot the instruction runs on, for spill memory |
 | r17-r19 and other constant presets, u20-u31 windows | none: immediates and constant-buffer loads |
 | r12-r14 workgroup base (borgc) | a register like any other |
 | root of the descriptors (v1: the base registers) | CSR `root` |

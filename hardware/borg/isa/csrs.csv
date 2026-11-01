@@ -82,3 +82,5 @@
 0xccd, "group_id_y"
 0xcce, "group_id_z"
 0xccf, "attachment"
+# The quad slot this instruction runs on: a spill slot is per slot and lane.
+0xcd0, "slot"
