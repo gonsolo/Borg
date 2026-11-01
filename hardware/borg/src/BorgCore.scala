@@ -529,7 +529,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * redirects a stage later. A condition that differs between active lanes sets the sticky
     * branchDivergent: the quad has one PC, so such a branch cannot be right for every lane. */
   private def wireBranch(): Unit = {
-    val rv = RvInt(RegEnable(fetchedInstruction, issuing && opFlags.branch))
+    // Delayed as flagsX: another slot's branch can issue before this one reaches its operands.
+    val rv = RvInt(BorgLane.later(true.B)(RegEnable(fetchedInstruction, issuing && opFlags.branch), cfg.cBusyLoad - cfg.cOperands))
     val conds = lanes.map(l => rv.cond(l.io.recARaw, l.io.recBRaw))
     val lead  = PriorityMux(execMask.asBools, conds)
     val taken = (rv.br && lead) || rv.jal
