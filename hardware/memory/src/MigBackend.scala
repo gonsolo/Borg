@@ -3,13 +3,13 @@
 
 // Two modules, because two clocks:
 //   MigBackend: runs on the SoC clock (25 MHz). Faces MemoryController
-//                 through MemBackendIO, exactly like SdramBackend.
+//               through MemBackendIO, exactly like SdramBackend.
 //   MigUiDriver: runs on the MIG's ui_clk (100 MHz). Performs one 16-bit
-//                 read or write through the MIG user interface.
+//                read or write through the MIG user interface.
 //
 // The MIG's user interface only runs on its own ui_clk, which is unrelated to
 // the SoC clock, so requests must cross between the two clock domains.
-//
+
 // Clock domain crossing (request/done handshake):
 // - One request in flight, so the request is held stable on the SoC side.
 // - Only `req` and `done` cross, each through a 2-flip-flop synchroniser.
@@ -22,6 +22,8 @@ import chisel3._
 import chisel3.util._
 
 class MigUiIO extends Bundle {
+    // MIG user interface signals
+    
     // Backend -> MIG
     val app_addr = Output(UInt(29.W))  // start address of the 128-bit block
     val app_cmd = Output(UInt(3.W)) // 0 = write, 1 = read
@@ -35,8 +37,8 @@ class MigUiIO extends Bundle {
     val app_rdy = Input(Bool()) // MIG ready to accept command
     val app_wdf_rdy = Input(Bool()) // MIG ready to accept write data
     val app_rd_data = Input(UInt(128.W)) // 128 bit block read from memory
-    val app_rd_data_valid = Input(Bool()) 
-    val init_calib_complete = Input(Bool())
+    val app_rd_data_valid = Input(Bool()) // app_rd_data holds read data this cycle
+    val init_calib_complete = Input(Bool()) // MIG finished start-up calibration, ready to use
 }
 
 class MigUiDriverIO extends Bundle {
@@ -47,6 +49,11 @@ class MigUiDriverIO extends Bundle {
     val rdata = Output(UInt(16.W))
     val done = Output(Bool())
     val mig = new MigUiIO
+}
+
+class ToggleSyncIO extends Bundle {
+  val in    = Input(Bool())    // toggle from the other clock domain
+  val pulse = Output(Bool())   // 1 for one cycle per flip
 }
 
 class MigUiDriver extends Module {
@@ -121,3 +128,16 @@ class MigUiDriver extends Module {
     }
 
 }   
+
+// Safely receives a bit from another clock domain that flips once per
+// event, and outputs a one-cycle pulse on this clock for each flip
+// s1, s2 = 2 flip-flop synchroniser
+// s3 = previous s2, to detect the flip
+class ToggleSync extends Module {
+    val io = IO(new ToggleSyncIO)
+
+    val s1 = RegNext(io.in, false.B)
+    val s2 = RegNext(s1, false.B)
+    val s3 = RegNext(s2, false.B)
+    io.pulse := s2 =/= s3
+}
