@@ -141,6 +141,13 @@ start=$(date +%s)
 : > "$OUT/chunk_times.txt"; : > "$OUT/chunk_cycles.txt"
 find "$OUT/chunks" -type f -name 'c*' 2>/dev/null | sort | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
 collect "$OUT"/run_c* > "$OUT/results.txt"
+# A one-case chunk that hit the limit has its answer: a second run would only hit it again.
+for rc in "$OUT"/run_c*.rc; do
+  [[ "$(cat "$rc")" == 124 || "$(cat "$rc")" == 137 ]] || continue
+  chunk="$OUT/chunks/$(basename "${rc%.rc}" | sed s/^run_//)"
+  [[ "$(wc -l < "$chunk")" == 1 ]] || continue
+  grep -q " $(cat "$chunk") " "$OUT/results.txt" || echo "Timeout $(cat "$chunk") (time limit)" >> "$OUT/results.txt"
+done
 # A crash takes the rest of its chunk with it: run the cases that have no result one by one.
 awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
 sort -u "$OUT/all.txt" | comm -23 - "$OUT/have.txt" > "$OUT/missing.txt"
