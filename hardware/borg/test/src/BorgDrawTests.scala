@@ -307,6 +307,27 @@ object BorgDrawTests extends TestSuite {
     utest.assert(covered > 0)
   }
 
+  /** Quads in flight branch close together, with different offsets. */
+  def branchesPerSlot(rig: DrawRig): Unit = {
+    import Opcodes._
+    // Two inner loops of different lengths inside an outer one: the quads' branches drift apart.
+    val (outer, inner) = (7, 3)
+    val frag = Seq(
+      // A delay by the quad's position, floor(x / 2) + 1 rounds: its lanes agree.
+      FCVT_W_S(13, 30), SRLI(13, 13, 1), ADDI(13, 13, 1), ADDI(13, 13, -1), Instructions.BRNZ(rs1 = 13, offset = -1),
+      ADDI(12, 0, outer), ADDI(10, 0, 0),
+      ADDI(8, 0, inner),
+      ADDI(10, 10, 1), ADDI(8, 8, -1), Instructions.BRNZ(rs1 = 8, offset = -2),
+      ADDI(9, 0, inner),
+      ADDI(10, 10, 1), ADDI(9, 9, -1), ADDI(0, 0, 0), Instructions.BRNZ(rs1 = 9, offset = -3),
+      ADDI(12, 12, -1), Instructions.BRNZ(rs1 = 12, offset = -10),
+      ADDI(11, 10, -2 * outer * inner), SLTIU(11, 11, 1), FCVT_S_W(26, 11), BigInt(0))
+    rig.draw(Seq(at(Size, 0, 1), at(0, 0, 1), at(Size, Size, 1), at(0, Size, 1)), topology = 1, frag = frag)
+    val wrong = (for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)._1).count(_ != 255)
+    println(s"  $wrong pixels with a wrong loop count")
+    utest.assert(wrong == 0)
+  }
+
   def topologies(rig: DrawRig): Unit = {
     val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
     val full = Size * Size * 4
@@ -983,6 +1004,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("strips_fans_indices_restart_and_instances") {
       run("topologies", suiteCfg)(topologies)
+    }
+    utest.test("branches_of_quads_in_flight_keep_their_offsets") {
+      run("branches per slot", suiteCfg)(branchesPerSlot)
     }
     utest.test("vertex_bound_draw_cycles") {
       run("vertex-bound draw", suiteCfg)(vertexBound)

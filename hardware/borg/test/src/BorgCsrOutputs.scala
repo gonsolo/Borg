@@ -14,7 +14,7 @@ object CsrOutputs {
   def writes(w: BigInt): Seq[Int] = {
     val (op, rd) = ((w & 0x7f).toInt, ((w >> 7) & 31).toInt)
     if (w == 0) Nil
-    else if (op == OPCODE_CSRRW && ((w >> 12) & 7) == 1) Nil
+    else if (op == 0x63 || (op == OPCODE_CSRRW && ((w >> 12) & 7) == 1)) Nil   // a branch: rd bits are its offset
     else Seq(rd)
   }
 
