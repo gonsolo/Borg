@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Review commits one by one and add your Reviewed-by tag; merge and push only on your yes.
 
-    scripts/review_commits.py [RANGE]        # default: origin/main..HEAD
+    scripts/review_commits.py [RANGE]        # default: main..HEAD
 
 For every commit in RANGE (oldest first) the script shows the message and the
 full diff in your pager, then asks:
@@ -131,7 +131,7 @@ def submodule_bumps(base: str, head: str) -> list[tuple[str, str]]:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("range", nargs="?", default="origin/main..HEAD")
+    ap.add_argument("range", nargs="?", default="main..HEAD")
     ap.add_argument("--rewrite-todo", nargs=5, metavar=("TODO", "REWORD", "EXEC", "NONE", "NONE_EXEC"), help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.rewrite_todo:
