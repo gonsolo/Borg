@@ -100,5 +100,43 @@ object MigUiDriverTests extends TestSuite {
       }
     }
 
+    test("R2_read_word_MIG_not_ready") {
+      simulate(new MigUiDriver) { dut => 
+        initDriver(dut)
+
+        dut.io.mig.app_rdy.poke(false.B)
+
+        dut.io.isWrite.poke(false.B)
+        dut.io.addr.poke(5.U)
+        dut.io.start.poke(true.B)
+
+        dut.clock.step(1) // now in sCmd
+        dut.io.start.poke(false.B)
+        dut.io.mig.app_en.expect(true.B)
+        dut.io.done.expect(false.B)
+
+        // step 3 more cycles and check driver keeps offering command and doesn't move on
+        for (_ <- 0 until 3) {
+          dut.clock.step(1)
+          dut.io.mig.app_en.expect(true.B)
+          dut.io.done.expect(false.B)
+        }
+
+        dut.io.mig.app_rdy.poke(true.B)
+
+        dut.clock.step(1) // now in sRead 
+        dut.io.mig.app_en.expect(false.B)
+
+        dut.io.mig.app_rd_data.poke(BigInt("A007A006A005A004A003A002A001A000", 16).U)
+        dut.io.mig.app_rd_data_valid.poke(true.B)
+
+        dut.clock.step(1) // now in sDone
+        dut.io.mig.app_rd_data_valid.poke(false.B)
+
+        dut.io.done.expect(true.B)
+        dut.io.rdata.expect(0xA005.U)
+      }
+    }
+
   }
 }
