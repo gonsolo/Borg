@@ -191,7 +191,7 @@ object BorgSamplerTests extends TestSuite {
             else if (s.unnorm) fixed(c, 8, 28)
             else {
               val f = mode(a) match { case Repeat => fixedMod(c, 0); case Mirror => fixedMod(c, 1); case _ => fixed(c, 24, 28) }
-              (f * size(a)) >> 16
+              (f * size(a) + (1 << 15)) >> 16
             }
           val xs = if (linear) x8 - 128 else x8
           val first = (xs >> 8).toInt + offs(a)
