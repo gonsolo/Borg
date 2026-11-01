@@ -19,6 +19,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 
   val coreStatus = Flipped(Vec(cfg.quadSlots, new CoreStatusIO))
   val iterSlot   = Input(UInt(cfg.slotBits.W))
+  val shaderFrontFacing = Output(Bool())
   val helperSlot = Input(UInt(cfg.slotBits.W))
   val triggerSlot = Output(UInt(cfg.slotBits.W))
   val zTestSlot  = Input(UInt(cfg.slotBits.W))
@@ -101,6 +102,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.csrWrite       <> io.csrWrite
   dispatcher.io.csrSlot        := io.csrSlot
   dispatcher.io.iterSlot       := io.iterSlot
+  io.shaderFrontFacing         := dispatcher.io.quadFrontFacing
   dispatcher.io.helperSlot     := io.helperSlot
   io.triggerSlot               := dispatcher.io.triggerSlot
   dispatcher.io.coreStatus     <> io.coreStatus

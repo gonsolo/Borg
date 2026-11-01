@@ -84,3 +84,5 @@
 0xccf, "attachment"
 # The quad slot this instruction runs on: a spill slot is per slot and lane.
 0xcd0, "slot"
+# gl_FrontFacing of the quad: 1 for a front face.
+0xcd1, "front_facing"

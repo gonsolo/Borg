@@ -18,6 +18,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val coreStatus = Flipped(Vec(cfg.quadSlots, new CoreStatusIO))
   // The slots the core asks quadIter and laneHelper for; laneCoverage and laneDst are csrSlot's.
   val iterSlot    = Input(UInt(cfg.slotBits.W))
+  val quadFrontFacing = Output(Bool())
   val helperSlot  = Input(UInt(cfg.slotBits.W))
   val triggerSlot = Output(UInt(cfg.slotBits.W))   // the slot coreTrigger starts
   val zTestSlot   = Input(UInt(cfg.slotBits.W))    // the slot zTestReq comes from
@@ -139,6 +140,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val (topLeftOf, pageOf, occOf) = (tri(io.topLeft), tri(io.uniformPage), tri(io.occOutside))
   private val covDeltaOf = io.covDelta.map(tri(_))
   private val frontFacingOf = io.frontFacing.map(tri(_))
+  io.quadFrontFacing := frontFacingOf.fold(true.B)(_(io.iterSlot))
   val cov  = new QuadCoverage(cfg, io.drawMode, topLeftOf, covDeltaOf, io.sampleCfg)
   val outs = new FragOutputs(cfg, io.drawMode, io.depthUnorm, io.depthClamp, io.sampleCfg)
   val ops  = new FragmentOps(cfg, io, outs.at(eq), cov.at(eq), scissorOf(eq), tileIndex, frontFacingOf.map(_(eq)))

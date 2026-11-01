@@ -16,6 +16,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // discarded, or failed ZTEST: its stores are dropped).
   val iter         = Input(Vec(N, new Coord(cfg.coordWidth)))
   val pixelOrigin  = Input(new Coord(14))
+  val frontFacing  = Input(Bool())      // the issuing quad's
   val attIndex     = Input(UInt(3.W))   // attachment + 4 * slice
   val laneDst      = Input(Vec(N, Vec(2, UInt(32.W))))
   val laneCoverage = Input(Vec(N, UInt(cfg.samples.W)))
@@ -478,7 +479,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       v
     }
     val csrValue = MuxLookup(rv.csr, 0.U(w.W))(Seq(Csr.Root.U -> io.root,
-      Csr.Attachment.U -> io.attIndex.pad(w), Csr.Slot.U -> issueSlot.pad(w)))
+      Csr.Attachment.U -> io.attIndex.pad(w), Csr.Slot.U -> issueSlot.pad(w),
+      Csr.FrontFacing.U -> Mux(io.frontFacing, 1.U(w.W), 0.U(w.W))))
     (latch(rv.aZero || rv.auipc || rv.csrrs && !rv.csrReg && !rv.csrWin,
            Mux(rv.csrrs, csrValue, Mux(rv.auipc, (programCounter << 2).pad(32), 0.U(32.W)))),
      latch(rv.bZero || rv.bImm || rv.csrrs, Mux(rv.bImm, rv.imm, 0.U(32.W))))

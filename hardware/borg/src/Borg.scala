@@ -216,6 +216,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def wireCore(): Unit = {
     core.io.bus <> bus
+    core.io.frontFacing := rast.io.shaderFrontFacing
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
 
     // The sequencer wins while it asserts a trigger. Compute never overlaps a render.
