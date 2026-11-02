@@ -6,6 +6,9 @@ import chisel3.util._
 
 import chisel3.experimental.{Analog, attach}
 
+import _root_.circt.stage.ChiselStage
+import soc.Emit
+
 import memory.MigBackend
 
 class DDR3Top extends RawModule {
@@ -83,4 +86,15 @@ class DDR3Top extends RawModule {
 
         led := Cat(tester.io.finished && !tester.io.pass, tester.io.pass, tester.io.finished, mig.init_calib_complete)
      }
+}
+
+object DDR3TopMain extends App{
+    val targetDir = "out/nexysvideo_ddr3/verilog"
+    Emit.cleanTargetDir(targetDir)
+
+    ChiselStage.emitSystemVerilogFile(
+        gen = new DDR3Top,
+        args = Array("--target-dir", targetDir),
+        firtoolOpts = Emit.firtoolOpts
+    )
 }
