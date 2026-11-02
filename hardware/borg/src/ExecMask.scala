@@ -19,37 +19,33 @@ class ExecMaskIO(lanes: Int, slots: Int) extends Bundle {
 }
 
 /** The execution mask of divergent control flow: both arms of a divergent `if` run, the lanes
-  * that should not are masked. The stack holds the enclosing mask, so EXELSE gives
-  * `enclosing & ~mask`, never a plain inversion that would wake lanes an outer `if` masked.
-  * Each quad slot has its own mask and stack. */
-class ExecMask(lanes: Int, slots: Int = 1, depth: Int = 8) extends Module {
+  * that should not are masked. Each lane counts the levels it is off for (0: on), so EXELSE turns
+  * on only the lanes this level turned off, never ones an outer `if` masked, and nesting is as deep
+  * as the counter (255 with 8 bits). Each quad slot has its own counters. */
+class ExecMask(lanes: Int, slots: Int = 1, bits: Int = 8) extends Module {
   val io = IO(new ExecMaskIO(lanes, slots))
-  private val all    = ((1 << lanes) - 1).U(lanes.W)
-  private val masks  = RegInit(VecInit(Seq.fill(slots)(all)))
-  private val stacks = Reg(Vec(slots, Vec(depth, UInt(lanes.W))))
-  private val sps    = RegInit(VecInit(Seq.fill(slots)(0.U(log2Ceil(depth + 1).W))))
+  private val max    = ((1 << bits) - 1).U(bits.W)
+  private val levels = RegInit(VecInit(Seq.fill(slots)(VecInit(Seq.fill(lanes)(0.U(bits.W))))))
+  private val live   = RegInit(VecInit(Seq.fill(slots)(((1 << lanes) - 1).U(lanes.W))))
+  private val depths = RegInit(VecInit(Seq.fill(slots)(0.U(bits.W))))   // a lane's count never exceeds it
   private val fault  = RegInit(false.B)
-  io.mask := masks; io.fault := fault
-  private val (mask, stack, sp) = (masks(io.slot), stacks(io.slot), sps(io.slot))
-
-  private val cond   = VecInit(io.cond.map(_ =/= 0.U)).asUInt
-  // sp is one bit wider than the stack's index: slice, or the index logic doubles.
-  private val spIdx  = sp(log2Ceil(depth) - 1, 0)
-  private val spPrev = (sp - 1.U)(log2Ceil(depth) - 1, 0)
-  when(io.push) {
-    when(sp === depth.U) { fault := true.B }
-      .otherwise { stack(spIdx) := mask; sp := sp + 1.U; mask := mask & cond }
-  }
-  when(io.els) {
-    when(sp === 0.U) { fault := true.B }
-      .otherwise { mask := stack(spPrev) & (~mask).asUInt }
-  }
-  when(io.pop) {
-    when(sp === 0.U) { fault := true.B; mask := all }
-      .otherwise { sp := sp - 1.U; mask := stack(spPrev) }
+  io.mask := VecInit((0 until slots).map(s => VecInit(levels(s).map(_ === 0.U)).asUInt & live(s)))
+  io.fault := fault
+  private val (level, depth) = (levels(io.slot), depths(io.slot))
+  private val over  = io.push && depth === max
+  private val under = (io.els || io.pop) && depth === 0.U
+  when(over || under) { fault := true.B }
+  when(io.push && !over) { depth := depth + 1.U }
+  when(io.pop && !under) { depth := depth - 1.U }
+  for ((l, k) <- level.zipWithIndex) {
+    when(io.push && !over && (l =/= 0.U || io.cond(k) === 0.U)) { l := l + 1.U }
+    when(io.els && !under) {
+      when(l === 0.U) { l := 1.U }.elsewhen(l === 1.U) { l := 0.U }
+    }
+    when(io.pop && l =/= 0.U) { l := l - 1.U }
   }
   if (BorgDebug.trace) when(io.push || io.els || io.pop) {
-    printf("[EXEC] push=%d else=%d pop=%d cond=0x%x mask=0x%x sp=%d\n", io.push, io.els, io.pop, cond, mask, sp)
+    printf("[EXEC] push=%d else=%d pop=%d mask=0x%x\n", io.push, io.els, io.pop, io.mask(io.slot))
   }
-  when(io.start.valid) { masks(io.startSlot) := io.start.bits; sps(io.startSlot) := 0.U }
+  when(io.start.valid) { live(io.startSlot) := io.start.bits; levels(io.startSlot).foreach(_ := 0.U); depths(io.startSlot) := 0.U }
 }
