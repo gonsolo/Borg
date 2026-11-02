@@ -154,7 +154,7 @@ class ToggleSync extends Module {
 class MigBackend extends Module {
     val io = IO(new MigBackendIO)
 
-    val sIdle :: sWait :: sDone :: Nil = Enum(3)
+    val sIdle :: sWait :: sLoad :: sDone :: Nil = Enum(4)
     val state = RegInit(sIdle)
 
     val isWriteReg = RegInit(false.B)
@@ -162,6 +162,8 @@ class MigBackend extends Module {
     val wdataReg = RegInit(0.U(16.W))
     val reqToggle = RegInit(false.B)
     val rdataReg = RegInit(0.U(16.W))
+    val lenReg = RegInit(0.U(7.W))
+    val beatReg = RegInit(0.U(7.W))
 
     val (driver, doneToggle) = withClockAndReset(io.ui_clk, io.ui_rst) {
         val reqSync = Module(new ToggleSync)
@@ -188,10 +190,12 @@ class MigBackend extends Module {
 
     val calibrated = RegNext(RegNext(io.mig.init_calib_complete, false.B), false.B)
 
+    val acceptW = WireDefault(false.B)
+
     io.backend.busy := state =/= sIdle || !calibrated
     io.backend.done := state === sDone
     io.backend.dataOut := rdataReg
-    io.backend.accept := false.B   // TODO: burst writes (lenIn > 1, accept) 
+    io.backend.accept := acceptW 
 
     switch(state) {
         is(sIdle) {
@@ -199,15 +203,29 @@ class MigBackend extends Module {
                 addrReg := io.backend.addrIn
                 wdataReg := io.backend.dataIn
                 isWriteReg := io.backend.startWrite
+                lenReg := Mux(io.backend.startWrite, io.backend.lenIn, 1.U)
+                beatReg := 0.U
                 reqToggle := !reqToggle
                 state := sWait
             }
         }
         is(sWait) {
             when(doneSync.io.pulse) {
-                rdataReg := driver.io.rdata
-                state := sDone
+                when(beatReg + 1.U < lenReg) {
+                    acceptW := true.B
+                    addrReg := addrReg + 1.U
+                    beatReg := beatReg + 1.U
+                    state := sLoad
+                }.otherwise {
+                    rdataReg := driver.io.rdata
+                    state := sDone
+                }
             }
+        }
+        is(sLoad) {
+            wdataReg := io.backend.dataIn
+            reqToggle := !reqToggle
+            state := sWait
         }
         is(sDone) {
             state := sIdle
