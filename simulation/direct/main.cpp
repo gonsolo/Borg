@@ -12,6 +12,18 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <cstddef>
+#define _Static_assert static_assert   // the generated header is C
+#include "borg_regs.h"
+#undef _Static_assert
+
+// The core's sticky faults: a branch whose condition differed between the quad's lanes, or an
+// exec-mask stack over- or underflow. Either means a wrong result, so say so.
+static void report_faults(DirectSim &sim) {
+  uint32_t st = sim.mmio_read(offsetof(borg_gpu_t, status));
+  if (st & STATUS_REG_T__BRANCH_DIVERGENT_bm) fprintf(stderr, "[direct] FAULT: divergent branch\n");
+  if (st & STATUS_REG_T__EXEC_FAULT_bm) fprintf(stderr, "[direct] FAULT: exec mask stack over- or underflow\n");
+}
 
 // direct_sim --compute <job.bin> <out.bin>
 // job (little-endian u32): nprog gx gy gz lx ly lz nregs nbufs bx by bz, then nprog program words,
@@ -66,6 +78,7 @@ static int run_compute(const char *jobf, const char *outf) {
   }
   if (getenv("DIRECT_DBG")) fprintf(stderr, "[direct] compute status 0x%x, %llu cycles\n", st, (unsigned long long)sim.cycles);
   if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
+  report_faults(sim);
   if (!(st & 1)) return 3;
   if (st & 8) { fprintf(stderr, "[direct] compute barrier fault\n"); return 4; }
   FILE *o = fopen(outf, "wb");
@@ -153,6 +166,7 @@ int main(int argc, char **argv) {
     DirectSim sim(atoi(argv[2]));
     Driver drv(sim);
     int r = drv.serve(0, 1);
+    report_faults(sim);
     if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
     return r;
   }
@@ -167,6 +181,7 @@ int main(int argc, char **argv) {
   bool rgba8 = argc > 5 && std::string(argv[5]) == "rgba8";
   drv.init(W, H, rgba8);
   int draws = drv.run_stream(bytes);
+  report_faults(sim);
   if (getenv("DIRECT_DBG")) {
     fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
     uint32_t p[9];
