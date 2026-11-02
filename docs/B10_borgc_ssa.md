@@ -37,6 +37,13 @@ ACO's situation, not NAK's (NVIDIA threads branch on their own):
   Register interference lives here: a register written for some lanes must stay intact while
   other lanes still need its old value. `extend_for_loops` is this rule for loops today.
 
+The mask stack is 8 deep (`ExecMask`), and every `if` and loop pushes. An `if` whose condition
+NIR's divergence analysis finds uniform, and a loop no lane leaves alone, push nothing: their
+`EXPUSH` carries imm 1 through the passes, which treat it like any other, and the emitter makes
+it a `BEQ` over the side no lane takes (a `JAL` over the else side). Skipping a side is what
+running it under an empty mask does, so liveness and allocation hold for both. The direct
+simulator prints `FAULT` when the stack over- or underflows or a branch diverges.
+
 ## Design
 
 | Piece | What |
