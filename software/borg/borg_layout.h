@@ -235,14 +235,14 @@
 // vertices and transforms them, so it is far longer than the legacy 32-word
 // SEQ_VERT_SHADER_ADDR slot allows (borgc's cube.vert is 74 instructions).
 // The instruction cache fetches it from DRAM, so only this slot bounds its
-// length; the slot takes any blob a 0xC3 packet (16 KB, host only) can carry.
+// length; the slot takes any blob a 0xC3 packet (32 KB, host only) can carry.
 #define DRAW_VERT_SHADER_SPI        (DRAW_VS_CONST_SPI + DRAW_VS_CONST_MAX_WORDS * 4)
-#define DRAW_VERT_SHADER_MAX_WORDS  4092  // the host's blob limit (SPIRB_MAX_INSTRS)
+#define DRAW_VERT_SHADER_MAX_WORDS  8188  // the host's blob limit (SPIRB_MAX_INSTRS)
 
 // Draw-mode fragment shader code, in a slot of its own for the same reason: the legacy
 // SEQ_FRAG_SHADER_ADDR slot is 64 words, and a half-float or RAW colour pack is longer.
 #define DRAW_FRAG_SHADER_SPI        (DRAW_VERT_SHADER_SPI + DRAW_VERT_SHADER_MAX_WORDS * 4)
-#define DRAW_FRAG_SHADER_MAX_WORDS  4092  // the host's blob limit (SPIRB_MAX_INSTRS)
+#define DRAW_FRAG_SHADER_MAX_WORDS  8188  // the host's blob limit (SPIRB_MAX_INSTRS)
 
 // ISA v2 root table for the register-driven draw paths (a list's draws allocate their own):
 // LW/SW base, texture and sampler descriptor tables, buffer table (docs/B8_isa_v2.md).

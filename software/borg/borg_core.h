@@ -31,7 +31,7 @@ extern "C" {
 #define BC_TEX_DIM        64
 #define BC_SHADER_MAX     512
 #define BC_SHADER_MAX_BIG 4096   // marker 0xC1: the same packet for a blob of more than BC_SHADER_MAX bytes
-#define BC_SHADER_MAX_HUGE 16384 // marker 0xC3 (host only): more than BC_SHADER_MAX_BIG; the board has no room
+#define BC_SHADER_MAX_HUGE 32768 // marker 0xC3 (host only): more than BC_SHADER_MAX_BIG; the board has no room
 #define BC_TEXG_DATA      256
 #define BC_PUSH_MAX_WORDS 32
 
