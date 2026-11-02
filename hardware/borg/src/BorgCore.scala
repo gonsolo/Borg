@@ -114,6 +114,7 @@ class QuadSlot(cfg: BorgConfig) extends Bundle {
   // Where a compute invocation stopped; written on every stop, so never stale.
   val atBarrier    = Bool()
   val barrierPC    = UInt(cfg.pcBits.W)
+  val barrierDepth = UInt(8.W)
 }
 
 /** What the issue logic knows about an instruction in flight. */
@@ -307,6 +308,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.barrier.foreach { b =>
     b.hit      := slots(0).atBarrier
     b.resumePC := slots(0).barrierPC
+    b.depth    := slots(0).barrierDepth
   }
 
   // The units' register writes; at most one unit runs at a time.
@@ -380,6 +382,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // A compute quad starts with only its real invocations: a workgroup may not fill the quad.
     exec.io.start.valid := io.control.start || io.coreTrigger.valid
     exec.io.start.bits  := Mux(io.ids.mode && io.coreTrigger.valid, io.ids.laneMask, allLanes)
+    exec.io.startDepth  := Mux(io.ids.mode && io.coreTrigger.valid, io.ids.depth, 0.U)
   }
 
   // DDX/DDY: lane 1 - lane 0 and lane 2 - lane 0 of rs1 (TL, TR, BL, BR, see BorgIterator); fine
@@ -413,6 +416,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         running        := false.B
         slot.atBarrier := true.B
         slot.barrierPC := (programCounter + 1.U)(cfg.pcBits - 1, 0)
+        slot.barrierDepth := exec.io.depth(issueSlot)
       }
     }
 

@@ -154,6 +154,7 @@ object BorgCoreTestHelpers {
     core.io.gpuMem.ready.poke(false.B)
     core.io.ids.mode.poke(false.B)
     core.io.ids.laneMask.poke(0.U)
+    core.io.ids.depth.poke(0.U)
     core.io.ids.r30.foreach(_.poke(0.U))
     core.io.ids.r31.foreach(_.poke(0.U))
     core.io.gpuMem.waccept.poke(false.B)

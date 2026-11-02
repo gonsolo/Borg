@@ -14,6 +14,8 @@ class ExecMaskIO(lanes: Int, slots: Int) extends Bundle {
   val cond  = Input(Vec(lanes, UInt(32.W)))
   val start = Input(Valid(UInt(lanes.W)))   // a new invocation and its lanes
   val startSlot = Input(UInt(log2Ceil(slots).W))
+  val startDepth = Input(UInt(8.W))        // the levels a BARRIER resume starts inside, all lanes on
+  val depth = Output(Vec(slots, UInt(8.W)))
   val mask  = Output(Vec(slots, UInt(lanes.W)))
   val fault = Output(Bool())                // sticky: the stack over- or underflowed
 }
@@ -31,6 +33,7 @@ class ExecMask(lanes: Int, slots: Int = 1, bits: Int = 8) extends Module {
   private val fault  = RegInit(false.B)
   io.mask := VecInit((0 until slots).map(s => VecInit(levels(s).map(_ === 0.U)).asUInt & live(s)))
   io.fault := fault
+  io.depth := depths
   private val (level, depth) = (levels(io.slot), depths(io.slot))
   private val over  = io.push && depth === max
   private val under = (io.els || io.pop) && depth === 0.U
@@ -47,5 +50,5 @@ class ExecMask(lanes: Int, slots: Int = 1, bits: Int = 8) extends Module {
   if (BorgDebug.trace) when(io.push || io.els || io.pop) {
     printf("[EXEC] push=%d else=%d pop=%d mask=0x%x\n", io.push, io.els, io.pop, io.mask(io.slot))
   }
-  when(io.start.valid) { live(io.startSlot) := io.start.bits; levels(io.startSlot).foreach(_ := 0.U); depths(io.startSlot) := 0.U }
+  when(io.start.valid) { live(io.startSlot) := io.start.bits; levels(io.startSlot).foreach(_ := 0.U); depths(io.startSlot) := io.startDepth }
 }

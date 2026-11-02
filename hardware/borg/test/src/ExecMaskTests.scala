@@ -51,5 +51,23 @@ object ExecMaskTests extends TestSuite {
         utest.assert(m.io.fault.peek().litToBoolean)
       }
     }
+    utest.test("a_barrier_resume_starts_inside_its_levels") {
+      simulate(new ExecMask(4, 2)) { m =>
+        m.io.push.poke(false.B); m.io.els.poke(false.B); m.io.pop.poke(false.B); m.io.slot.poke(0.U); m.io.startSlot.poke(0.U)
+        m.reset.poke(true.B); m.clock.step(); m.reset.poke(false.B)
+        m.io.start.valid.poke(true.B); m.io.start.bits.poke(7.U); m.io.startDepth.poke(2.U); m.clock.step()
+        m.io.start.valid.poke(false.B)
+        utest.assert(m.io.mask(0).peek().litValue == 7)
+        utest.assert(m.io.depth(0).peek().litValue == 2)
+        (0 until 4).foreach(i => m.io.cond(i).poke((i & 1).U))
+        m.io.push.poke(true.B); m.clock.step(); m.io.push.poke(false.B)
+        utest.assert(m.io.mask(0).peek().litValue == 2)
+        m.io.els.poke(true.B); m.clock.step(); m.io.els.poke(false.B)
+        utest.assert(m.io.mask(0).peek().litValue == 5)
+        m.io.pop.poke(true.B); m.clock.step(3); m.io.pop.poke(false.B)
+        utest.assert(m.io.mask(0).peek().litValue == 7)
+        utest.assert(!m.io.fault.peek().litToBoolean)
+      }
+    }
   }
 }
