@@ -12,7 +12,7 @@
 // so it may be longer than IMEM (borgc's cube.vert is 74 words); a
 // fragment shader is still bounded by BORG_IMEM_FRAG_LEN where it is staged.
 #ifdef BORG_HOST
-#define SPIRB_MAX_INSTRS 4092   // a 0xC3 packet's blob; the board's RAM holds 1020
+#define SPIRB_MAX_INSTRS 8188   // a 0xC3 packet's blob; the board's RAM holds 1020
 #else
 #define SPIRB_MAX_INSTRS 1020
 #endif
