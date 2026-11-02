@@ -64,4 +64,30 @@ object MigBackendTests extends TestSuite {
             }
         }
     }
+
+    test("write_reaches_mig") {
+        simulate(new MigBackend) { dut =>
+            initBackend(dut)
+
+            dut.io.mig.init_calib_complete.poke(true.B)
+            tick(dut, 2)
+            dut.io.backend.busy.expect(false.B)
+
+            dut.io.mig.app_wdf_rdy.poke(false.B)
+            dut.io.mig.app_rdy.poke(false.B)
+
+            dut.io.backend.addrIn.poke(3.U)
+            dut.io.backend.dataIn.poke(0xCDAB.U)
+            dut.io.backend.byteEnIn.poke(3.U)
+            dut.io.backend.lenIn.poke(1.U)
+            dut.io.backend.startWrite.poke(true.B)
+            tick(dut, 1)
+            dut.io.backend.startWrite.poke(false.B)
+
+            dut.io.backend.busy.expect(true.B)
+
+            tick(dut, 2)
+                
+        }
+    }
 }
