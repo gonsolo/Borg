@@ -168,6 +168,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val inVS = state === sRunVS || state === sWaitVS
   io.ids.mode     := inVS
   io.ids.laneMask := "b0111".U(cfg.fragLanes.W)   // all three corners in one run
+  io.ids.depth    := 0.U
   for (i <- 0 until cfg.fragLanes) {
     io.ids.r30(i) := (if (i < 3) vidx(i) else 0.U)
     io.ids.r31(i) := d.firstInstance + inst

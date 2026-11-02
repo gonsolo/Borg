@@ -26,12 +26,14 @@ class InvocationIdsIO(val cfg: BorgConfig) extends Bundle {
   val laneMask = UInt(cfg.fragLanes.W)
   val r30      = Vec(cfg.fragLanes, UInt(cfg.totalBits.W))  // LocalInvocationIndex
   val r31      = Vec(cfg.fragLanes, UInt(cfg.totalBits.W))  // LocalInvocationID, x | y << 10 | z << 20
+  val depth    = UInt(8.W)   // exec-mask levels a BARRIER resume starts inside
 }
 
 /** BorgCore -> BorgComputeSequencer: why the invocation that just stopped did so. */
 class ComputeBarrierIO extends Bundle {
   val hit      = Bool()      // stopped at BARRIER, not HALT
   val resumePC = UInt(CoreTriggerIO.PcBits.W)  // valid only when hit; may lie past IMEM
+  val depth    = UInt(8.W)   // its exec-mask depth there
 }
 
 class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
@@ -79,6 +81,8 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val segSawBarrier = RegInit(false.B)  // some quad this segment stopped at BARRIER
   private val segSawHalt    = RegInit(false.B)  // some quad this segment stopped at HALT
   private val segResumePC   = RegInit(0.U(CoreTriggerIO.PcBits.W)) // valid once segSawBarrier
+  private val segResumeDepth = RegInit(0.U(8.W))
+  private val segDepth      = RegInit(0.U(8.W))
   private val barrierFault  = RegInit(false.B)
 
   // The next invocation to hand out, as a linear index and as (x, y, z).
@@ -109,6 +113,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   io.lanes.mode     := state =/= sIdle
   io.lanes.laneMask := laneOn.asUInt
+  io.lanes.depth    := segDepth
   for (i <- 0 until N) {
     io.lanes.r30(i) := laneIdx(i)
     io.lanes.r31(i) := laneId(i)
@@ -124,8 +129,9 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     state  := sWgIds
   }
 
-  private def beginSegment(startPC: UInt): Unit = {
+  private def beginSegment(startPC: UInt, depth: UInt = 0.U): Unit = {
     segStartPC    := startPC
+    segDepth      := depth
     segSawBarrier := false.B
     segSawHalt    := false.B
     startWorkgroup()
@@ -192,6 +198,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
             barrierFault := true.B
           }.elsewhen(!segSawBarrier) {
             segResumePC := io.barrier.resumePC
+            segResumeDepth := io.barrier.depth
           }
         }
         segSawBarrier := sawBarrierNext
@@ -201,7 +208,8 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
           lane  := 0.U
           state := sLane
         }.elsewhen(sawBarrierNext && !sawHaltNext) {
-          beginSegment(Mux(segSawBarrier, segResumePC, io.barrier.resumePC))
+          beginSegment(Mux(segSawBarrier, segResumePC, io.barrier.resumePC),
+                       Mux(segSawBarrier, segResumeDepth, io.barrier.depth))
         }.elsewhen(wgX +& 1.U < groupsX) {
           wgX := wgX + 1.U
           beginSegment(pc)
