@@ -14,9 +14,9 @@ The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/
 ## Build system layout
 
 - **Top-level `Makefile`** orchestrates Chisel→Verilog emission, cocotb tests, lint, GDS, the docs book, and SystemRDL→Chisel register generation.
-- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel (version pinned by `chiselVersion` in `build.mill`). Modules are organized under `hardware/{borg,hutt,memory,peri,riscv,soc}` (`riscv`: the RISC-V base functions Hutt and Borg share), `fpga/ulx3s/soc` and `asic/wafer`. The simulation tops (`BorgSimTop`, `BorgArcSimTop`) live in `hardware/soc`.
+- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel (version pinned by `chiselVersion` in `build.mill`). Modules are organized under `hardware/{borg,hutt,memory,peri,riscv,soc}` (`riscv`: the RISC-V base functions Hutt and Borg share), `fpga/ulx3s/soc` and `asic/wafer`. The simulation tops (`BorgDirectSimTop`, `MinimalSocSimTop`) live in `hardware/soc`.
 - **Nix** (`flake.nix`) provides the full reproducible toolchain (firtool, Yosys, nextpnr, OpenROAD/LibreLane, RISC-V GCC, cocotb, PeakRDL, etc.). Enter it with `nix develop` before running anything below.
-- **Per-board sub-Makefiles** (`fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
+- **Per-board sub-Makefiles** (`fpga/ulx3s/Makefile`, `simulation/{direct,verilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
 
 Verilog emission is gated by a stamp file (`.verilog_stamp`, `.verilog_stamp_ulx3s`) — Mill only re-runs when Scala/RDL sources change.
 
@@ -51,9 +51,11 @@ make -C asic/wafer.space librelane-synth # LibreLane up to Yosys synthesis only 
 make -C asic/wafer.space sim-link-synth  # same tests on the latest synthesis netlist
 make -C asic/wafer.space sim-link-gl     # same tests on final/pnl (after a full run)
 
-# Simulation (cycle-accurate C++ with Pygame UI)
-make -C simulation/verilator vkcube_gui
-make -C simulation/arcilator vkcube_gui   # faster (CIRCT arcilator backend)
+# Simulation: the unmodified vkcube on borgvk and the cycle-accurate Borg model (arcilator)
+make build-vkcube && make -C simulation/direct
+scripts/vkcube_host.sh                    # X window; DIRECT_BIN=simulation/direct/direct_sim_v for Verilator
+make -C simulation/direct golden          # first frame against simulation/golden/vkcube_00.ppm
+JOBS=12 scripts/cts_par.sh 'dEQP-VK.api.smoke.*'   # CTS cases on the direct simulator
 
 # FPGA — ULX3S (use the board-specific Makefile)
 cd fpga/ulx3s && make load           # synth + P&R + load to SRAM (openFPGALoader)
@@ -68,7 +70,7 @@ When a build needs the SystemRDL-generated register block, the top Makefile runs
 
 ### CPU ↔ peripheral fabric (Hutt + MemoryController + SoC)
 
-`hardware/hutt/Hutt.scala` is a clean multi-cycle RV32I/RV64I core (parameterized via the `xlen` constructor arg, default 32) with **Decoupled** instruction and data buses (`HuttInstrBus`, `HuttBus` in `HuttBus.scala`). **Current split by target:** the QSPI SoC (`hardware/soc/src/QspiSocTop.scala`, the cocotb SoC test harness), the wafer.space tapeout (Borg-only bridge, no CPU at all), and the ULX3S FPGA vkcube path (`fpga/ulx3s/soc/src/ULX3S.scala`, the active demo target, plus its matching sims `BorgSimTop`/`BorgArcSimTop`) all use the RV32I default — RV64IMAC + Sv39 no longer fits the ECP5-85K next to FP32 Borg (see `BorgConfig.scala`'s `maxBinTiles=4096` comment and `BorgTileSequencer`'s `tileDirtyMem` doc), so `ULX3S.scala` dropped its `xlen = 64` override. The RV64IMAC + Sv39 + CLINT Linux-boot groundwork (`software/opensbi/`, `software/linux/`) continues on the separate `hardware/soc/src/MinimalSoC.scala` harness (`MinimalSocSimTop`/`MinimalSocRealSdramSimTop`, `borg-minimal-linux.bit`), which still overrides `xlen = 64` and has no Borg peripheral to share the chip with. The CPU's data bus is decoded against `SoCDecode` constants to route MMIO between SoC inline registers, the user peripheral router, and the Borg peripheral bus.
+`hardware/hutt/Hutt.scala` is a clean multi-cycle RV32I/RV64I core (parameterized via the `xlen` constructor arg, default 32) with **Decoupled** instruction and data buses (`HuttInstrBus`, `HuttBus` in `HuttBus.scala`). **Current split by target:** the QSPI SoC (`hardware/soc/src/QspiSocTop.scala`, the cocotb SoC test harness), the wafer.space tapeout (Borg-only bridge, no CPU at all), and the ULX3S FPGA vkcube path (`fpga/ulx3s/soc/src/ULX3S.scala`) all use the RV32I default — RV64IMAC + Sv39 no longer fits the ECP5-85K next to FP32 Borg (see `BorgConfig.scala`'s `maxBinTiles=4096` comment and `BorgTileSequencer`'s `tileDirtyMem` doc), so `ULX3S.scala` dropped its `xlen = 64` override. The RV64IMAC + Sv39 + CLINT Linux-boot groundwork (`software/opensbi/`, `software/linux/`) continues on the separate `hardware/soc/src/MinimalSoC.scala` harness (`MinimalSocSimTop`/`MinimalSocRealSdramSimTop`, `borg-minimal-linux.bit`), which still overrides `xlen = 64` and has no Borg peripheral to share the chip with. The CPU's data bus is decoded against `SoCDecode` constants to route MMIO between SoC inline registers, the user peripheral router, and the Borg peripheral bus.
 
 `hardware/memory/src/MemoryController.scala` arbitrates the instruction port, the CPU data port, and the GPU's `gpuMem` port across QSPI flash (`QspiBackend`) and SDRAM (`SdramBackend`) backends, with a `FlashBootLoader` for cold-boot copy-in. The GPU port can be tied off (default in `MinimalSoCLogic.wireGpuMem`) or driven by HDMI scanout in bring-up harnesses.
 
@@ -85,9 +87,9 @@ Lives in `hardware/borg/src/`. `Borg.scala` is the top, with the in-tree FMA pip
 
 If you add or change a register, edit the `.rdl`, then re-run `make rdl` (or any target that depends on `.verilog_stamp`).
 
-### Firmware
+### Host-side C (`software/borg/`)
 
-`software/tinyqv/` is the runtime/startup/UART/printf for the on-CPU firmware (`start.s`, `runtime.c`, `nanoprintf.h`, `tinyQV.a` archive). `software/borg/` contains the GPU driver, SPIR-B shader format, math, rasterizer, and `borg_kernel.c` — a thin render kernel that boots, drains borgvk wire packets (0xAD MVP / 0xAE geometry / 0xAF texture / 0xB0 shaders), and drives the autonomous TBR hardware. No hardcoded geometry, shaders, or texture; all content is uploaded at runtime by borgvk / cube.c.
+There is no GPU firmware: the serial vkcube demo and its `borg_kernel.c` were removed 2026-11-04. `software/borg/` keeps `borg_core.c` (the render-list builder `simulation/direct` still links; B13 step 2 replaces it with borgvk's `list.rs`), the SPIR-B format, math and layout headers.
 
 ### ULX3S bring-up harnesses (the recent active work)
 
@@ -95,16 +97,16 @@ Multiple bitstream targets live in `fpga/ulx3s/soc/src/`: `ULX3S.scala` (full So
 
 ### Clock frequencies
 
-The **wafer.space tapeout clock is 8 MHz**, set only by `CLOCK_PERIOD: 125` in `asic/wafer.space/librelane/config.yaml` — `BorgOnlyTop` has no clock parameter. `CLOCK_MHZ` is a different thing: an elaboration parameter for SoC peripherals (UART baud divisor), read by the SoC emitters — QSPI SoC and simulation SoC default 4, ULX3S 25 (SoC) / 125 (HDMI). Override via the env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
+The **wafer.space tapeout clock is 8 MHz**, set only by `CLOCK_PERIOD: 125` in `asic/wafer.space/librelane/config.yaml` — `BorgOnlyTop` has no clock parameter. `CLOCK_MHZ` is a different thing: an elaboration parameter for SoC peripherals (UART baud divisor), read by the SoC emitters — QSPI SoC default 4, ULX3S 25 (SoC) / 125 (HDMI). Override via the env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
 
 ### Host Vulkan driver — `borgvk` (work in progress)
 
-A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodified** Khronos `Vulkan-Tools/cube.c` on a Linux host and renders it on the ULX3S over the existing serial-over-USB link (`/dev/ttyUSB0` @115200). Two new git submodules at the repo root, same pattern as `PeakRDL-chisel`:
+A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodified** Khronos `Vulkan-Tools/cube.c` (never patch or copy it) through the general draw path. Demo modes: (1) on the host with the simulated GPU (`scripts/vkcube_host.sh`, done); (2) QEMU + RISC-V Linux + the Borg DRM driver; (3) the ULX3S, with Linux on its CPU if it fits, else Linux in QEMU on the host driving the FPGA. Two git submodules at the repo root, same pattern as `PeakRDL-chisel`:
 
 - `Vulkan-Tools/` — upstream KhronosGroup, pinned; source of `cube/cube.c` (kept unmodified).
 - `mesa/` — the `gonsolo/mesa` fork, branch `borg`; the driver lives in-tree under `src/borg/vulkan/` (added post-restart once the toolchain is in `flake.nix`).
 
-The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to the `borg_kernel.c` firmware (wire protocol: 0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc shaders). The kernel renders the frame via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube demo (borgvk ships borgc-compiled shaders from Mesa's `src/borg/compiler/`). Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
+borgvk compiles shaders with borgc (`src/borg/compiler/`), keeps device memory in a shared heap (`docs/B13_device_memory.md`) and renders passes on `direct_sim` (`BORGVK_SIM_DIRECT`). `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
 
 ## Draw front end (Vulkan geometry path)
 
@@ -116,12 +118,8 @@ with `SOUT` and read back with `FATTR`, 2D homogeneous setup in
 perspective-correct barycentrics from the draw raster ROM. It is the only
 geometry path: the legacy per-triangle-descriptor path (`BorgGeometrySequencer`)
 was deleted 2026-09-26, `borgc` compiles only for the draw front end (its
-legacy ABI went 2026-10-12), and the
-firmware draws only through it. `SEQ_TRIGGER` always renders a draw;
-`DRAW_CFG.mode` now only picks the MMIO pixel path's program. Still open: the
-firmware rebuilds cube.vert's UBO from the 0xAE packet, and the CTS mailbox
-path (vertex colours, `make vulkan-cts`) does not render until draw mode takes
-vertex buffers. Spec, ABI and a step-by-step "minimal draw" recipe:
+legacy ABI went 2026-10-12). `SEQ_TRIGGER` always renders a draw;
+`DRAW_CFG.mode` now only picks the MMIO pixel path's program. Spec, ABI and a step-by-step "minimal draw" recipe:
 `docs/B1_geometry_front_end.md`; working example: `BorgDrawTests.DrawRig`.
 
 ## Texture unit (Vulkan sampling)
@@ -136,10 +134,8 @@ It is the only texture path: the legacy `FTEX` instruction and its
 2026-09-25, and R4-type funct2 = 1 is retired, never reused. borgc emits
 `TEX` with a control word of 0 built in-shader (`FNEG`/`FSTEP` of r30), the
 result block is r20–r23, and r23 is a constant register only in shaders that
-never sample. The firmware stores the texture linear RGBA8 at
-`TEX_TEXEL_ADDR` and writes one texture and one sampler descriptor
-(`borg_set_texture`); borgvk packs the sampler descriptor from the app's
-`VkSampler` and sends it in every 0xAF row packet.
+never sample. borgvk writes the texture in place in device memory and sends
+its texture and sampler descriptors (packet 0xC8).
 
 ## Colour attachment formats (RAW)
 
@@ -166,8 +162,7 @@ destination address is hard-truncated to 5 bits).
 
 Texturing is `TEX`/`TEXA` only (see "Texture unit" above); the autonomous
 single-texel fetch (`sTexFetch`) and then `FTEX` were removed. Texture
-coordinates reach the hardware normalized — the firmware no longer
-pre-scales UVs by the texture size.
+coordinates reach the hardware normalized.
 
 ## Heavy compute goes on the workstation, not this machine
 
@@ -194,10 +189,8 @@ notebook. Toolchain quirks specific to that workflow:
   `.sv` files — check there, not the main output.
 - The arcilator toolchain's own `firtool --disable-layers=Verification` step
   strips all trace/printf content regardless of `BorgDebug.trace` — use
-  **verilator**, not arcilator, for any `BORG_TRACE`-based debugging (invoke
-  the `verilator_sim` binary directly with `--cts-uart`, not through
-  `cts_uart_render.py`, which pipes stdout as a binary RGB protocol and
-  silently discards stderr on success).
+  **verilator**, not arcilator, for any `BORG_TRACE`-based debugging
+  (`make -C simulation/direct direct_sim_v`).
 - `mill <module>.runMain <Emitter>` (e.g. `asic.wafer.runMain asic.wafer.BorgOnly1x1Main`) commonly fails on the first
   invocation with a generic error and succeeds on an immediate retry with no
   code changes — a known toolchain quirk, not a real failure.

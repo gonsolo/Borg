@@ -18,8 +18,9 @@ nix develop          # or: direnv allow (if using direnv)
 make test-all
 
 # Cycle-accurate simulation:
-make -C simulation/arcilator vkcube_gui        # whole SoC, interactive Pygame window
-make -C simulation/direct golden               # Borg alone, the simulator the CTS runs on
+make build-vkcube && make -C simulation/direct
+scripts/vkcube_host.sh                         # the unmodified vkcube on the simulated GPU
+make -C simulation/direct golden               # its first frame, bit-exact
 
 # Build and flash the ULX3S FPGA:
 cd fpga/ulx3s && make load   # ~10 min first run; subsequent: ~3 min
@@ -27,7 +28,8 @@ cd fpga/ulx3s && make load   # ~10 min first run; subsequent: ~3 min
 
 ## Known Issues / Limitations
 
-- **Resolution**: the ULX3S demo renders at 128×128. 800×480 HDMI is wired, but
+- **Board demo**: the serial vkcube demo was removed (2026-11-04); vkcube on the
+  ULX3S comes back through Linux and the DRM driver. 800×480 HDMI is wired, but
   the SDRAM bandwidth at 25 MHz limits the frame rate at that size.
 - **Conformance**: the Vulkan CTS runs against the RTL on the direct simulator;
   the `api` group passes without failures, the full Vulkan 1.0 list does not yet.

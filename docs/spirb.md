@@ -64,11 +64,11 @@ the firmware appends it when loading IMEM.
 ## Shader transport
 
 The borgvk driver (`mesa/src/borg/vulkan/`) compiles, with `borgc`, the app's real
-vertex/fragment shaders at Vulkan submit time and sends each blob via a serial
-packet (marker `0xB0`):
+vertex/fragment shaders at pipeline creation and sends each blob in a packet
+(marker `0xB0`):
 `marker(1B) + stage(1B) + len(2B LE) + blob padded to BORGVK_SHADER_BLOB_MAX + checksum`.
-`borg_kernel.c` drains this fixed-length packet and calls `spirb_parse()` on
-the received blob; the firmware has no shaders of its own.
+The receiver (`borg_core.c`, later borgvk's own list builder) calls `spirb_parse()`
+on the blob.
 
 ## Examples
 

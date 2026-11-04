@@ -48,6 +48,11 @@ Hutt, scanout off, GPU memory at SDRAM 16 MB and up (the VRAM region bit). nextp
 four lanes at 25 MHz reach only 15 to 18 MHz. The limiter is the lane's integer ALU fed
 straight from the register BRAM, not the FMA (`fmaStages=4` changes nothing).
 
+The paragraphs below record the bring-up up to 2026-11-04. Its firmware, replays, `software/vkcube`
+(and its `headless.patch` of `cube.c`) and the serial demo were removed then: `cube.c` stays
+unmodified, and the board modes come back as Linux on the board or in QEMU with the DRM driver
+driving the FPGA, through the general draw path ([The Software Driver](03_software_driver.md)).
+
 Host-free frame: `make -C software/borg replay` links the captured borgvk burst into the
 firmware; the simulator (`make -C simulation/verilator minimal-linux-borg-sim`) renders it
 bit-exact against `simulation/golden/vkcube_cts_uart_00.ppm`. `scripts/uart_ppm.py` turns the
