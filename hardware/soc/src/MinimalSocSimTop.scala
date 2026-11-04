@@ -7,8 +7,7 @@ import chisel3._
 import borg.BorgConfig
 import memory.SdramBackendSim
 
-/** Verilator top that boots OpenSBI/Linux on MinimalSoCLogic, the counterpart
-  * of BorgSimTop. The harness preloads firmware through the SDRAM backdoor,
+/** Verilator top that boots OpenSBI/Linux on MinimalSoCLogic. The harness preloads firmware through the SDRAM backdoor,
   * skipping FlashBootLoader. */
 class MinimalSocSimTop(val CLOCK_MHZ: Int, override val borgCfg: Option[BorgConfig] = None) extends RawModule with MinimalSoCLogic {
   val ui_in  = IO(Input(UInt(8.W)))

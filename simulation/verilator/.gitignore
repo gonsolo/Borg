@@ -1,9 +1,2 @@
-verilator_sim
-obj_dir/
-*.o
-*.ppm
+obj_dir_minlinux*/
 *.log
-/build
-*.so
-obj_dir_hdmi/
-*_hdmi.ppm
