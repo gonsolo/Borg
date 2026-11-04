@@ -52,6 +52,8 @@ class nexysvideo_minimal_top(val CLOCK_MHZ: Int = 25, fbSize: Int = 32) extends 
     val flash_csn  = IO(Output(Bool())) // chip select, active low
     val flash_mosi = IO(Output(Bool())) // FPGA -> flash data
     val flash_miso = IO(Input(Bool())) // flash -> FPGA data
+    val flash_wp_n   = IO(Output(Bool())) // flash write-protect, active low: keep 1
+    val flash_hold_n = IO(Output(Bool())) // flash pause, active low: keep 1
 
     // UART 
     val uart_rx_out = IO(Output(Bool())) // FPGA sends to the PC
@@ -130,6 +132,8 @@ class nexysvideo_minimal_top(val CLOCK_MHZ: Int = 25, fbSize: Int = 32) extends 
     flash_mosi := flashBoot.io.flash_mosi
     flashBoot.io.flash_miso := flash_miso
     flashBoot.io.warmBoot   := false.B // cold boot from flash only
+    flash_wp_n   := true.B
+    flash_hold_n := true.B
     val bootDone = flashBoot.io.boot_done
 
     // STARTUPE2: the bootloader's clock out to the flash clock pin
