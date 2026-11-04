@@ -12,11 +12,20 @@ Exits 0 on pass, 1 on fail.
 
 import sys
 import argparse
+import re
 
 
 def parse_ppm(path: str):
-    """Parse a P3 PPM file. Returns (width, height, pixels) where pixels is a
+    """Parse a P3 or P6 PPM file. Returns (width, height, pixels) where pixels is a
     flat list of (r, g, b) integer tuples."""
+    with open(path, 'rb') as f:
+        raw = f.read()
+    m = re.match(rb'P6\s+(\d+)\s+(\d+)\s+(\d+)\s', raw)
+    if m:
+        w, h, maxval, data = int(m[1]), int(m[2]), int(m[3]), raw[m.end():]
+        if maxval != 255:
+            raise ValueError(f"{path}: P6 with maxval {maxval}")
+        return w, h, [tuple(data[3 * i:3 * i + 3]) for i in range(w * h)]
     with open(path, 'r', errors='replace') as f:
         lines = []
         for line in f:
@@ -74,7 +83,7 @@ def compare(candidate: str, golden: str, max_diff: int = 0, max_fail_pixels: int
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Compare two P3 PPM files pixel-by-pixel")
+    ap = argparse.ArgumentParser(description="Compare two PPM files pixel-by-pixel")
     ap.add_argument("candidate", help="Rendered PPM to test")
     ap.add_argument("golden",    help="Known-good golden PPM")
     ap.add_argument("--max-diff", type=int, default=0,
