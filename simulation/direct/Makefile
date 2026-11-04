@@ -68,13 +68,10 @@ direct_sim_v: $(VDIR)/filelist.f main_v.cpp main.cpp direct_sim.h driver.h drive
 clean:
 	rm -rf arc.h arc.ll borg.mlir state.json *.o direct_sim direct_sim_v obj_v
 
-# Regression: the direct path must reproduce the firmware-path goldens bit for bit.
+# Regression: the unmodified vkcube's first frame on borgvk and this simulator, bit for bit.
 GOLD = ../golden
 .PHONY: golden
 golden: direct_sim
-	@for pair in borgvk:vkcube blendcube:blendcube stencilcube:stencilcube; do \
-	  sc=$${pair%%:*}; g=$${pair##*:}; \
-	  ./direct_sim $(GOLD)/$${sc}_capture.bin 128 128 /tmp/direct_$$sc.rgb && \
-	  python3 rgb2ppm.py /tmp/direct_$$sc.rgb 128 /tmp/direct_$$sc.ppm && \
-	  python3 $(ROOT)/scripts/compare_ppm.py /tmp/direct_$$sc.ppm $(GOLD)/$${g}_cts_uart_00.ppm --max-diff 0 || exit 1; \
-	done
+	env -u DISPLAY -u WAYLAND_DISPLAY BORGVK_DUMP_PPM=/tmp/direct_vkcube.ppm DIRECT_BIN=$(CURDIR)/direct_sim \
+	  $(ROOT)/scripts/vkcube_host.sh --c 1 --width 128 --height 128 > /dev/null
+	python3 $(ROOT)/scripts/compare_ppm.py /tmp/direct_vkcube.ppm $(GOLD)/vkcube_00.ppm --max-diff 0

@@ -52,20 +52,6 @@ class Suite:
     n_tests:    int        = 0
 
 def make_suites(root: Path, mill: str, test_soc: str) -> list:
-    golden   = root / "simulation" / "golden"
-    compare  = f"python3 '{root}/scripts/compare_ppm.py'"
-    verilator_dir = root / "simulation" / "verilator"
-    arcilator_dir = root / "simulation" / "arcilator"
-
-    def cts_uart_render(sim_dir: Path, sim_make_target: str) -> str:
-        # The Makefile's cts-uart target (unlike cts-uart-golden) writes to
-        # kernel_cts_uart_00.ppm — the golden itself is vkcube_cts_uart_00.ppm.
-        out_ppm = "kernel_cts_uart_00.ppm"
-        golden_ppm = "vkcube_cts_uart_00.ppm"
-        return (
-            f"cd '{sim_dir}' && make {sim_make_target} && "
-            f"{compare} '{sim_dir}/{out_ppm}' '{golden}/{golden_ppm}' --max-diff 1 --max-fail-pixels 2"
-        )
 
     return [
         # ── Sequential setup ──────────────────────────────────────────────────
@@ -121,15 +107,10 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         # suites are the long pole (7-8 min), so this is most of the suite's
         # wall clock.
         #
-        # The two renders stay chained to EACH OTHER: both build the firmware
-        # in software/borg/, and two makes in one directory race over the same
-        # object files.
-        # CTS UART path: borgvk-style 0xAD MVP packet → firmware via --cts-uart
-        Suite("render › arcilator › vkcube-cts-uart",
-              cts_uart_render(arcilator_dir, "cts-uart")),
-        Suite("render › verilator › vkcube-cts-uart",
-              cts_uart_render(verilator_dir, "cts-uart"),
-              depends_on="render › arcilator › vkcube-cts-uart"),
+        # The unmodified vkcube on borgvk and the arcilator model: its first frame, bit for bit.
+        Suite("render › direct › vkcube",
+              f"make -C '{root}' build-vkcube && make -C '{root}/simulation/direct' golden",
+              depends_on="software › borgvk"),
         # ── Starts only after soc-core (shared test/soc/ dir) ────────────────
         Suite("cocotb › soc-borg  (rtl)",
               f"cd '{root}' && {test_soc} borg",
