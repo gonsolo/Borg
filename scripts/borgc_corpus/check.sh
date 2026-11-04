@@ -9,7 +9,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 NEW="${1:-$ROOT/out/borgc_corpus${SET:+_$SET}}"
 HERE="$HERE${SET:+/$SET}"
 rm -rf "$NEW" "$NEW.run"; mkdir -p "$NEW"
-BORGC_CORPUS_DIR="$NEW" MESA_ROOT="${MESA_ROOT:-$ROOT/mesa}" JOBS="${JOBS:-12}" DIRECT=1 \
+BORGC_CORPUS_DIR="$NEW" MESA_ROOT="${MESA_ROOT:-$ROOT/mesa}" JOBS="${JOBS:-12}" \
   CASELIST="$HERE/cases.txt" OUT="$NEW.run" "$ROOT/scripts/cts_par.sh" corpus > "$NEW.log" 2>&1 || true
 same=0; diff=0; missing=0
 for f in "$HERE"/ref/*.out; do

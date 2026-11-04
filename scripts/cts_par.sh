@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a pattern of Vulkan CTS cases on N parallel deqp-vk workers.
 #
-#   JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'
+#   JOBS=12 scripts/cts_par.sh 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'
 #
 # MUSTPASS=1.0.2.6 restricts the run to the cases of that Khronos CTS release's mustpass
 # list (the Vulkan 1.0 conformance set), mapped to today's case names; without it every
@@ -23,7 +23,7 @@
 # The cases are run in small chunks taken from a queue by JOBS workers, each chunk a
 # scripts/cts_one.sh --list run with its own scratch dir ($OUT/run_cNNNNN); chunk wall times
 # (slowest first) are in $OUT/chunk_times.txt, the summary and a per-case result table land in $OUT/summary.txt
-# and $OUT/results.txt.  Same env overrides as cts_one.sh (DIRECT, VK_GL_CTS,
+# and $OUT/results.txt.  Same env overrides as cts_one.sh (VK_GL_CTS,
 # MESA_ROOT ...); OUT here is the parent directory.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -119,7 +119,7 @@ export BORGVK_SIM_PARTS=1      # one simulator process per case: the workers are
 run_chunk() {   # $1 = chunk file; its run directory is named after it
   local d="$OUT/run_$(basename "$1")"
   local t0=$(date +%s)
-  CTS_PAR_WORKER=1 OUT="$d" NO_FW_BUILD=1 timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
+  CTS_PAR_WORKER=1 OUT="$d" timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
   echo $? > "$d.rc"
   echo "$(( $(date +%s) - t0 )) $(basename "$1") $(wc -l < "$1")" >> "$OUT/chunk_times.txt"
   # With DIRECT_PROGRESS: the chunk's simulated cycles, and cts_one's exit status (124: timeout).

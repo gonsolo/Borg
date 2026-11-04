@@ -28,7 +28,6 @@ help:
 	@echo -e "  test-all:\t\t\tRun all tests."
 	@echo -e "  review:\t\t\tReview this branch, then merge, delete and push on a yes (RANGE=)."
 	@echo -e "  build-vkcube:\t\t\tBuild Vulkan-Tools vkcube host binary."
-	@echo -e "  vulkan-cts:\t\t\tRun the Vulkan CTS survivor slice against borgvk."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
 	@echo -e "  clean-gh-runs:\t\tClean up GitHub workflow runs."
@@ -207,13 +206,6 @@ Vulkan-Tools/build/cube/vkcube:
 		-DBUILD_ICD=OFF
 	env -u CC -u CXX cmake --build Vulkan-Tools/build --target vkcube -j$$(nproc)
 
-# Run the Vulkan CTS (dEQP-VK) "survivor" slice against the borgvk driver and
-# report "passed N of <mandatory total>".  Requires a built deqp-vk (see
-# docs/03_software_driver.md) and the borgvk ICD (make -C software/mesa).
-# Override the CTS checkout with VK_GL_CTS=/path/to/VK-GL-CTS.
-vulkan-cts:
-	@bash scripts/run_vulkan_cts.sh
-
 # The tapeout flow. wafer.space, GF180MCU, 1x1 slot, full signoff (DRC, LVS,
 # antenna, multi-corner STA).
 # Everything slot/PDK-specific lives in asic/wafer.space/Makefile; this is the
@@ -293,6 +285,6 @@ flash-linux:
 .PHONY: all generate_verilog generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all review clean rdl isa-copy-check no-generated-check \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-chisel-borg test-chisel-core test-borgvk rust-project \
-	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
+	book clean-gh-runs scripts/test_summary.sh build-vkcube \
 	opensbi linux flash-linux
 
