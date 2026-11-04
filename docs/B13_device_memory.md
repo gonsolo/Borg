@@ -74,6 +74,21 @@ A submit hands the list addresses to the backend, which starts the sequencer and
 fence when it is done; the captured stream, its replay table and `sim_run_stream` go. On the
 board this is a DRM submit ioctl with a fence.
 
+What moves from `borg_core.c` into borgvk, built at record time into device memory the command
+buffer owns:
+
+- per pipeline stage: the code with its HALT and the constant window (`list_stage`);
+- per draw: the state block when the state changed and the parameter block (`list_block`,
+  `borg_core_list_draw`), the vertex attribute and texture descriptor tables, the root tables;
+- per render: the entries, and the render's own registers (`list_trigger`): attachments,
+  pitch, clear values, `TILE_LOAD`, bins and setup store, windows and strips.
+
+A backend then runs a render as register writes and `SEQ_TRIGGER`: direct_sim through a
+"write these registers, run" request, the board through a DRM submit. The packet decoder, the
+list builder and the 0xB0-0xC8 packets go from the host path. Work done at submit today moves to
+record time or into shaders: vertex format conversion, line and point expansion, clears of
+render areas that are not tile aligned.
+
 The cube path goes with it. `cube.rs` recognizes cube.c by its uniform buffer and is today the
 only path that draws on the board (serial and self-hosted, through the cube-only `SETUP` and
 `SUBMIT` ioctls). First cube.c renders through the general path on the simulator against the
