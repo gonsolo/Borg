@@ -3,12 +3,9 @@
 scripts/test_runner.py — Borg parallel test runner with live display.
 
 Execution order:
-  Sequential setup:  generate_verilog → generate_verilog_sim → lint
-                     Both generate steps must finish before the parallel phase so
-                     that render suites (which call generate_verilog_sim via make)
-                     do not race Mill against the chisel suites.
+  Sequential setup:  generate_verilog → lint → wafer
   Parallel:          chisel:borg · chisel:hutt · chisel:soc · software · cocotb:soc-core ·
-                     render:arcilator:vkcube-cts-uart (stamp already exists, no Mill call)
+                     render:direct:vkcube
   After soc-core:    cocotb:soc-borg  (shares test/soc/ dir with soc-core)
 """
 
@@ -58,12 +55,6 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("setup  › generate_verilog",
               f"cd '{root}' && make generate_verilog",
               sequential=True),
-        Suite("setup  › generate_verilog_sim",
-              f"cd '{root}' && make generate_verilog_sim",
-              sequential=True),          # must run before chisel/render parallel phase to
-                                         # pre-stamp .verilog_sim_stamp; render suites call
-                                         # make generate_verilog_sim internally and would
-                                         # otherwise race Mill against mill hardware.borg.test
         Suite("lint",
               f"cd '{root}' && make lint",
               sequential=True),
@@ -98,15 +89,6 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               f"make -C '{root}/simulation' test-sim-common"),
         Suite("cocotb › soc-core (rtl)",
               f"cd '{root}' && {test_soc} core"),
-        # The renders run in the parallel phase, not behind the chisel suites.
-        # They used to be chained there because their Makefiles invoke
-        # `make generate_verilog_sim` and two Mill clients at once corrupt the
-        # build server (xsbt.CompilerInterface ClassNotFound). The sequential
-        # setup phase above already generated that Verilog, so the recursive
-        # make is a stamp no-op and starts no Mill client -- while the chisel
-        # suites are the long pole (7-8 min), so this is most of the suite's
-        # wall clock.
-        #
         # The unmodified vkcube on borgvk and the arcilator model: its first frame, bit for bit.
         Suite("render › direct › vkcube",
               f"make -C '{root}' build-vkcube && make -C '{root}/simulation/direct' golden",
@@ -115,9 +97,6 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("cocotb › soc-borg  (rtl)",
               f"cd '{root}' && {test_soc} borg",
               depends_on="cocotb › soc-core (rtl)"),
-        # Hardware render test (ULX3S): requires a connected board.
-        # Suite("render › fpga  (hw)",
-        #       f"bash '{root}/scripts/fpga_render_test.sh'"),
     ]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -145,9 +124,8 @@ def count_tests(log: str) -> int:
     return 0
 
 # ── Display ───────────────────────────────────────────────────────────────────
-# Must be >= the longest Suite() label below (currently "render › verilator ›
-# vkcube-cts-uart" = 36 chars) or ljust() silently no-ops and every column
-# after the label shifts right for that row.
+# Must be >= the longest Suite() label below (currently "cocotb › wafer link 1x1 (rtl)"
+# = 30 chars) or ljust() silently no-ops and the columns after the label shift.
 LABEL_W = 38
 BAR_W   = 22
 

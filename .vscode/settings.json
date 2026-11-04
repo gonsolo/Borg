@@ -1,5 +1,4 @@
 {
   "verilog.linting.linter": "verilator",
-  "verilog.formatting.verilogHDL.formatter": "verible-verilog-format",
-  "cmake.sourceDirectory": "/home/gonsolo/work/Borg/simulation/verilator"
+  "verilog.formatting.verilogHDL.formatter": "verible-verilog-format"
 }

@@ -37,8 +37,8 @@ help:
 	@echo -e "  flash-linux:\t\t\tWrap + flash OpenSBI+Linux payload to SPI flash @ 0x400000."
 
 # CLOCK_MHZ is an RTL elaboration parameter for SoC peripherals (the UART baud
-# divisor, mainly), read by the SoC emitters: the QSPI SoC (QspiSocMain, 4), the
-# simulation SoC (BorgSimMain, 4), ULX3S (25 SoC / 125 HDMI). Override via env:
+# divisor, mainly), read by the SoC emitters: the QSPI SoC (QspiSocMain, 4),
+# ULX3S (25 SoC / 125 HDMI). Override via env:
 # CLOCK_MHZ=50 make generate_verilog. It is NOT the wafer.space tapeout clock:
 # BorgOnlyTop has no such parameter; its clock is the signoff constraint
 # CLOCK_PERIOD in asic/wafer.space/librelane/config.yaml (125 ns = 8 MHz).
@@ -88,14 +88,6 @@ generate_verilog_wafer: .verilog_wafer_stamp
 	@touch $@
 
 generate_verilog_wafer_1x1: .verilog_wafer_1x1_stamp
-
-# Verilator simulation Verilog — flat MemBackendIO top (no QSPI), into
-# out/hardware/borg/verilog_sim/.  Used by simulation/verilator.
-.verilog_sim_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
-	CLOCK_MHZ=4 $(MILL) hardware.soc.runMain soc.BorgSimMain
-	@touch $@
-
-generate_verilog_sim: .verilog_sim_stamp
 
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 # ULX3S SoC clock (MHz). Single source of truth is ULX3S_MHZ in
@@ -272,7 +264,7 @@ no-generated-check:
 	  { echo "tracked generated files in mesa (above)"; exit 1; }
 
 clean:
-	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
+	rm -f .verilog_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
 	rm -rf $(RDL_C_OUT)
 	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
@@ -298,7 +290,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all review clean rdl isa-copy-check no-generated-check \
+.PHONY: all generate_verilog generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all review clean rdl isa-copy-check no-generated-check \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-chisel-borg test-chisel-core test-borgvk rust-project \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \

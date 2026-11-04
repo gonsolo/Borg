@@ -2,17 +2,17 @@ ROOT     := $(shell git rev-parse --show-toplevel)
 RDL_OUT  := $(ROOT)/out/hardware/borg/rdl
 HOSTCXX ?= g++
 
-.PHONY: all clean verilator arcilator test-sim-common
+.PHONY: all clean direct verilator test-sim-common
 
-all: verilator arcilator
+all: direct verilator
 
 verilator:
 	$(MAKE) -C verilator
 
-arcilator:
-	$(MAKE) -C arcilator
+direct:
+	$(MAKE) -C direct
 
-# Standalone unit tests for simulation/common (uart_decoder, flat_read16/flat_write16).
+# Standalone unit tests for simulation/common (uart_decoder).
 # No Verilator or Arcilator model required — pure C++ logic test.
 test-sim-common: common/build
 	$(HOSTCXX) -O0 -g -std=c++17 \
@@ -25,7 +25,7 @@ common/build:
 	mkdir -p common/build
 
 common/build/test_common: common/build common/test_common.cpp common/uart_decoder.cpp \
-                          common/uart_decoder.h common/common_sim.h
+                          common/uart_decoder.h
 	$(HOSTCXX) -O0 -g -std=c++17 \
 	    -I common -I $(RDL_OUT) \
 	    common/test_common.cpp common/uart_decoder.cpp \
@@ -33,6 +33,6 @@ common/build/test_common: common/build common/test_common.cpp common/uart_decode
 
 clean:
 	$(MAKE) -C verilator clean
-	$(MAKE) -C arcilator clean
+	$(MAKE) -C direct clean
 	rm -rf common/build
 
