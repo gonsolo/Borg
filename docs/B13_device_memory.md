@@ -1,6 +1,7 @@
 # Device memory, command lists and descriptors
 
-Status: plan, 2026-11-04. Steps are built in order; the driver works after every commit.
+Status: plan, 2026-11-04. Steps are built in order; the driver works after every commit. Built:
+1.1 to 1.5 (heap, tiled images, attachments and sampled images in place).
 
 ## Why
 
@@ -54,7 +55,9 @@ One address space, as on the board, where CPU and Borg share SDRAM:
    that is not tile aligned becomes a load and a host clear of the rectangle.
 5. Sampled images in place: texture descriptors point at the image.
 6. Compute in place: the compute job maps the heap; storage buffers and storage images are read
-   at their address.
+   at their address. borgc bakes each binding's window address into the code
+   (`compute.rs`, `SLOT_BASE + slot * SLOT_BYTES`), so the shader first takes binding bases and
+   sizes from a per-dispatch table: the first part of step 3.
 7. Draw buffers in place: vertex attributes, index buffers and uniform windows at the buffer's
    GPU address. The vertex fetch is a typed fetch from a tight 4096-wide linear image today
    (`borg_core.c`, 0xB9), so this needs a strided fetch in the texture unit.
