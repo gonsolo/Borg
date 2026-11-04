@@ -94,6 +94,8 @@ class IssueStatsIO extends Bundle {
   val waitEmpty  = Bool()
   val waitUnit   = Bool()
   val drains     = Bool()
+  val kind       = UInt(2.W)   // the issuing slot's program: 0 fragment, 1 vertex or compute, 2 setup, 3 raster
+  val active     = Bool()      // the issuing slot runs
 }
 
 /** A quad the core keeps: where its program is and whether it runs. */
@@ -111,6 +113,7 @@ class QuadSlot(cfg: BorgConfig) extends Bundle {
   // The program a trigger started: the raster ROM's, the setup ROM's, or IMEM's.
   val fetchRast    = Bool()
   val fetchSetup   = Bool()
+  val fragment     = Bool()
   // Where a compute invocation stopped; written on every stop, so never stale.
   val atBarrier    = Bool()
   val barrierPC    = UInt(cfg.pcBits.W)
@@ -237,6 +240,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.issueStats.waitEmpty  := waiting && !hazard && !behindBranch && !unitWait
     io.issueStats.waitUnit   := waiting && !hazard && !behindBranch && unitWait
     io.issueStats.drains     := issuing && opFlags.unit
+    io.issueStats.kind       := Mux(slot.fetchRast, 3.U, Mux(slot.fetchSetup, 2.U, Mux(slot.fragment, 0.U, 1.U)))
+    io.issueStats.active     := running
     val step = issuing && !opFlags.branch && !barrierStop
     redirecting := at(redirect) && info(redirect).branch
     redirSlot   := info(redirect).slot
@@ -425,6 +430,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       startSlot.byRasterizer := false.B
       startSlot.fetchRast := false.B
       startSlot.fetchSetup := false.B
+      startSlot.fragment := false.B
     }
     when(io.control.reset) {
       startSlot.pc := io.control.startPC
@@ -439,6 +445,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       trigSlot.byRasterizer := true.B
       trigSlot.fetchRast := io.coreTrigger.isRast
       trigSlot.fetchSetup := io.coreTrigger.isSetup
+      trigSlot.fragment := io.coreTrigger.fragment
       when(!io.coreTrigger.fragment) {
         trigSlot.page := io.uniformPage; trigSlot.attrBase := io.record.attrBase
         trigSlot.outBase := io.record.outBase; trigSlot.outInterleave := io.record.outInterleave
