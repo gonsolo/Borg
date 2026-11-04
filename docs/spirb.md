@@ -67,7 +67,7 @@ The borgvk driver (`mesa/src/borg/vulkan/`) compiles, with `borgc`, the app's re
 vertex/fragment shaders at pipeline creation and sends each blob in a packet
 (marker `0xB0`):
 `marker(1B) + stage(1B) + len(2B LE) + blob padded to BORGVK_SHADER_BLOB_MAX + checksum`.
-The receiver (`borg_core.c`, later borgvk's own list builder) calls `spirb_parse()`
+borgvk's list builder (`list.rs`) calls `spirb_parse()`
 on the blob.
 
 ## Examples

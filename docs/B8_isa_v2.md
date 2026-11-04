@@ -329,7 +329,7 @@ RISC-V major opcode ends in binary 11, so new instructions decode next to the ol
 mode bit and without a hard switch. Each step:
 
 1. adds one group to the opcode file and the RTL, with Chisel unit tests;
-2. switches borgc (and borgvk or `borg_core` where the step needs it) to the new form;
+2. switches borgc (and borgvk where the step needs it) to the new form;
 3. passes direct_sim, the borgc corpus, the quick driver corpus and the cube, measures LUTs, ULX3S
    fit and Wafer area;
 4. deletes the v1 instructions or roles it replaced, in a commit of its own.

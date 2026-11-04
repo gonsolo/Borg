@@ -188,8 +188,8 @@ and checks that the second image equals the first pixel for pixel.
   packets (marker, row, four descriptor words, 64 RGBA8 texels, checksum).
   A draw sends each entry k as `0xC4` (texture slot k, sampler slot k,
   texel base) followed by the `0xC0` level offsets and `0xB5` texel chunks;
-  `borg_core` writes descriptor k, its vertex copy and sampler k, and the
-  texels at the base (host builds: 32 slots, the board: 1).
+  the list builder (`list.rs`) writes descriptor k, its vertex copy and sampler k, and the
+  texels at the base (32 slots).
 
 ## Tests
 

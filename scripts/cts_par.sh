@@ -115,7 +115,6 @@ CHUNK="${CHUNK:-$(( (total + JOBS * 8 - 1) / (JOBS * 8) ))}"
 echo "$total cases, $JOBS workers, chunks of $CHUNK"
 mkdir -p "$OUT/chunks"
 [[ $total -gt 0 ]] && split -l "$CHUNK" -d -a 5 "$OUT/shuffled.txt" "$OUT/chunks/c"
-export BORGVK_SIM_PARTS=1      # one simulator process per case: the workers are the parallelism
 run_chunk() {   # $1 = chunk file; its run directory is named after it
   local d="$OUT/run_$(basename "$1")"
   local t0=$(date +%s)

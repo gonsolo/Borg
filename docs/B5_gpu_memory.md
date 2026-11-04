@@ -64,9 +64,9 @@ can compute the real heap size (`mem_size - mem_free_base`) instead of assuming 
   Rust DRM abstractions in 7.2 support a carve-out-backed GEM object *(to verify)*; if not, a
   small hand-written object table with its own `mmap` handler replaces them. The driver stays
   thin: an allocator and a mapping, no GPU knowledge.
-- **Fixed anchors stay.** `borg_core` still reads and writes its fixed layout through
+- **Fixed anchors stay.** The list builder still reads and writes its fixed layout through
   `MEM_WRITE`/`MEM_READ`; GEM buffers never overlap it because they start at `mem_free_base`.
-  Making `borg_core` use allocated addresses is a separate, larger change and not needed here.
+  Making it use allocated addresses is a separate, larger change and not needed here.
 
 ### Mesa (borgvk)
 
