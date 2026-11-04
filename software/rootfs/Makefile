@@ -251,40 +251,16 @@ $(BENCH): bench.c $(WRAPPER)
 # for why (kernel_init() can't open an initial console on this platform, so
 # PID 1 inherits unusable stdio without this).
 # ---------------------------------------------------------------------------
-REPLAY := $(ROOTFS)/bin/replay_linux
-
-.PHONY: $(REPLAY)
-$(REPLAY): $(WRAPPER)
-	mkdir -p $(ROOTFS)/bin
-	$(MAKE) -C ../borg replay-linux WRAPPER=$(WRAPPER) OUT=$@
-
-# VKCUBE_COMPILER=full: borgvk compiles the shaders on the board (no cache file in the image).
-VKCUBE_COMPILER ?= cache
-VKCUBE := $(ROOTFS)/bin/vkcube-borg
-
-.PHONY: $(VKCUBE)
-$(VKCUBE): $(WRAPPER) $(DRM_TEST)
-	mkdir -p $(ROOTFS)/bin $(ROOTFS)/etc
-	$(MAKE) -C ../vkcube COMPILER=$(VKCUBE_COMPILER)
-	riscv64-none-elf-strip -o $@ ../../out/software/vkcube/vkcube-borg$(if $(filter full,$(VKCUBE_COMPILER)),-full)
-	$(if $(filter full,$(VKCUBE_COMPILER)),rm -f,cp ../vkcube/cube.shaders) $(ROOTFS)/etc/cube.shaders
-
-DRM_REPLAY := $(ROOTFS)/bin/replay_drm
 DRM_TEST   := $(ROOTFS)/bin/borg_drm_test
 
-.PHONY: $(DRM_REPLAY) $(DRM_TEST)
-$(DRM_REPLAY): $(WRAPPER)
-	mkdir -p $(ROOTFS)/bin
-	$(MAKE) -C ../borg replay-drm WRAPPER=$(WRAPPER) LINUX_HDRS=$(LINUX_HDRS) OUT=$@
-
+.PHONY: $(DRM_TEST)
 $(DRM_TEST): $(WRAPPER)
 	mkdir -p $(ROOTFS)/bin
 	$(WRAPPER) -O2 -static -D__linux__ -I../linux/overlay/include/uapi -I$(LINUX_HDRS) -I$(LINUX_HDRS)/drm \
 	    -o $@ ../linux/tests/borg_drm_test.c
 
-rootfs: $(BB_STRIPPED) $(if $(filter full,$(VKCUBE_COMPILER)),,$(BENCH) $(REPLAY) $(DRM_REPLAY)) $(DRM_TEST) $(VKCUBE)
+rootfs: $(BB_STRIPPED) $(BENCH) $(DRM_TEST)
 	mkdir -p $(ROOTFS)
-	$(if $(filter full,$(VKCUBE_COMPILER)),rm -f $(BENCH) $(REPLAY) $(DRM_REPLAY))
 	$(MAKE) -C $(BB_SRC) CC=$(WRAPPER) CONFIG_PREFIX=$(ROOTFS) install
 	mkdir -p $(ROOTFS)/proc $(ROOTFS)/sys $(ROOTFS)/dev $(ROOTFS)/tmp \
 	         $(ROOTFS)/root $(ROOTFS)/etc $(ROOTFS)/mnt
