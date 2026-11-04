@@ -300,9 +300,11 @@ object BorgDrawTests extends TestSuite {
     val covered = rig.draw(Seq.fill(n)(tri).flatten)
     def reg(r: UInt): BigInt = rawRead(rig.borg, r.litValue.toInt)
     val (total, shader) = (reg(BorgGpuRegs.perf_total_offset), reg(BorgGpuRegs.perf_frag_offset))
-    val issue = (0 until 7).map { i => rawWrite(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt, i); reg(BorgGpuRegs.perf_issue_offset) }
+    val issue = (0 until 15).map { i => rawWrite(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt, i); reg(BorgGpuRegs.perf_issue_offset) }
     println(f"  $n triangles: ${total / n} cycles each (shader ${shader / n}, issued ${issue(0) / n}, " +
       f"waits: register ${issue(1) / n}, drain ${issue(3) / n}, unit ${issue(5) / n})")
+    println(Seq("frag", "vertex", "setup", "raster").zipWithIndex.map { case (k, i) =>
+      s"$k ${issue(7 + 2 * i) / n}/${issue(8 + 2 * i) / n}" }.mkString("  issued/cycles per triangle: ", ", ", ""))
     println(s"  setup ROM ${BorgSetupRom.shortPc} instructions (single sample, no bias), raster ROM ${BorgRasterRom.instructions.size}")
     utest.assert(covered > 0)
   }
