@@ -741,6 +741,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xC6: return BC_PKT_LEN_OCC;
   case 0xBF: return BC_PKT_LEN_ATT;
   case 0xC7: return BC_PKT_LEN_PLACE;
+  case 0xC8: return BC_PKT_LEN_TEXD;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
 #endif
@@ -759,7 +760,7 @@ int borg_core_packet(const uint8_t *p) {
   // Texture, push-constant and geometry packets overwrite memory the queued draws read, and a
   // target or pass packet starts another render: the queued draws come first.
   switch (p[0]) {
-  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF: case 0xC6: case 0xC7:
+  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF: case 0xC6: case 0xC7: case 0xC8:
     borg_core_list_flush();
   }
 #endif
@@ -957,6 +958,15 @@ int borg_core_packet(const uint8_t *p) {
   case 0xC0:
     for (int i = 0; i < 12; i++) g_tex_lvl[i] = le32(p + 1 + i * 4);
     return BC_STATE;
+  case 0xC8: { // texture in device memory (host only): descriptor words 0-15 and the sampler's, into the 0xC4 slots
+    uint32_t d[16], samp[4];
+    for (int i = 0; i < 16; i++) d[i] = le32(p + 1 + i * 4);
+    for (int i = 0; i < 4; i++) samp[i] = le32(p + 65 + i * 4);
+    tex_desc_store(d);
+    for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + g_samp_slot * 16 + (uint32_t)i * 4, samp[i]);
+    BREG_W(desc_flush, 0);
+    return BC_STATE;
+  }
   case 0xC4: // texture slot, sampler slot and texel byte base of the 0xB5 and 0xC0 packets that follow
     if (p[1] >= BC_TEX_SLOTS || p[2] >= BC_TEX_SLOTS || (le32(p + 3) & 255u) || le32(p + 3) >= BC_TEXEL_BYTES) return BC_BAD;
     g_tex_slot = p[1]; g_samp_slot = p[2]; g_tex_base = le32(p + 3);
