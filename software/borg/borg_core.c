@@ -30,6 +30,7 @@ extern void bh_dram_write(uint32_t spi_addr, uint32_t v);
 
 // --- State ---
 int borg_fb_width, borg_fb_height;   // set by borg_core_init
+static uint32_t g_place[6], g_pitch;   // the pass's attachments in device memory (host): colour, depth, stencil, 1-3
 uint32_t borg_cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;   // cull back faces until a 0xB4 says otherwise
 // 0xB4 packs the pipeline's samples above the cull bits: [11:8] mask, [12] alpha to coverage, [31] four samples.
 static uint32_t borg_sample_cfg(void)
@@ -69,7 +70,6 @@ static struct {
 static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
 static int g_vtab_dirty = 1;
 static int g_natt = 1;                 // colour attachments of the pass (host)
-static uint32_t g_place[6], g_pitch;   // the pass's attachments in device memory (host): colour, depth, stencil, 1-3
 static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each, then their sRGB bits [11:9]
 #endif
 #ifdef BORG_HOST
@@ -175,7 +175,7 @@ static void core_apply_layout(void) {
 void borg_core_init(int width, int height) {
   borg_fb_width = width;
   borg_fb_height = height;
-  memset(g_place, 0, sizeof g_place);
+  for (int k = 0; k < 6; k++) g_place[k] = 0;
   g_pitch = 0;
   half_width_f  = borg_float_from_uint((uint32_t)width / 2);
   half_height_f = borg_float_from_uint((uint32_t)height / 2);
