@@ -102,6 +102,27 @@ static uint32_t frame_stride_words(void) {
 
 void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt >= 1 && fmt <= 3) ? fmt : 0; }
 int borg_core_flush_format(void) { return g_flush_format; }
+#ifdef BORG_HOST
+#include <stdio.h>
+#include <stdlib.h>
+static unsigned long long g_perf_sum[17];
+void borg_core_perf_add(void) {
+  static int on = -1;
+  if (on < 0) on = getenv("DIRECT_PERF") != NULL;
+  if (!on) return;
+  g_perf_sum[0] += BREG_R(perf_total); g_perf_sum[1] += BREG_R(perf_frag);
+  for (int i = 0; i < 15; i++) { BREG_W(perf_issue, i); g_perf_sum[2 + i] += BREG_R(perf_issue); }
+}
+void borg_core_perf_report(void) {
+  const unsigned long long *p = g_perf_sum;
+  if (!p[0]) return;
+  fprintf(stderr, "[perf] total %llu shader %llu issued %llu wait_reg %llu wait_branch %llu wait_drain %llu"
+          " frag %llu/%llu vertex %llu/%llu setup %llu/%llu raster %llu/%llu\n", p[0], p[1], p[2], p[3], p[4], p[5],
+          p[9], p[10], p[11], p[12], p[13], p[14], p[15], p[16]);
+}
+#else
+void borg_core_perf_add(void) {}
+#endif
 void borg_core_perf(uint32_t out[9]) {
   out[0] = BREG_R(perf_total); out[1] = BREG_R(perf_frag);
   for (int i = 0; i < 7; i++) { BREG_W(perf_issue, i); out[2 + i] = BREG_R(perf_issue); }
@@ -452,6 +473,7 @@ void borg_core_render(int frame) {
         BREG_W(seq_trigger, 1);
         while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
           ;
+        borg_core_perf_add();
       }
   }
 }
@@ -640,6 +662,7 @@ static void list_trigger(uint32_t list, uint32_t load) {
         BREG_W(seq_trigger, 1);
         while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
           ;
+        borg_core_perf_add();
       }
     borg_core_wait_idle();
     BREG_W(render_list, 0);
@@ -656,6 +679,7 @@ static void list_trigger(uint32_t list, uint32_t load) {
       BREG_W(seq_trigger, 1);
       while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
         ;
+      borg_core_perf_add();
     }
   borg_core_wait_idle();
   BREG_W(render_list, 0);
