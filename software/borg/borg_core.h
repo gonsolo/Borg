@@ -63,6 +63,7 @@ extern "C" {
 #endif
 #define BC_PKT_LEN_PASS    (1 + 1 + 1 + 1)                 // 0xBB (host only): render pass attachments
 #define BC_PKT_LEN_ATT     (1 + 1 + 3 + 1)                 // 0xBF (host only): colour attachment count and formats 1-3
+#define BC_PKT_LEN_PLACE   (1 + 7 * 4 + 1)                 // 0xC7 (host only): attachment addresses and pitch
 #ifdef BORG_HOST
 #define BC_PKT_LEN_MAX     BC_PKT_LEN_SHADER_HUGE
 #else
@@ -88,6 +89,7 @@ enum {
   BC_VATTR,          // vertex attribute descriptor (0xB9)
   BC_PASS,           // attachments of the pass: colour format, depth, stencil (0xBB)
   BC_ATT,            // colour attachments 1-3 of the pass (0xBF)
+  BC_PLACE,          // the pass's attachments in device memory (0xC7)
   BC_DRAW,           // draw parameters; the draw runs (0xBA)
 };
 
