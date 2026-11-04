@@ -95,51 +95,23 @@ make test-cocotb-soc-borg-rtl  # Borg peripheral tests (cocotb)
 
 ### Vulkan Conformance (CTS)
 
-The host Vulkan driver, **borgvk**, runs against the official Khronos
-[VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
+dEQP-VK runs against borgvk on the direct simulator (Borg alone, no CPU):
 
 ```bash
-make vulkan-cts   # → "borgvk: passed 6887 of 1647405 mandatory Vulkan CTS tests = 0.418%"
+make -C simulation/direct                                  # the simulator
+JOBS=12 scripts/cts_par.sh 'dEQP-VK.api.device_init.*'     # a case or pattern, in parallel
 ```
 
-By default this runs five `dEQP-VK.api.*` classes (~9,276 cases combined), of which
-borgvk passes **6,887** (74.2%) with **0 failures**:
+The build steps for `deqp-vk` are in [The Software Driver](docs/03_software_driver.md).
 
-| Test class | Pass | Total | What it covers |
-|---|---|---|---|
-| `api.info.*` | 5,936 | 8,182 | Device/format/limit/feature enumeration |
-| `api.format_feature_flags2.*` | 184 | 184 | `VkFormatProperties3` / 64-bit feature flags |
-| `api.device_init.*` | 224 | 236 | `VkDevice` creation and properties |
-| `api.null_handle.*` | 23 | 24 | `destroy(VK_NULL_HANDLE)` no-op behaviour |
-| `api.granularity.*` | 520 | 650 | Image/buffer granularity queries |
+### vkcube on the simulated GPU
 
-borgvk is a narrow driver — it renders one hand-compiled cube over serial to the
-FPGA — so the cases that pass are the **query/setup** ones that exercise borgvk's
-instance/device paths through the Mesa runtime without touching the serial→FPGA
-pipeline. Rendering classes (`dEQP-VK.draw.*`, …) fail. It is an honest "the API
-surface works" data point, not a conformance claim.
-
-Running CTS also surfaces real driver bugs: it caught a `NULL`-dispatch segfault in
-`vkGetPhysicalDeviceSparseImageFormatProperties2`, whose fix turned the
-`api.info.sparse_image_format_properties2.*` group from a crash into ~1,500 passes.
-Subsequent passes fixed `VkFormatProperties3` pNext propagation, YCbCr format
-feature restrictions, `VK_FORMAT_UNDEFINED` handling, 3D image `maxArrayLayers`,
-MSAA `sampleCounts` consistency, missing Vulkan 1.0–1.3 required limits, and
-`NULL`-dispatch crashes in buffer-view, event, and descriptor-set-layout-support
-entry points — moving the score from ~4,000 to 6,887.
-
-Requires a built `deqp-vk` and the borgvk ICD; see
-[The Software Driver](docs/03_software_driver.md) for the one-time build steps.
-Run a different slice with `make vulkan-cts VK_CTS_CASE='dEQP-VK.api.device_init.*'`,
-or point at a checkout elsewhere with `make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.
-
-### Cycle-Accurate C++ Simulation & Interactive Pygame UI
-
-Fast C++ simulators for RTL validation, capable of rendering frames locally without an FPGA, featuring a real-time cycle-accurate interactive view.
+The unmodified Khronos `vkcube` on borgvk and the cycle-accurate model, in an X window
+(`DIRECT_BIN=simulation/direct/direct_sim_v` for the Verilator model):
 
 ```bash
-make -C simulation/verilator vkcube_gui # Run vkcube in the interactive Verilator viewer
-make -C simulation/arcilator vkcube_gui  # Run in the faster Arcilator viewer
+make build-vkcube && make -C simulation/direct
+scripts/vkcube_host.sh
 ```
 
 ### FPGA (ULX3S — ECP5)
