@@ -12,6 +12,7 @@ struct BorgDirectSimTop {
 #else
 #include "arc.h"
 #endif
+#include "borg_layout.h"
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -22,12 +23,11 @@ struct BorgDirectSimTop {
 
 class DirectSim {
 public:
-  // GPU addresses are DRAM SPI-relative byte addresses; the memory controller
-  // on the SoC decodes only the low 24 bits (16 MiB), so does this model.
-  static constexpr uint32_t MEM_BYTES = 0x8000000;   // borg_layout.h BORG_SIM_MEM_BYTES
+  // GPU addresses: the private memory (BORG_SIM_MEM_BYTES) at 0, the device heap at BORG_DEVICE_BASE.
+  static constexpr uint32_t MEM_BYTES = BORG_DEVICE_BASE + BORG_DEVICE_BYTES;
 
   BorgDirectSimTop model;
-  uint8_t *mem;   // MEM_BYTES; the process's own, or a mapping shared with the driver (--serve)
+  uint8_t *mem;   // MEM_BYTES; the process's own, or mappings shared with the driver (--serve)
   uint64_t cycles = 0;
   uint64_t nrd = 0, nwr = 0;
   uint32_t last_rd = 0, last_wr = 0;
@@ -40,12 +40,14 @@ public:
   uint32_t read_latency  = 6;
   uint32_t write_latency = 3;
 
-  explicit DirectSim(int shared_fd = -1) {
-    if (shared_fd >= 0) {
-      mem = (uint8_t *)mmap(nullptr, MEM_BYTES, PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0);
-      if (mem == MAP_FAILED) { perror("[direct] mmap"); exit(1); }
-    } else {
-      mem = (uint8_t *)calloc(MEM_BYTES, 1);
+  explicit DirectSim(int shared_fd = -1, int device_fd = -1) {
+    const int prot = PROT_READ | PROT_WRITE;
+    mem = (uint8_t *)mmap(nullptr, MEM_BYTES, prot, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (mem == MAP_FAILED) { perror("[direct] mmap"); exit(1); }
+    if ((shared_fd >= 0 && mmap(mem, BORG_SIM_MEM_BYTES, prot, MAP_SHARED | MAP_FIXED, shared_fd, 0) == MAP_FAILED) ||
+        (device_fd >= 0 && mmap(mem + BORG_DEVICE_BASE, BORG_DEVICE_BYTES, prot, MAP_SHARED | MAP_FIXED, device_fd, 0) == MAP_FAILED)) {
+      perror("[direct] mmap");
+      exit(1);
     }
     auto &v = model.view;
     v.clk = 0; v.rst_n = 0;

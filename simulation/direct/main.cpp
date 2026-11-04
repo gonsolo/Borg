@@ -162,8 +162,8 @@ int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--raw") return run_raw();
   if (argc == 4 && std::string(argv[1]) == "--compute") return run_compute(argv[2], argv[3]);
   if (argc == 4 && std::string(argv[1]) == "--bridge") return run_bridge(argv[2], argv[3]);
-  if (argc == 3 && std::string(argv[1]) == "--serve") {   // direct_sim --serve <memory fd>
-    DirectSim sim(atoi(argv[2]));
+  if ((argc == 3 || argc == 4) && std::string(argv[1]) == "--serve") {   // --serve <memory fd> [<device heap fd>]
+    DirectSim sim(atoi(argv[2]), argc == 4 ? atoi(argv[3]) : -1);
     Driver drv(sim);
     int r = drv.serve(0, 1);
     report_faults(sim);
