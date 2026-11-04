@@ -1,7 +1,9 @@
 # Device memory, command lists and descriptors
 
 Status: plan, 2026-11-04. Steps are built in order; the driver works after every commit. Built:
-1.1 to 1.6 (heap, tiled images, attachments, sampled images and compute buffers in place); of step 2,
+1.1 to 1.6 (heap, tiled images, attachments, sampled images and compute buffers in place); of step 3,
+graphics uniform and storage buffers in place through the draw's binding table (root table word 3: base
+and offset limit per binding, as compute's table); of step 2,
 the list builder in the driver (`list.rs`) for the simulator and the device (`dev.rs`, the DRM
 render node or a pipe to `direct_sim`), compute jobs on the same raw device; `borg_core.c` and
 `direct_sim`'s other modes are gone.

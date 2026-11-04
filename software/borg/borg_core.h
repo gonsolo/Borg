@@ -27,7 +27,7 @@
 #define BC_MEM_DATA        256
 #define BC_PKT_LEN_MEM     (1 + 4 + 2 + BC_MEM_DATA + 1)   // 0xB8 (host only): heap write
 #define BC_PKT_LEN_VATTR   (1 + 1 + 1 + 4 + 4 + 4 + 4 + 1) // 0xB9 (host only): vertex attribute descriptor
-#define BC_PKT_LEN_DRAW    (1 + 3 + 7 * 4 + 1)             // 0xBA (host only): draw parameters, runs the draw
+#define BC_PKT_LEN_DRAW    (1 + 3 + 8 * 4 + 1)             // 0xBA (host only): draw parameters, runs the draw
 #define BC_PKT_LEN_TEXL    (1 + 12 * 4 + 1)                // 0xC0 (host only): byte offsets of texture levels 1..12
 #define BC_PKT_LEN_TEXS    (1 + 1 + 1 + 4 + 1)             // 0xC4 (host only): texture slot, sampler slot, texel base
 #define BC_PKT_LEN_BIAS    (1 + 4 + 4 + 1)                 // 0xC5 (host only): depth bias of the next draw
