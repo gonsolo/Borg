@@ -4,30 +4,23 @@ Applications reach Borg through **borgvk**, a native Vulkan driver in Mesa
 (`mesa/src/borg/vulkan/`), modelled on v3dv. It builds on Mesa's Vulkan runtime
 for objects, synchronization and WSI, compiles shaders with borgc
 ([The Shader Compiler](02_compiler.md)), and turns command buffers into a stream
-of packets: geometry, textures, shaders, state and draws. The same stream has
-three destinations:
+of packets: geometry, textures, shaders, state and draws, with device memory in
+a shared heap ([Device Memory](B13_device_memory.md)). The unmodified Khronos
+`cube.c` runs on it three ways:
 
-- **The ULX3S over serial.** On a host PC, borgvk sends the packets to the
-  firmware kernel on the board (below), which feeds the hardware.
-- **The direct simulator.** For conformance, borgvk hands the stream to
-  `direct_sim`, a compiled model of the Borg RTL
-  ([Simulation](06_simulation.md)); the Vulkan CTS runs on it.
-- **Linux on the board.** A DRM render-node driver on the RV64 Hutt takes the
-  same packets, so the unmodified `cube.c` runs on the board without a host
+- **On the host.** borgvk drives `direct_sim`, a compiled model of the Borg RTL
+  ([Simulation](06_simulation.md)); the Vulkan CTS runs the same way.
+- **Linux in QEMU.** RISC-V Linux with the Borg DRM driver, the simulated GPU
+  behind it (in progress).
+- **The ULX3S.** Linux on the board's CPU if it fits next to Borg, otherwise
+  Linux in QEMU on the host with the DRM driver driving the FPGA
   ([Running on an FPGA](04_fpga.md)).
-
-The rest of this chapter describes the firmware side on Hutt, then the
-conformance testing.
 
 ## Memory-Mapped Hardware
 
 The Borg shader processor is accessed through memory-mapped I/O registers.
-The CPU reads and writes these addresses to load shader programs, set register
-values, and control execution:
-
-{{snippet:software/borg/borg_driver.c:mmio-map}}
-
-The Borg peripheral is accessed at `0x08000C00` (BORG_BASE). It exposes 32 general-purpose float registers (r0–r31, FP32), 72 instruction memory words, a control/status register, and a full RDL-generated register block covering tile buffer, texture, sequencer, DMA, and flush control. DRAM provides shared memory between the Hutt CPU and the GPU.
+The register block is generated from SystemRDL (`hardware/rdl/`) into Chisel and
+into `out/hardware/borg/rdl/borg_regs.h`. The Borg peripheral is accessed at `0x08000C00` (BORG_BASE). It exposes 32 general-purpose float registers (r0–r31, FP32), 72 instruction memory words, a control/status register, and a full RDL-generated register block covering tile buffer, texture, sequencer, DMA, and flush control. DRAM provides shared memory between the Hutt CPU and the GPU.
 
 ## How a Draw Runs
 
@@ -59,30 +52,12 @@ uint32_t bz = BorgGpuRegs.tile_bz;
 Sampling is done by the texture unit: `TEX` and `TEXA` read texture and sampler
 descriptors from memory and support 51 formats, mipmaps with implicit LOD, all
 address modes and border colours, trilinear filtering, depth compare, gather,
-`texelFetch` and offsets. The firmware's earlier role, fetching texels by Morton
-address, is gone. See [Texture Unit](B2_texture_unit.md).
-
-## The borgvk Kernel
-
-Earlier firmware revisions baked a standalone two-triangle demo
-(`borg_triangle.c`, since removed) directly into the image: a
-per-vertex-color-interpolated front triangle over a textured back
-triangle, exercising z-buffering and hardware texturing with no host
-involved.
-
-`borg_kernel.c` replaces that with a thin runtime driven entirely by
-the borgvk Mesa driver over serial: it drains borgvk's packets
-(0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc-compiled
-shaders, and the later state and draw packets) and feeds the hardware, so real, unmodified Vulkan
-applications (e.g. Khronos's `cube.c`) render on the hardware instead
-of a fixed demo scene. The z-buffer, texturing, and per-vertex
-interpolation this exercised are unchanged — they're now driven by
-whatever geometry and textures the host application uploads.
+`texelFetch` and offsets. See [Texture Unit](B2_texture_unit.md).
 
 ## The borgvk source
 
 borgvk lives in `mesa/src/borg/vulkan/` and is written in Rust; only the generated entry
-point tables, the `borgvk_burst_gen` tool and the static link probe are C. The crate in
+point tables and the static link probe are C. The crate in
 `rust/` follows NVK's Rust code: bindgen reads the Mesa runtime headers named in
 `rust/bindings.h`, cbindgen writes `borgvk_rust.h` for the C callers, and meson builds a
 static library that `libvulkan_borg.so` links whole.
@@ -93,9 +68,9 @@ static library that `libvulkan_borg.so` links whole.
 | `device`, `physical_device`, `wsi` | instance and devices, properties and format queries, presentation |
 | `memory`, `image`, `sampler`, `descriptor_set`, `pipeline`, `query`, `sync`, `event` | the Vulkan objects |
 | `cmd_buffer`, `render`, `clear`, `copy`, `texel`, `draw`, `dispatch` | command buffers and what they record |
-| `queue`, `cube`, `state_upload`, `texture_upload`, `corpus` | submission, the cube path, the driver corpus recorder |
+| `queue`, `state_upload`, `texture_upload`, `heap`, `list`, `corpus` | submission, device memory, the render-list builder, the driver corpus recorder |
 | `compiler`, `compile`, `nir_info`, `nir_passes`, `shader_cache` | shaders through borgc, or from a cache file on the board |
-| `serial`, `transport`, `format`, `drm`, `hw`, `sim`, `sim_process` | wire packets and the back ends |
+| `wire`, `transport`, `format`, `drm`, `hw`, `sim`, `sim_process` | packets and the back ends |
 
 Image layout, tile addressing, the texel formats (generated from `TexFormat.scala`) and the
 texture and sampler descriptors are a crate of their own, `borg_layout` in
@@ -111,11 +86,12 @@ Four things are easy to get wrong:
   points and no-ops for the rest: an entry point that only forwards to `vk_common_*` must stay.
 * Objects live in zeroed memory from the runtime's allocators and never move
   (`object::allocate`). No C struct points at a Rust one: bindgen cannot see Rust types.
-* bindgen binds some libc calls to glibc's `*64` names, which musl lacks: the board build
-  (`make -C software/vkcube`) fails to link where the host build passes.
+* bindgen binds some libc calls to glibc's `*64` names, which musl lacks: a musl build fails
+  to link where the host build passes.
 
 Every change runs `meson test --suite borg` in a build with `-Dbuild-tests=true`, the driver
-corpus (`scripts/borgvk_corpus/check.sh`, compared with a run of main) and the board build.
+corpus (`scripts/borgvk_corpus/check.sh`, compared with a run of main) and the vkcube golden
+(`make -C simulation/direct golden`).
 
 ## Vulkan Conformance (CTS)
 
@@ -125,16 +101,13 @@ borgvk is tested with the Khronos Conformance Test Suite,
 simulator, many in parallel, through `scripts/cts_par.sh`:
 
 ```bash
-MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.api.*'
+MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 scripts/cts_par.sh 'dEQP-VK.api.*'
 ```
 
 The `api` group passes without failures (tag `conformance/vk1.0-api-direct-sim`);
 the per-group results and known limits are in
 [Vulkan 1.0 Conformance Status](conformance/STATUS.md). These are results on a
 simulation of the RTL, not a conformance submission.
-
-`make vulkan-cts` still runs the small slice of `api` cases described below,
-which was the first contact with the CTS.
 
 ### Bugs the CTS caught first
 
@@ -175,8 +148,7 @@ CC=gcc CXX=g++ cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build --target deqp-vk
 ```
 
-`make vulkan-cts` then sets up the Vulkan loader, points `VK_DRIVER_FILES` at the
-borgvk ICD, preloads the DRM shim, runs the slice, and prints the
-`passed N of <mandatory total>` summary. Run a different slice with
-`make vulkan-cts VK_CTS_CASE='dEQP-VK.api.device_init.*'` (any case glob), or point
-at a checkout elsewhere with `make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.
+`scripts/cts_one.sh` then sets up the Vulkan loader, points `VK_DRIVER_FILES` at the
+borgvk ICD, preloads the DRM shim and runs one case or pattern on `direct_sim`;
+`scripts/cts_par.sh` splits a list over many. Point at a checkout elsewhere with
+`VK_GL_CTS=/path/to/VK-GL-CTS`.

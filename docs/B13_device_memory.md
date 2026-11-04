@@ -89,11 +89,10 @@ list builder and the 0xB0-0xC8 packets go from the host path. Work done at submi
 record time or into shaders: vertex format conversion, line and point expansion, clears of
 render areas that are not tile aligned.
 
-The cube path goes with it. `cube.rs` recognizes cube.c by its uniform buffer and is today the
-only path that draws on the board (serial and self-hosted, through the cube-only `SETUP` and
-`SUBMIT` ioctls). First cube.c renders through the general path on the simulator against the
-golden capture; once the board takes command lists, `cube.rs`, the 0xAD/0xAE/0xAF packets, the
-two ioctls and the firmware's cube UBO code are deleted.
+The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
+the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
+`cube.rs`, the 0xAD/0xAE/0xAF packets, the cube ioctls, the serial transport and the firmware
+were deleted. The board comes back through the DRM driver with command lists.
 
 ### 3. Descriptors in memory
 

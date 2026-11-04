@@ -17,12 +17,9 @@ The driver is Rust now (see the software driver chapter). Where each C file went
 | `borgvk_sim.c` | `sim`, `format` |
 | `borgvk_sync.c` | `sync` |
 | `borgvk_wsi.c` | `wsi` |
-| `borgvk_serial.c` | `serial`, `transport` |
 | `borgvk_memory.c` | `memory`, `image`, `sampler`, `copy`, `clear`, `texel`, `render` |
-| `borgvk_queue.c` | `queue`, `draw`, `dispatch`, `cube`, `state_upload`, `texture_upload`, `corpus`, `sim_process` |
+| `borgvk_queue.c` | `queue`, `draw`, `dispatch`, `state_upload`, `texture_upload`, `corpus`, `sim_process` |
 | `borgvk_private.h` | the structs in their modules, `types` |
-| `borgvk_serial_test.c` | the tests in `serial` |
-| `borgvk_burst_gen.c` | still C, a client of `borgvk_rust.h` |
 
 ## borgvk_cmd_buffer.c
 
@@ -41,34 +38,6 @@ struct borgvk_command_buffer is defined in borgvk_private.h -- it also
 tracks render-pass/dynamic-rendering state (see the struct's comment),
 needed by borgvk_CmdBeginRendering/CmdClearAttachments in
 borgvk_memory.c.
-
-**line 130, in `borgvk_CmdPushConstants`, above `VK_FROM_HANDLE(vk_command_buffer, cmd, commandBuffer);`**
-
-Step 50 item 13.  The shader half of this already worked: borgc lowers
-load_push_constant to `LOAD rd, rs1` with rs1 pinned to the field's word
-index, and the hardware forms LS_BASE + (rs1 << 2).  What was missing was
-anything putting real data where those loads look -- this, plus the
-firmware's 0xB2 handler and borg_set_push_constants().
-
-`layout` and `stageFlags` are deliberately unused: Borg has one shader
-core with one LS_BASE, so there is no per-stage or per-layout push-constant
-window to select between.  A range pushed for the vertex stage is visible
-to the fragment stage too.  That is more permissive than Vulkan requires,
-not less, so it cannot make a conformant application read the wrong value
--- it would only fail to catch an application reading a stage it never
-pushed to, which is already undefined behaviour.
-
-Emitted at record time rather than queued to submit: the firmware applies
-a 0xB2 packet when it arrives, and recording necessarily precedes the
-submit that ships the draw's MVP, so ordering holds for the
-record-then-submit pattern borgvk targets.  KNOWN LIMITATION: a command
-buffer recorded once and submitted repeatedly pushes only on the
-recording, so a later submit reuses whatever LS_BASE last pointed at.
-That matches how borgvk_serial_send_shader() already behaves and is
-invisible to the current re-record-every-frame callers; fixing it means
-capturing the range into struct borgvk_command_buffer and replaying it
-from the submit path, which is the natural follow-on once anything
-actually reuses command buffers.
 
 ## borgvk_compiler.c
 
@@ -178,12 +147,6 @@ the driver falls back to malloc + direct serial (legacy path).
 The Vulkan version borgvk claims. It implements the Vulkan 1.0 feature set (the target of
 the conformance work), and says so: reporting a higher version would promise 1.1+ behaviour.
 
-**line 38, in `borgvk_EnumerateInstanceVersion`, above `static const struct vk_instance_extension_table instance_extensions = {`**
-
-Instance extensions advertised by borgvk. The WSI surface extensions let an
-app create a swapchain so its render loop runs; the actual pixels go to the
-FPGA over serial, the host window is just a formality (software WSI path).
-
 **line 155, in `is_ycbcr_format`, above `switch (format) {`**
 
 Multi-planar and 4:2:x packed formats require samplerYcbcrConversion
@@ -277,16 +240,6 @@ reference for integer formats.
 Texel-buffer features Vulkan 1.0 requires (the mandatory format tables; verified by
 dEQP-VK.api.info.format_properties.*).  Nothing else is advertised: the compute path only
 implements these.  Every format listed for storage is also listed for uniform.
-
-**line 404, in `borgvk_GetPhysicalDeviceFormatProperties2`, above `VkFormatFeatureFlags lin =`**
-
-Linear tiling: transfer + sampling.  borgvk samples textures by reading the
-host-visible image memory directly over serial, so a LINEAR host-visible
-image is sampleable.  Advertising SAMPLED here lets cube.c upload its texture
-straight into a linear host-visible image (the path the shim reads) instead
-of falling back to a staging buffer + OPTIMAL image + vkCmdCopyBufferToImage,
-which borgvk does not execute (that fallback left the texture all-black).
-Only for color formats that the optimal path already samples.
 
 **line 420, in `borgvk_GetPhysicalDeviceFormatProperties2`, above `VkFormatFeatureFlags buf = 0;`**
 
@@ -446,11 +399,6 @@ them, so one function serves every signature.
 
 Queue work runs on a thread when it has to (a submit waiting on work that has not been
 submitted yet), as in lavapipe and v3dv; the sync type has real state and a move().
-
-**line 1087, in `borgvk_CreateDevice`, above `device->queue.driver_submit = borgvk_queue_submit;`**
-
-On every vkQueueSubmit, read the MVP from the bound uniform buffer and
-ship it to the FPGA over serial. This is the driver's whole render path.
 
 **line 1116, in `borgvk_GetInstanceProcAddr`, above `PUBLIC VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL`**
 
@@ -658,21 +606,6 @@ and v2 forms are both implemented because the runtime records whichever the app 
 
 ## borgvk_wsi.c
 
-**line 1, in `(file level)`, above ``**
-
-* WSI (window-system integration) for borgvk.  borgvk's real output is the
-FPGA's HDMI monitor, reached over serial at submit time.  WSI only needs to
-function (surfaces, swapchains, acquire/present all succeed) so an unmodified
-app (e.g. Vulkan-Tools/cube.c) runs its render loop and submits each frame.
-No host window is created.  borgvk overrides every platform surface-creation
-entrypoint to silently return a headless surface (VK_ICD_WSI_PLATFORM_HEADLESS)
-regardless of what WSI the app requests.  Mesa's headless WSI backend (always
-initialized by wsi_device_init) then handles swapchain/acquire/present without
-opening any display connection.  The app's window-system call succeeds, its
-extension check passes, and nothing appears on the workstation screen.
-wsi_device_init + the wsi_*_entrypoints still provide GetSurfaceCapabilities,
-GetSurfaceFormats, etc.; only surface *creation* is overridden here.
-
 **line 63, in `borgvk_wsi_finish`, above `static VkResult`**
 
 ── Surface-creation overrides ─────────────────────────────────────────────
@@ -681,198 +614,7 @@ loaded with priority=true before wsi_instance_entrypoints in CreateInstance).
 Each function ignores its platform-specific parameters and returns a minimal
 headless surface so no window-system connection is ever opened.
 
-## borgvk_serial.c
-
-**line 1, in `(file level)`, above ``**
-
-* Serial transport for borgvk. The real GPU is the ULX3S FPGA, reached over the
-board's FT231X USB-serial bridge (/dev/ttyUSB0 @115200). Each frame the submit
-path hands us the 4×4 model-view-projection matrix; we frame it and write it to
-the port. The firmware (software/borg/borg_kernel.c) decodes the packet and
-renders the frame through the autonomous TBR sequencer.
-Packet format ("0xAD" full-MVP):
-  byte 0      : 0xAD marker
-  bytes 1..64 : 16 little-endian float32, row-major mvp[4][4] (cube.c order)
-  byte 65     : XOR checksum of bytes 1..64
-Total 66 bytes. Unlike the legacy 0xAC rotation matrix, MVP entries are not
-bounded to [-1,1] (projection scales them), so the firmware validates with the
-checksum instead of a magnitude range.
-Sim transport: when $BORGVK_SIM_SOCKET is set, packets go to a Unix domain
-socket instead of the serial port — the interactive verilator/arcilator
-viewer (simulation/verilator/viewer.py) listens there and injects the same
-bytes into the simulated hardware UART RXD line.  Same wire protocol, same
-borg_kernel.c firmware image; only the transport differs.
-
-**line 44, in `(file level)`, above `#define BORGVK_GEOM_PKT_LEN \`**
-
-The geometry packet is a fixed length with padded, fixed-offset regions so the
-UART drain reads a constant byte count (must match the firmware RX_GEOM_*):
-marker, nverts, ntris, MAX_VERTS*3 float32 positions, MAX_TRIS*3 u8 indices,
-MAX_TRIS*3*2 float32 UVs, XOR checksum -- 520 B.
-BORGVK_GEOM_MAX_VERTS/TRIS come from borgvk_private.h.
-
-**line 53, in `(file level)`, above `static int borgvk_serial_fd = -1;`**
-
-Opened lazily on first submit and kept open for the process lifetime. -1 = not
-yet attempted, -2 = open failed (don't retry every frame).
-
-**line 95, in `borgvk_serial_open`, above `static int`**
-
-Connect to the interactive sim viewer's Unix domain socket (see
-simulation/verilator/viewer.py).  Lazily opened on first submit, kept open
-for the process lifetime — same lifecycle as borgvk_serial_open().
-
-**line 128, in `borgvk_sim_socket_open`, above `static void`**
-
-A float32 as its IEEE bits, little-endian: positions and UVs are shader
-datapath values, and the datapath is FP32 -- no conversion.
-
-**line 140, in `put_f32_le`, above `static void`**
-
-Write the full packet, then idle so the receiver sees an inter-packet gap
-to sync on (the firmware's gap-sync waits for the line to go idle before
-trusting the next marker byte — see borg_kernel.c).  `is_socket` selects
-tcdrain() (serial, flushes the kernel TTY write buffer) vs a plain sleep
-(socket writes are already synchronous once write() returns).
-
-**line 165, in `borgvk_transport_write_paced`, above `static bool     borgvk_capture_active = false;`**
-
----- Transport sink: serial port / sim socket (default) or capture buffer ---
-Selection: capture (during a frame wrapped in capture_begin/end) takes
-priority; otherwise $BORGVK_SIM_SOCKET routes to the interactive sim
-viewer; otherwise the real serial port.
-
-**line 174, in `borgvk_transport_write_paced`, above `static void`**
-
-Single emit chokepoint for every framed packet.  In capture mode the bytes
-are appended to the growable buffer (no serial port, no pacing — the sim
-injects them all at once); otherwise they are paced out to the socket or
-serial fd.
-
-**line 235, in `borgvk_transport_capture_end`, above `void`**
-
-Ship the app's real mesh: nverts unique model-space positions, ntris triangles
-each indexing 3 of them, with per-triangle-vertex UVs.  Fixed-offset padded
-regions keep the packet a constant length (see firmware RX_GEOM_*).
-
-**line 272, in `borgvk_serial_send_geom`, above `#define BORGVK_TEX_PKT_LEN (1 + 1 + 16 + BORGVK_TEX_DIM * 4 + 1)`**
-
-0xAF: marker, y, sampler descriptor (4 words LE), BORGVK_TEX_DIM RGBA8
-texels, checksum. Every row carries the sampler, so any row that arrives
-intact delivers it.
-
-**line 296, in `borgvk_serial_send_tex_row`, above `#define BORGVK_SHADER_SMALL   512   /* the firmware's BC_SHADER_MAX; a larger blob goes in`**
-
-0xB0 shader upload: marker, stage(1B), len(2B LE), blob padded to
-BORGVK_SHADER_BLOB_MAX, checksum. Fixed length so the firmware drain reads a
-constant byte count (like 0xAE/0xAF); `len` says how many blob bytes are valid.
-517 B total < the firmware's 0xAF drain buffer, so no RX buffer growth needed.
-
-**line 300, in `borgvk_serial_send_tex_row`, above `#define BORGVK_SHADER_SMALL   512`**
-
-the firmware's BC_SHADER_MAX; a larger blob goes in a 0xC1 packet
-
-**line 333, in `borgvk_serial_send_shader`, above `#define BORGVK_PUSH_MAX_WORDS 32`**
-
-0xB2 push constants: marker, off_words(1B), n_words(1B), data padded to
-BORGVK_PUSH_MAX_WORDS words, checksum.  0xB1 is the firmware's serial-reload
-trigger, hence 0xB2.  Fixed length for the same reason as 0xAE/0xAF/0xB0:
-the firmware drain reads a constant byte count per marker, and `n_words`
-says how much of the payload is valid.
-
-32 words = 128 B = Vulkan 1.0's minimum maxPushConstantsSize, which is what
-this driver advertises.  Raising that limit means growing this AND the
-firmware's BORG_PUSH_CONST_MAX_WORDS together -- the firmware clamps, so a
-mismatch truncates silently rather than corrupting, but it would still be a
-wrong answer.
-
-**line 351, in `borgvk_serial_send_push_constants`, above `if (!values || size == 0 || (offset & 3) || (size & 3)) {`**
-
-Vulkan requires both to be multiples of 4 (VUID-vkCmdPushConstants-offset
--00368 / -size-00369); check rather than assume, because the whole
-word-index mapping below is built on it.
-
-**line 374, in `borgvk_serial_send_push_constants`, above `memcpy(&pkt[3], values, size);`**
-
-memcpy, not a u32 store loop: `values` is void* from the application and
-carries no alignment guarantee, and the wire format is little-endian
-bytes either way.
-
-**line 451, in `borgvk_serial_send_mvp`, above `borgvk_transport_emit(pkt, sizeof(pkt));`**
-
-Paced write: the firmware aligns to packets via the inter-packet IDLE GAP,
-so a blocking app's back-to-back submits would otherwise stream gaplessly
-and freeze the cube (it locks onto the first packet and never re-syncs).
-
-**line 460, in `borgvk_serial_send_mvp`, above `const char *ms_env = getenv("BORGVK_FRAME_MS");`**
-
-Steady frame pacing (BORGVK_FRAME_MS): hold each host frame to a fixed
-wall-clock period.  cube.c spins by a CONSTANT angle per frame, so emitting
-MVPs at a steady rate at/below the FPGA's sustained render rate makes the
-displayed motion advance by exactly one angle step per shown frame —
-removing the judder from subsampling ~60 host fps down to ~15 with a
-variable stride.  Because re-rendering the same MVP yields an identical
-image, the FPGA's per-frame time variance no longer affects the motion.
-Drift-free: the deadline advances by a fixed period, not from "now".
-Unset = no throttle (legacy free-run behaviour).
-
-**line 518, in `borgvk_serial_send_state`, above `void`**
-
-0xC2 viewport and scissor: marker, x y w h minDepth maxDepth (float32 LE), scissor x0 y0 x1 y1
-(u32 LE), csum. Only the simulator's host driver acts on it.
-
-**line 538, in `borgvk_serial_send_viewport`, above `void`**
-
-0xB6 render target: marker, flush format (0 R5G6B5, 1 R8G8B8A8, 2 B8G8R8A8), the clear colour
-(4 x float32 LE), csum. Only the simulator's host driver acts on it.
-
-**line 571, in `emit_checked`, above `void`**
-
-Host-simulator only. 0xB8: write n (<= 256, a multiple of 4 is enough; the rest is padded)
-bytes at heap offset `off` (BORG_HEAP_SPI + off in the device's memory).
-
-**line 585, in `borgvk_serial_send_mem`, above `void`**
-
-Host-simulator only. 0xB9: vertex attribute `slot` is a typed fetch (texture format code
-`fmt`, component swizzle bits `swz` as in the texture descriptor) of `count` rows `stride`
-bytes apart from heap offset `base` (two's complement, may precede the uploaded data).
-
-**line 603, in `borgvk_serial_send_vattr`, above `void`**
-
-Host-simulator only. 0xBA: run a draw. topology 0 list / 1 strip / 2 fan, index_type 0 none /
-1 16-bit / 2 32-bit, index_base = heap offset of the first index.
-
-**line 623, in `borgvk_serial_send_draw`, above `void`**
-
-Host-simulator only: how many colour attachments the pass has, and the flush formats of 1-3.
-
-**line 631, in `borgvk_serial_send_att`, above `void`**
-
-Host-simulator only: the pass's attachments. flags bit 0 depth, 1 stencil, 2 D32_SFLOAT depth.
-
-**line 674, in `borgvk_state_pack`, above `reg[4] = ((uint32_t)rs->cullMode & 3) |`**
-
-VkCullModeFlags bit 0 = front, bit 1 = back, as in CULL_CFG. cube.c's
-CCW winding is the hardware's unmodified facing; CW inverts it.
-
-**line 682, in `borgvk_state_pack`, above `void`**
-
-0xB5: marker, off (LE u32), n (LE u16), desc words 1..3, sampler words,
-BORGVK_TEXG_CHUNK data bytes (zero padded), csum.
-
-**line 712, in `borgvk_serial_send_texture_chunk`, above `void`**
-
-0xC0: marker, the byte offsets of levels 1..12 (LE u32 each), checksum. Precedes the 0xB5
-chunks of a texture with several levels.
-
 ## borgvk_memory.c
-
-**line 1, in `(file level)`, above ``**
-
-* Memory, buffers, images, image views and samplers for borgvk. Everything is
-backed by plain host RAM (the real GPU is the FPGA over serial); these
-entrypoints exist so an app can allocate/bind/map resources during init. The
-submit path (Phase 3) reads the bound uniform buffer's mapped bytes.
 
 **line 172, in `borgvk_DestroyBuffer`, above `VKAPI_ATTR VkResult VKAPI_CALL`**
 
@@ -1629,24 +1371,6 @@ enums go in as they are -- the hardware uses the same encodings.
 
 ## borgvk_queue.c
 
-**line 1, in `(file level)`, above ``**
-
-* Queue submit for borgvk — the single interception point of the driver. cube.c
-records a frame into a command buffer (captured into cmd_buffer->cmd_queue by
-the runtime's vk_cmd_enqueue emulation) and submits it. We never replay those
-commands; instead we locate the bound descriptor set and forward the app's
-real data to the FPGA over serial:
-  binding 0 (uniform buffer) = `struct vktexcube_vs_uniform`:
-      float mvp[4][4];          // bytes   0..63   (updated every frame → 0xAD)
-      float position[12*3][4];  // bytes  64..639  (static mesh → 0xAE)
-      float attr[12*3][4];      // bytes 640..1215 (static UVs)
-  binding 1 (combined image sampler) = the texture (RGBA8 → 0xAF rows)
-Startup: geometry + texture are burst-uploaded once on the first submit, then
-every subsequent submit ships only the MVP.  A sentinel file in /tmp records
-that the FPGA already holds the mesh+texture so subsequent runs in the same
-power cycle skip the upload entirely (~0 s startup instead of ~2 s).
-Set BORGVK_FORCE_UPLOAD=1 to ignore the sentinel and re-upload unconditionally.
-
 **line 83, in `find_color_attachment`, above `struct borgvk_command_buffer *bcb =`**
 
 Mesa emulates the legacy render-pass entrypoints on top of
@@ -1676,17 +1400,6 @@ Ship the pipeline's colour-blend state (BLEND_CFG/BLEND_CONST). blend_cfg is
 never 0 once a graphics pipeline has set it (the write mask resets to 0xF),
 so 0 means "no pipeline yet": leave the hardware at its reset state.
 
-**line 252, in `send_blend_state`, above `static void`**
-
-Ship the borgc-compiled shader blobs (captured at pipeline creation) to the
-firmware once, as part of setup. DRM path → inline ioctl (the shim/kernel owns
-the serial port); serial fallback → direct send. The firmware stages each blob
-into PSRAM in place of its baked borgc_vert/frag_shader[] array.
-
-**line 297, in `submit_is_cube`, above `static VkResult`**
-
-RGB888 sdim×sdim (or the raw words of a RAW32 target) → the colour attachment. Takes ownership of `rgb`.
-
 **line 313, in `sim_store_rgb`, above `bool fits = color_img->mem && color_img->mem->map &&`**
 
 RGB888 sdim×sdim → R8G8B8A8_UNORM attachment (width×height),
@@ -1702,13 +1415,6 @@ memory) must not be written past its backing.
 The sim returns the resolved pixel. A multisampled image packs one plane per
 sample (see borgvk_image_layer_size): put the resolved value in every plane,
 so a later vkCmdResolveImage averages it back to itself.
-
-**line 345, in `sim_store_rgb`, above `static VkResult`**
-
-Feed a captured wire stream to `arcilator_sim --cts-uart` and write the
-rendered RGB888 pixels into the colour attachment (nearest-neighbour scaled,
-opaque alpha). `sim_dim` = 0 uses the vkcube default (128, BORGVK_SIM_DIM);
-otherwise the simulator renders sim_dim x sim_dim. Takes ownership of `bytes`.
 
 **line 362, in `sim_run_stream`, above `uint32_t sdim = sim_dim ? sim_dim : 128;`**
 
@@ -1726,38 +1432,12 @@ BORGVK_SIM_DIRECT=<direct_sim>: Borg alone driven by a host-side driver
 (simulation/direct) -- no firmware, so the target size is free (power of
 two, 4..256, square) and a draw takes well under a second.
 
-**line 387, in `sim_run_stream`, above `const char *keep = getenv("BORGVK_SIM_KEEP");`**
-
-BORGVK_SIM_KEEP=<path>: also keep the stream, for replaying it by hand
-with scripts/cts_uart_render.py.
-
 **line 430, in `sim_run_stream`, above `const uint32_t WIN = 128;`**
 
 A target over 128 pixels is rendered as 128-pixel windows (the hardware draws a large
 framebuffer as several windows, docs/B1_geometry_front_end.md); the windows are
 independent, so with the direct simulator they are dealt out to one process per core
 and the pieces merged. Window w (row-major) belongs to process w % nparts.
-
-**line 521, in `sim_run_stream`, above `static VkResult`**
-
-Sim path for cube.c: capture the EXACT serial byte stream borgvk would put on
-the wire (0xB0 borgc shaders + 0xAE geom + 0xAF texture + 0xAD MVP), feed it to
-`arcilator_sim --cts-uart`, and write the rendered pixels into the colour
-attachment.  Unlike the live serial path there is no once-only sentinel: every
-frame ships the full stream because the sim boots fresh per invocation.  This
-exercises the same borgc shaders + protocol as the FPGA, with no serial port.
-
-**line 568, in `borgvk_submit_sim_cube`, above `const char *dump = getenv("BORGVK_SIM_DUMP");`**
-
-Dump the captured wire stream and skip the sim fork -- how the simulation
-goldens' borgvk_capture.bin is produced. Needs no mappable colour
-attachment, so it works against a real WSI swapchain.
-  BORGVK_SIM_DUMP=/path  → write one frame's stream there, then return.
-
-**line 597, in `borgvk_submit_sim_cube`, above `struct tex_conv {`**
-
-A format's source texel to the hardware's: copied, widened from three channels or R/B
-swapped (cs bytes per channel), repacked 16-bit, or a depth part cut from depth/stencil.
 
 **line 637, in `tex_convert`, above `static bool`**
 
@@ -1934,15 +1614,6 @@ Run the recorded commands (copies, clears, blits, events, push constants, render
 state, secondaries) in submission order. The application-facing dispatch only records;
 cmd_dispatch holds the real implementations (see borgvk_CreateDevice).
 
-**line 2052, in `borgvk_queue_submit_work`, above `if (getenv("BORGVK_SIM") || borgvk_hw_enabled()) {`**
-
-Sim path: if BORGVK_SIM is set, render via arcilator_sim and write pixels
-into the colour attachment instead of shipping to the FPGA.
-  - cube.c (UBO-driven): borgvk_submit_sim_cube captures the full serial
-    stream incl. 0xB0 borgc shaders and replays it via --cts-uart, so the
-    sim runs the exact protocol + real shaders as the FPGA.
-  - generic draws already ran, at their place in the replay.
-
 **line 2085, in `borgvk_queue_submit_work`, above `bool has_gem = ubuf->mem->gem_handle != 0 &&`**
 
 DRM path: delegate geometry/texture upload and per-frame MVP to the
@@ -1969,31 +1640,11 @@ platform is compiled in. borgvk uses the software (CPU) WSI path: the host
 window is irrelevant — the real output is the FPGA's HDMI — so WSI only needs
 to function so an app's render loop runs and submits each frame.
 
-**line 45, in `(file level)`, above `VkPhysicalDeviceMemoryProperties memory;`**
-
-Memory layout reported to the app. Borg renders on the FPGA; from the
-host's point of view all "device" memory is plain host-visible RAM that we
-stage and ship over serial, so we expose a single host-visible coherent
-heap.
-
-**line 51, in `(file level)`, above `const struct vk_sync_type *sync_types[2];`**
-
-Submit is synchronous (ship MVP over serial, return), so a single
-immediate-success sync type (borgvk_sync_type) backs fences/semaphores.
-
 **line 55, in `(file level)`, above `int drm_fd;`**
 
 DRM device fd opened during enumeration.  -1 when no borg DRM device is
 found (drm-shim not loaded or no kernel driver).  In that case the driver
 falls back to direct malloc + serial (legacy path).
-
-**line 72, in `(file level)`, above `#define BORGVK_SHADER_BLOB_MAX 1024`**
-
-Compiled Borg-ISA shader blobs (borgc output). Captured per stage at pipeline
-creation and shipped to the firmware over serial (0xB0) at submit-setup, where
-they replace the firmware's baked borgc_vert/frag_shader[] arrays. Only the
-vertex and fragment stages come from the app; the rasterize stage stays baked
-(it is a fixed-function Borg shader, not derived from the app).
 
 **line 85, in `(file level)`, above `#define BORGVK_SRGB_SLOT 41`**
 
@@ -2012,11 +1663,6 @@ cmd buffers). We never replay for rendering, but the runtime wants it set.
 
 Single graphics/compute/transfer queue. cube.c and vulkaninfo both use one
 queue from family 0; multi-queue support can come later.
-
-**line 115, in `(file level)`, above `const struct borg_blend *blend_lower;   /* the fragment stage being compiled blends in the`**
-
-borgc-compiled shader blobs captured at pipeline creation, uploaded to the
-firmware over serial (0xB0) on the first submit.
 
 **line 117, in `(file level)`, above `const struct borg_blend *blend_lower;`**
 
@@ -2098,26 +1744,10 @@ the pass's sRGB decode table (vertex slot 41) is uploaded
 
 the pipeline whose constant pool the pass's slot holds
 
-**line 244, in `(file level)`, above `void borgvk_serial_send_mvp(const float mvp[16]);`**
-
----- Serial transport (borgvk_serial.c) ------------------------------- *
-The "GPU" is the ULX3S FPGA reached over the FT231X serial bridge
-(/dev/ttyUSB0 @115200, overridable via $BORGVK_SERIAL). The submit path
-ships the per-frame 4×4 MVP as a framed packet the firmware decodes.
-
-**line 249, in `(file level)`, above `void borgvk_serial_send_blend(uint32_t blend_cfg, uint32_t blend_const);`**
-
-0xB3: BLEND_CFG and BLEND_CONST register values, applied by the firmware
-before the next draw.
-
 **line 252, in `(file level)`, above `void borgvk_blend_pack(const VkPipelineColorBlendStateCreateInfo *cb,`**
 
 Pack a pipeline's colour-blend state into the BLEND_CFG / BLEND_CONST layout
 (hardware/rdl/borg.rdl); the Vulkan enum values pass through unchanged.
-
-**line 262, in `(file level)`, above `void borgvk_serial_send_mem(uint32_t off, const uint8_t *data, uint32_t n);`**
-
-0xB8 / 0xB9 / 0xBA (simulator): heap write, vertex-attribute fetch descriptor, draw.
 
 **line 270, in `(file level)`, above `#define BORGVK_TEXG_CHUNK 256`**
 
@@ -2130,60 +1760,15 @@ the texture descriptor words 1..3 and the four sampler words
 Max mesh the firmware's fixed-length 0xAE geometry packet carries (must match
 the firmware RX_GEOM_*). cube.c is 8 unique verts / 12 triangles.
 
-**line 286, in `(file level)`, above `void borgvk_serial_send_geom(const float *verts, int nverts,`**
-
-Ship the app's real mesh once (Phase B): nverts unique model-space positions
-(xyz floats), ntris triangles each indexing 3 of them (idx, 3 per tri), with
-per-triangle-vertex UVs (uv, 2 floats per tri-vertex).
-
 **line 292, in `(file level)`, above `#define BORGVK_TEX_DIM 64`**
 
 The Borg texture dimension (must match firmware TEX_WIDTH). The app's texture
 is downsampled to this on the host (lossless at the 128x128 render size).
 
-**line 296, in `(file level)`, above `void borgvk_serial_send_tex_row(int y, const uint8_t *rgba, const uint32_t sampler[4]);`**
-
-Ship one texture row (Phase B): `rgba` is BORGVK_TEX_DIM RGBA8 texels, framed
-as a 0xAF packet together with the four-word sampler descriptor `sampler`
-(struct borgvk_sampler::desc), which the firmware installs as sampler 0.
-
-**line 301, in `(file level)`, above `void borgvk_serial_send_shader(uint8_t stage, const uint8_t *blob, uint32_t len);`**
-
-Ship a borgc-compiled Borg-ISA shader blob to the firmware (0xB0 packet):
-`stage` selects the firmware shader slot (0 = vertex, 1 = fragment), `blob` is
-the .borg bytes (spirb_parse format). The firmware stages it to PSRAM in place
-of its baked borgc_vert/frag_shader[] array before the next render.
-
-**line 307, in `(file level)`, above `void borgvk_serial_send_push_constants(uint32_t offset, uint32_t size,`**
-
-Ship a push-constant range to the firmware (0xB2 packet).  `offset` and
-`size` are BYTES, as Vulkan gives them, and both are required by the spec to
-be multiples of 4; the packet carries words because that is what the shader
-side addresses (LS_BASE + rs1<<2, with borgc pinning rs1 to the field's word
-index).  The firmware stages the bytes and points LS_BASE at them, so a
-borgc-compiled LOAD lands on the right word.
-
-**line 316, in `(file level)`, above `void borgvk_transport_capture_begin(void);`**
-
----- Transport capture (serial ↔ sim unification) --------------------- *
-By default every send_* packet above is written to the serial port (paced).
-Wrapping a sequence between capture_begin/capture_end redirects the identical
-framed bytes into a growable in-memory buffer instead — exactly the byte
-stream borgvk would have put on the wire.  The BORGVK_SIM path captures one
-frame's packets this way and feeds them to `arcilator_sim --cts-uart`, so the
-simulator exercises the same protocol (incl. 0xB0 borgc shaders) as the FPGA,
-with no serial port involved.  Not re-entrant: one capture at a time.
-
 **line 325, in `(file level)`, above `uint8_t *borgvk_transport_capture_end(size_t *out_len);`**
 
 End capture: returns the malloc'd captured bytes (caller frees) and sets
 *out_len; restores serial mode.  Returns NULL with *out_len=0 if empty.
-
-**line 329, in `(file level)`, above `VkResult borgvk_queue_submit(struct vk_queue *queue,`**
-
-Queue submit hook (borgvk_queue.c): reads the MVP from the submitted command
-buffer's bound descriptor set and ships it over serial. Wired into
-device->queue.driver_submit by CreateDevice.
 
 **line 345, in `(file level)`, above `#define BORGVK_LINE_SLOT  16`**
 
@@ -2261,109 +1846,3 @@ bit 0: the shader uses atomics (its grid cannot be split)
 
 borgvk_sync.c: set or reset a VkEvent from the host (queue replay of vkCmdSetEvent / vkCmdResetEvent).
 
-## borgvk_burst_gen.c
-
-**line 1, in `(file level)`, above ``**
-
-* Burst generator for the push-constant end-to-end test (Step 50 item 13,
-phase 2).
-Emits one frame's worth of borgvk wire packets to a file, which the
-simulator replays through its UART (simulation/verilator --cts-uart). The
-point of doing it here rather than building the bytes in Python is that
-every packet comes from the REAL senders in borgvk_serial.c, through the
-same capture transport borgvk uses for its golden captures -- so the burst
-cannot drift from what the driver actually puts on the wire.
-Usage:
-  borgvk_burst_gen <vert.borg> <frag.borg> <out.bin> <r> <g> <b> <a>
-The colour is what gets pushed as the push-constant range. Phase 3 renders
-two bursts with different colours and requires the output to follow, which
-is the only way to prove the shader READ the pushed value rather than
-returning something baked in.
-
-**line 30, in `(file level)`, above `static int`**
-
-Packet order matches what the firmware's drain loop expects, and it is not
-arbitrary: each handler sets skip_gap to say "more of this burst follows
-immediately", and only the MVP does not -- it is the frame trigger, so it
-goes last. Push constants precede it so the values are staged before the
-draw they apply to.
-
-**line 40, in `emit_burst`, above `static const float verts[3 * 3] = {`**
-
-One triangle, submitted twice with opposite winding.
-
-Which winding survives backface culling depends on the screen-space Y
-direction (see the Phase 3 culling history: screen y-down flips the
-winding test), and getting it wrong yields an empty frame that looks
-exactly like a push-constant failure. Sending both removes that
-ambiguity from the experiment: whichever orientation passes culling
-draws, and if both do, the first wins the depth test at equal Z. Either
-way every covered pixel ends up with the pushed colour.
-
-Oversized on purpose (the standard full-screen triangle trick) so it
-covers the whole framebuffer at identity MVP and the test does not
-depend on where the viewport lands.
-
-**line 59, in `emit_burst`, above `static const float uv[2 * 3 * 2] = { 0 };`**
-
-UVs are required by the sender's signature but unused: pushconst.frag
-samples no texture, and no 0xAF rows are sent.
-
-**line 63, in `emit_burst`, above `static const float mvp[16] = {`**
-
-Identity, in cube.c's row-major order -- the geometry is already in the
-clip-space range we want, so the vertex stage must not move it.
-
-**line 77, in `emit_burst`, above `borgvk_serial_send_push_constants(32, 16, color);`**
-
-offset 32 == word index 8, matching testdata/pushconst.frag's
-`layout(offset = 32)` and the window the other two push-constant tests
-pin. 16 bytes = one vec4.
-
-## borgvk_serial_test.c
-
-**line 1, in `(file level)`, above ``**
-
-* Unit tests for wire packets: push constants (0xB2) and geometry (0xAE).
-This exists because the simulator-side test
-(simulation/verilator/main.cpp --push-const-test) BUILDS its own packets
-rather than calling this sender, so on its own it proves the firmware
-parses a correctly-formed packet -- not that borgvk emits one. A byte-order
-slip or an offset miscalculation here would sail straight past it.
-So the expected bytes below are written out literally, in the same shape
-the simulator test constructs, and compared against what the real sender
-produces through the capture transport. The two tests together cover the
-host->firmware path end to end: this one pins the bytes borgvk emits, and
-the simulator one proves the firmware stages exactly those bytes correctly.
-
-**line 53, in `test_well_formed_range`, above `const uint32_t words[4] = {`**
-
-Word offset 8, four words -- deliberately the same range the simulator
-test's second packet uses, so the two tests pin the same bytes.
-
-**line 71, in `test_well_formed_range`, above `for (unsigned i = 0; i < 4; i++) {`**
-
-Payload is little-endian, at the head of the buffer regardless of the
-offset field -- the offset says where it lands, not where it sits.
-
-**line 82, in `test_well_formed_range`, above `bool padded = true;`**
-
-Everything past the supplied words must be zero: the firmware reads a
-constant byte count, so the tail is padding it checksums but ignores.
-
-**line 124, in `test_rejected_ranges`, above `len = 0;`**
-
-Vulkan requires offset and size to be multiples of 4
-(VUID-vkCmdPushConstants-offset-00368 / -size-00369). The word-index
-mapping depends on it, so the sender checks rather than assuming.
-
-**line 159, in `test_rejected_ranges`, above `#define GEOM_MAX_VERTS 16`**
-
-0xAE geometry: positions and UVs are shader datapath values, so they must
-go out as float32 bits (the FP16 packing they used to have reads as
-denormals on the FP32 datapath). Layout mirrors borg_kernel.c RX_GEOM_*.
-
-**line 216, in `test_geometry_packet`, above `static void`**
-
-0xAF: the firmware (borg_kernel.c) reads y at [1], the sampler descriptor
-as four little-endian words at [2..17], the RGBA8 texels from [18].
