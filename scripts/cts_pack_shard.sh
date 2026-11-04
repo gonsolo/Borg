@@ -15,10 +15,10 @@ export PATH="$P/bin:$PATH"
 [[ "$KIND" == fractions ]] && export DEQP_ARGS="--deqp-log-images=disable --deqp-log-shader-sources=disable"
 jobs=${JOBS:-$(nproc)}
 # Runners differ up to 2x in speed: scale the time limits by the golden capture's time here
-# against the workstation's 12.2 s, never below 1.
+# against the workstation's 12.6 s, never below 1.
 t0=$(date +%s%N)
 "$P/simulation/direct/direct_sim" "$P/simulation/direct/bench_capture.bin" 128 128 /dev/null
-slow=$(awk -v ns=$(( $(date +%s%N) - t0 )) 'BEGIN { f = ns / 12.2e9; printf "%.2f", f < 1 ? 1 : f }')
+slow=$(awk -v ns=$(( $(date +%s%N) - t0 )) 'BEGIN { f = ns / 12.6e9; printf "%.2f", f < 1 ? 1 : f }')
 scale() { awk -v t="$1" -v f="$slow" 'BEGIN { printf "%d", t * f }'; }
 VK_GL_CTS="$P/cts" MESA_ROOT="$P/mesa" SIM_BIN="$P/simulation/direct/direct_sim" DIRECT=1 DIRECT_PROGRESS=1 \
   JOBS="$jobs" SIM_BUDGET="$jobs" TMO="$(scale 900)" CASE_TIMEOUT="$(scale "${CASE_TIMEOUT:-120}")" \
