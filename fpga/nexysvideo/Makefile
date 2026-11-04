@@ -31,6 +31,9 @@ MINIMAL_BIT     := $(BUILD_DIR)/minimal/nexysvideo_minimal_top.bit
 # Where the bootloader looks for the program in flash
 FLASH_OFFSET := 0x00400000
 
+# Andreas's UART test program: sends 'Z' over UART forever
+UART_HELLO_SRC := $(ROOT)/fpga/ulx3s/uart_hello.s
+
 help:
 	@echo "make hdmi             - Chisel -> Verilog -> bitstream (HDMI colour bars)"
 	@echo "make program-hdmi     - build if needed, then load onto the board"
@@ -39,6 +42,7 @@ help:
 	@echo "make minimal          - Chisel -> Verilog -> bitstream (minimal SoC: CPU + UART + HDMI on DDR3)"
 	@echo "make program-minimal  - build if needed, then load onto the board"
 	@echo "make flash-slow-test  - write a 1 MB test file into flash (bootloader takes ~5-10 s to copy it)"
+	@echo "make flash-uart-hello - write Andreas's uart_hello program into flash (sends 'Z' over UART)"
 	@echo "make clean            - delete build outputs"
 
 # Regenerate Verilog only when a Chisel file has changed.
@@ -102,7 +106,20 @@ flash-slow-test: $(BUILD_DIR)/slow_test.bin flash.tcl
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
 	    -source $(call host_path,flash.tcl) -tclargs slow_test.bin $(FLASH_OFFSET)
 
+# UART test: Andreas's 4 build steps (assemble, link at address 0, raw bytes, size header),
+# with this nix shell's riscv32-none-elf- tools.
+$(BUILD_DIR)/uart_hello_fw.bin: $(UART_HELLO_SRC)
+	mkdir -p $(BUILD_DIR)
+	riscv32-none-elf-as -march=rv32i -mabi=ilp32 -o $(BUILD_DIR)/uart_hello.o $<
+	riscv32-none-elf-ld -melf32lriscv -Ttext=0x0 -o $(BUILD_DIR)/uart_hello.elf $(BUILD_DIR)/uart_hello.o
+	riscv32-none-elf-objcopy -O binary $(BUILD_DIR)/uart_hello.elf $(BUILD_DIR)/uart_hello_raw.bin
+	python3 -c "import struct; d=open('$(BUILD_DIR)/uart_hello_raw.bin','rb').read(); open('$@','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header')"
+
+flash-uart-hello: $(BUILD_DIR)/uart_hello_fw.bin flash.tcl
+	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
+	    -source $(call host_path,flash.tcl) -tclargs uart_hello_fw.bin $(FLASH_OFFSET)
+
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal flash-slow-test clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal flash-slow-test flash-uart-hello clean
