@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
     Driver drv(sim);
     int r = drv.serve(0, 1);
     report_faults(sim);
+    borg_core_perf_report();
     if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
     return r;
   }
