@@ -42,22 +42,26 @@ One address space, as on the board, where CPU and Borg share SDRAM:
 
 1. direct_sim maps a second memory, the device heap, at `BORG_DEVICE_BASE`; the GPU address space
    grows to 512 MB (private 128 MB at 0, heap from 256 MB).
-2. borgvk allocates `VkDeviceMemory` from the heap (first fit, 4 KiB pages) in the simulator
-   backends; the advertised heap is its size. Behaviour unchanged: the copies still run.
-3. Draw buffers in place: vertex attributes, index buffers and uniform windows point at the
-   buffer's GPU address; the draw heap holds only what the driver builds (state, converted
-   attributes).
-4. Images tiled: optimal images take the tiled layout; copies, clears, blits, resolves and
-   texture uploads address it through `borg_layout`.
-5. Attachments in place: a pass renders at the images' addresses; `copy_in`, `copy_out` and the
-   depth area limit go. Strips render their rows into the same image.
-6. Sampled images in place: texture descriptors point at the image.
-7. Compute in place: the compute job maps the heap; storage buffers and R32/RGBA8 storage images
-   are read at their address through the window base table (step 3 makes it general).
+2. borgvk allocates `VkDeviceMemory` from the heap (first fit, 4 KiB pages, freed pages read as
+   zeros) in the simulator backends; the advertised heap is its size. The copies still run.
+3. Images tiled: optimal images take the tiled layout, depth and stencil as two planes (D16 as
+   16 bits, D24 and D32 as FP32, stencil a byte); copies, clears, blits, resolves, texture uploads
+   and the pass copies go through one texel accessor (`texels.rs`). Images with storage usage
+   stay linear until 7: compute and fragment shaders address them by rows. The driver corpus
+   hashes images in the linear layout, so its hashes do not depend on the layout.
+4. Attachments in place: a pass renders at the images' addresses; `copy_in`, `copy_out` and the
+   depth area limit go. Strips render their rows into the same image. A clear of a render area
+   that is not tile aligned becomes a load and a host clear of the rectangle.
+5. Sampled images in place: texture descriptors point at the image.
+6. Compute in place: the compute job maps the heap; storage buffers and storage images are read
+   at their address.
+7. Draw buffers in place: vertex attributes, index buffers and uniform windows at the buffer's
+   GPU address. The vertex fetch is a typed fetch from a tight 4096-wide linear image today
+   (`borg_core.c`, 0xB9), so this needs a strided fetch in the texture unit.
 
 Check after each: driver corpus identical or every difference explained, borgc corpus, cube
-capture, `meson test --suite borg`; render_to_image huge and `image.atomic_operations` after 5
-and 7.
+capture, `meson test --suite borg`; render_to_image huge and `image.atomic_operations` after 4
+and 6.
 
 ### 2. Command lists
 
@@ -66,6 +70,12 @@ The driver writes Borg's render lists (`BORG_LIST_SPI` entries, state and parame
 A submit hands the list addresses to the backend, which starts the sequencer and signals the
 fence when it is done; the captured stream, its replay table and `sim_run_stream` go. On the
 board this is a DRM submit ioctl with a fence.
+
+The cube path goes with it. `cube.rs` recognizes cube.c by its uniform buffer and is today the
+only path that draws on the board (serial and self-hosted, through the cube-only `SETUP` and
+`SUBMIT` ioctls). First cube.c renders through the general path on the simulator against the
+golden capture; once the board takes command lists, `cube.rs`, the 0xAD/0xAE/0xAF packets, the
+two ioctls and the firmware's cube UBO code are deleted.
 
 ### 3. Descriptors in memory
 
@@ -78,5 +88,5 @@ limit go. This is stage 1 to 4 of the ISA v2 plan ([B8](B8_isa_v2.md)); its hard
 ## Left out
 
 - A GPU MMU: one process at a time is what Vulkan 1.0 needs.
-- The host-over-serial backend (cube demo): it keeps its copies until the board has GEM with GPU
-  addresses ([B5](B5_gpu_memory.md)); then the board path is the self-hosted driver.
+- The host-over-serial backend: it ends with the cube path; the board path is the self-hosted
+  driver ([B5](B5_gpu_memory.md)).
