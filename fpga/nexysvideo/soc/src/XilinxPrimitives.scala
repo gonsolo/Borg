@@ -52,3 +52,19 @@ class BUFG extends ExtModule{
     val I = IO(Input(Clock()))
     val O = IO(Output(Clock()))
 }
+
+// STARTUPE2: Xilinx block that passes the bootloader's clock to the flash clock pin
+class STARTUPE2 extends ExtModule(Map(
+    "PROG_USR" -> StringParam("FALSE"),     // security feature off
+    "SIM_CCLK_FREQ" -> DoubleParam(0.0)     // simulation only
+)) {
+    val USRCCLKO = IO(Input(Bool()))    // bootloader's spi_clk -> flash clock pin
+    val USRCCLKTS = IO(Input(Bool()))   // 0 = drive the flash clock pin
+    val CLK = IO(Input(Bool()))         // unused, tie 0
+    val GSR = IO(Input(Bool()))         // 1 = reset every flip-flop, tie 0
+    val GTS = IO(Input(Bool()))         // 1 = float every output pin, tie 0
+    val KEYCLEARB = IO(Input(Bool()))   // 0 = clear encryption key, tie 1
+    val PACK = IO(Input(Bool()))        // unused, tie 0
+    val USRDONEO = IO(Input(Bool()))    // DONE pin value, tie 1
+    val USRDONETS = IO(Input(Bool()))   // 1 = leave the DONE pin alone
+}
