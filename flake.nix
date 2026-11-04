@@ -91,7 +91,7 @@
       paths = with pkgs.pkgsCross; [
         riscv32-embedded.buildPackages.gcc
         riscv32-embedded.buildPackages.binutils
-        riscv64-embedded.buildPackages.gcc # firmware (software/borg, software/hutt)
+        riscv64-embedded.buildPackages.gcc # bare-metal test programs (fpga/ulx3s)
         riscv64-embedded.buildPackages.binutils
         riscv64.buildPackages.gcc # Linux userspace and borgvk for RV64 ($CROSS64)
         riscv64.buildPackages.binutils

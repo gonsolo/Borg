@@ -1,19 +1,15 @@
-.PHONY: all clean test borg hutt opensbi linux flash-linux rootfs
+.PHONY: all clean test borg opensbi linux flash-linux rootfs
 
-all: borg hutt
+all: borg
 
 borg:
 	$(MAKE) -C borg
-
-hutt:
-	$(MAKE) -C hutt
 
 test:
 	$(MAKE) -C borg test-native
 
 clean:
 	$(MAKE) -C borg clean
-	$(MAKE) -C hutt clean
 	rm -rf $(OPENSBI_OUT) $(LINUX_OUT)
 
 # rootfs/toolchain build products are large (musl+compiler-rt+busybox source
