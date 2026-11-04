@@ -27,7 +27,7 @@ public:
   static constexpr uint32_t MEM_BYTES = BORG_DEVICE_BASE + BORG_DEVICE_BYTES;
 
   BorgDirectSimTop model;
-  uint8_t *mem;   // MEM_BYTES; the process's own, or mappings shared with the driver (--raw)
+  uint8_t *mem;   // MEM_BYTES; the process's own, or mappings shared with the driver
   uint64_t cycles = 0;
   uint64_t nrd = 0, nwr = 0;
   uint32_t last_rd = 0, last_wr = 0;
