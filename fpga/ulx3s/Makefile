@@ -20,11 +20,7 @@ help:
 	@echo ""
 	@echo -e "$(BOLD)Hardware programming:$(RESET)"
 	@echo -e "  flash:\t\tFlash ECP5 bitstream to onboard config flash."
-	@echo -e "  flash-firmware:\tFlash firmware (with size header) to flash offset 0x400000."
 	@echo -e "  minimal-boot:\t\tBuild + flash a minimal firmware — tests FlashBootLoader (D.3)."
-	@echo -e "  deploy:\t\tBuild + flash bitstream + kernel firmware. Power-cycle to run,"
-	@echo -e "\t\t\tthen run ../run-vkcube.sh on the host (see run-vkcube.sh)."
-	@echo -e "  reload:\t\tRebuild kernel.bin and stream it over serial (no reflash/reconfig)."
 	@echo ""
 	@echo -e "$(BOLD)Utilities:$(RESET)"
 	@echo -e "  print_resources:\tCheck LUT, DFF, BRAM usage."
@@ -139,35 +135,6 @@ flash: borg.bit
 reset:
 	openFPGALoader -b ulx3s -r
 
-######### Firmware (onboard SDRAM boot flow) ######################################################
-
-FIRMWARE_DIR = ../../software/borg
-
-# Flash firmware requires a 4-byte little-endian size header prepended.
-# The FlashBootLoader reads this header first to know how many bytes to copy.
-# firmware_with_header.bin = [uint32_le size] + [firmware bytes]
-firmware_with_header.bin: $(FIRMWARE_DIR)/kernel.bin
-	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to firmware ..."
-	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/kernel.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
-
-# -DTARGET_ULX3S selects the ULX3S address map (UART_BASE = SoC debug UART,
-# DRAM_BASE = SDRAM) and disables the simulation done-wait in borg_kernel.c.
-.PHONY: $(FIRMWARE_DIR)/kernel.bin
-$(FIRMWARE_DIR)/kernel.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S" kernel
-
-# Flash firmware blob to onboard flash at 0x400000.
-# FlashBootLoader will copy it to SDRAM at boot.
-flash-firmware: firmware_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Firmware flashed. Resetting FPGA ..."
-	openFPGALoader -b ulx3s -r
-	@echo -e "$(BOLD)[DONE]$(RESET) Board is rebooting — attach tio now."
-
-# Minimal boot test (D.3): tiny 4-byte RISC-V infinite loop + size header.
-# Boot LED[6] = boot_done lights up if FlashBootLoader completes successfully.
 # UART Hello firmware: sends 'Z' repeatedly via debug UART (0x08000018).
 uart_hello_fw.bin: uart_hello.s
 	@echo -e "$(BOLD)[FW]$(RESET) Assembling uart_hello.s ..."
@@ -275,38 +242,6 @@ minimal-boot: borg.bit minimal.bin
 	@echo -e "  LED[7] = pll_locked (lights immediately)"
 	@echo -e "  LED[6] = boot_done  (lights after ~1 ms — FlashBootLoader done)"
 
-kernel_with_header.bin: $(FIRMWARE_DIR)/kernel.bin
-	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to kernel firmware ..."
-	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/kernel.bin','rb').read(); open('kernel_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> kernel_with_header.bin')"
-
-flash-kernel: kernel_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Kernel firmware flashed. Start tio, then: make reset"
-
-# Serial firmware reload — NO reflash, NO FPGA reconfig, so the HDMI monitor
-# never loses sync.  Rebuilds kernel.bin and streams it to the running firmware
-# over /dev/ttyUSB0; the firmware warm-resets and reboots into it.
-.PHONY: reload
-reload:
-	@echo -e "$(BOLD)[RELOAD]$(RESET) Rebuilding kernel.bin ..."
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S" kernel
-	@echo -e "$(BOLD)[RELOAD]$(RESET) Streaming kernel.bin over serial (no reflash) ..."
-	python3 host/reload.py /dev/ttyUSB0 $(FIRMWARE_DIR)/kernel.bin
-
-# Full kernel deploy: synth + P&R + pack, flash bitstream + firmware.
-# After power-cycle: ECP5 loads bitstream → FlashBootLoader copies firmware
-# to SDRAM → Hutt boots → kernel waits for borgvk → cube.c renders via GPU.
-deploy: borg.bit firmware_with_header.bin
-	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing kernel firmware @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Power-cycle board to run."
-	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
-	@echo -e "  After boot: run cube with BORGVK_SERIAL=/dev/ttyUSB0 ./cube"
-
 # Print resource utilisation after synthesis
 print_resources: yosys.log
 	@LUTS=$$(grep -E '^\s+[0-9]+ +LUT4$$' yosys.log | tail -n1 | awk '{print $$1}'); \
@@ -366,14 +301,10 @@ borg-loopback.bit: borg-loopback.config
 	ecppack --svf borg-loopback.svf borg-loopback.config borg-loopback.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-loopback.bit ready."
 
-# Same kernel firmware as the direct-Borg demo -- rung A's whole point is that
-# firmware/borgvk/HDMI scanout are unchanged; only how Borg is reached differs.
-flash-loopback: borg-loopback.bit kernel_with_header.bin
+flash-loopback: borg-loopback.bit
 	@echo -e "$(BOLD)[FLASH]$(RESET) Writing loopback ECP5 bitstream to onboard flash ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-loopback.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
+	@echo -e "$(BOLD)[DONE]$(RESET) Flashed."
 
 ######### Rungs B/C: Borg reached through the link RTL over real pins ##############################
 
@@ -417,16 +348,11 @@ borg-external.bit: borg-external.config
 	ecppack --svf borg-external.svf borg-external.config borg-external.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-external.bit ready."
 
-# Same kernel firmware as the direct-Borg/rung-A demos -- rung B's whole point
-# is that firmware/borgvk/HDMI scanout are unchanged; only how Borg is reached
-# differs, and now it's reached over the real physical J1/J2 ribbon loom
-# (dn_* -> jumper -> up_*) instead of internal wires.
-flash-external: borg-external.bit kernel_with_header.bin
+# Borg over the real physical J1/J2 ribbon loom (dn_* -> jumper -> up_*).
+flash-external: borg-external.bit
 	@echo -e "$(BOLD)[FLASH]$(RESET) Writing external-link ECP5 bitstream to onboard flash ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-external.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
+	@echo -e "$(BOLD)[DONE]$(RESET) Flashed."
 
 ######### Rung B: the whole bridge, master<->slave routed out over pads #########################
 
@@ -470,13 +396,10 @@ borg-padloop.bit: borg-padloop.config
 	ecppack --svf borg-padloop.svf borg-padloop.config borg-padloop.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-padloop.bit ready."
 
-# Same kernel firmware as every other rung -- only how Borg is reached differs.
-flash-padloop: borg-padloop.bit kernel_with_header.bin
+flash-padloop: borg-padloop.bit
 	@echo -e "$(BOLD)[FLASH]$(RESET) Writing pad-loop ECP5 bitstream to onboard flash ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-padloop.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
+	@echo -e "$(BOLD)[DONE]$(RESET) Flashed."
 
 ######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
 
@@ -720,7 +643,7 @@ clean:
 	rm -f borg-padloop.bit borg-padloop.config borg-padloop.json borg-padloop.svf \
 	      yosys-padloop.log nextpnr-padloop.log .verilog_stamp_ulx3s_padloop
 
-.PHONY: all help load flash flash-firmware minimal-boot \
+.PHONY: all help load flash minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
         flash-hdmi-tiled minimal-hdmi flash-hdmi-fill minimal-hdmi-fill \
         flash-hdmi-halfsplit \

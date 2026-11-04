@@ -1,83 +1,7 @@
-# Absolute path to RDL-generated headers.
-# Exported by the top-level Makefile; derive via git for standalone invocations.
-RDL_C_OUT ?= $(shell git rev-parse --show-toplevel)/out/hardware/borg/rdl
-
-# Texture DRAM byte address — derived from borg_layout.h anchors so it
-# stays in sync when SEQ_MAX_DRAWS or SEQ_DESC_STRIDE changes.
-_desc_base   := $(shell sed -n 's/.*SEQ_DESC_BASE_ADDR[[:space:]]\+\(0x[0-9a-fA-F]\+\).*/\1/p' borg_layout.h)
-_max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
-_desc_stride := $(shell sed -n 's/.*SEQ_DESC_STRIDE[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
-TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(_desc_stride) )))
-
-# Bare-metal firmware, selectable by XLEN: 32 (default, ULX3S/ASIC/TT --
-# RV32I + Zicsr, ilp32; no M/F/D -- multiply/divide is soft, see
-# $(HUTT_SDK)/mul32.s) or 64 (RV64I + Zicsr, soft-float lp64d -- HW-verified,
-# but no longer what the ULX3S bitstream's Hutt core is: RV64IMAC + Sv39
-# didn't fit the ECP5-85K alongside FP32 Borg, see ULX3S.scala's own comment.
-# 64 stays available for the separate OpenSBI/Linux bring-up harnesses
-# (MinimalSocSimTop et al.), which build through software/hutt directly, not
-# this Makefile). Toolchains from flake.nix's pkgsCross riscv{32,64}-embedded.
-# export so the recursive `$(MAKE) -C $(HUTT_SDK)` below picks up the same
-# XLEN. Override TOOLCHAIN= if your prefix differs.
-export XLEN ?= 32
-
-ifeq ($(XLEN),32)
-TOOLCHAIN ?= riscv32-none-elf
-ARCH = rv32i_zicsr
-ABI  = ilp32
-else
-TOOLCHAIN ?= riscv64-none-elf
-ARCH = rv64ifd_zicsr
-ABI  = lp64d
-endif
-
-CC = $(TOOLCHAIN)-gcc
-AS = $(TOOLCHAIN)-as
-AR = $(TOOLCHAIN)-ar
-LD = $(TOOLCHAIN)-ld
-OBJCOPY = $(TOOLCHAIN)-objcopy
-
-# Disable Nixpkgs compiler wrapper hardening flags which pollute bare-metal linking
-export HARDENING_DISABLE=all
-export NIX_HARDENING_ENABLE=
-unexport NIX_HARDENING_ENABLE
-
-HUTT_SDK ?= ../hutt
-
-# Clock frequency — must match the FPGA PLL output. Override on the command
-# line: make triangle CLOCK_MHZ=125 (ULX3S) or leave as 4 (ASIC/TT).
-CLOCK_MHZ ?= 4
-
-PROJECT_NAME = kernel
-SHARED_SOURCES = borg_core.c borg_driver.c borg_fpu.c borg_spirb.c borg_math.c
-PROJECT_SOURCES = borg_kernel.c $(SHARED_SOURCES)
-HEADERS = $(wildcard *.h)
-
-all: python kernel
-
-.PHONY: all kernel replay replay-linux replay-drm python test-native clean
-
-kernel: python
-	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
-
-# Host-free frame: the captured borgvk burst (simulation/golden) linked in; see borg_replay.c.
-REPLAY_CAPTURE ?= ../../simulation/golden/borgvk_capture.bin
-replay_capture.h: $(REPLAY_CAPTURE)
-	@{ echo 'static const unsigned char replay_capture[] = {'; od -An -v -t u1 -w16 $< | sed 's/ *\([0-9][0-9]*\)/\1,/g'; echo '};'; echo 'static const unsigned replay_capture_len = sizeof(replay_capture);'; } > $@
-
-# The same replay as a static Linux program: /dev/mem at the firmware's fixed addresses (WRAPPER and OUT come from rootfs).
-replay-linux: python replay_capture.h
-	$(WRAPPER) -O2 -march=rv64ima_zicsr_zifencei -mabi=lp64 -static -I$(HUTT_SDK) -I$(RDL_C_OUT) \
-	    -DBORG_LINUX_USER -DTARGET_ULX3S -DCLOCK_MHZ=19 -Wall -o $(OUT) borg_replay.c $(SHARED_SOURCES)
-
-# The same frame through the Borg DRM render node: borg_core.c as on the host, hooks over ioctls.
-replay-drm: python replay_capture.h
-	$(WRAPPER) -O2 -march=rv64ima_zicsr_zifencei -mabi=lp64 -static -D__linux__ -DBORG_HOST \
-	    -I../linux/overlay/include/uapi -I$(LINUX_HDRS) -I$(LINUX_HDRS)/drm -I$(RDL_C_OUT) -Wall \
-	    -o $(OUT) borg_drm_replay.c borg_hw.c borg_core.c borg_spirb.c
-
-replay: python replay_capture.h
-	@$(MAKE) -s PROJECT_NAME=replay PROJECT_SOURCES='borg_replay.c $(SHARED_SOURCES)' replay.bin
+# The host-side pieces of software/borg: the Python bindings and the SPIR-B parser test.
+# borg_core.c, borg_hw.c and borg_spirb.c build into borgvk (mesa) and direct_sim.
+.PHONY: all python test-native clean
+all: python
 
 python:
 	$(MAKE) -C python
@@ -87,47 +11,5 @@ test-native: test_spirb.c borg_spirb.c
 	./test_spirb
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm test_spirb .cflags_stamp
-	$(MAKE) -C compiler clean
+	rm -f test_spirb
 	$(MAKE) -C python clean
-
-# .cflags_stamp carries -march/-mabi, so an XLEN switch reaches start.o too
-# (the runtime's own .arch_stamp then rebuilds it).
-$(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s .cflags_stamp
-	$(MAKE) -C $(HUTT_SDK) $(notdir $@)
-
-# Firmware compile flags, factored into one variable so a change to ANY of them
-# — notably EXTRA_CFLAGS / CLOCK_MHZ, which differ per target (sim vs ULX3S) —
-# forces a rebuild of every object via the .cflags_stamp dep below.  Without
-# this, switching targets silently reuses stale objects compiled with the wrong
-# address map (e.g. UART_BASE), which breaks the firmware on hardware.
-CFLAGS_FW = -O2 -I$(HUTT_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) \
-            -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles \
-            -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror \
-            -lc -DCLOCK_MHZ=$(CLOCK_MHZ) $(EXTRA_CFLAGS)
-
-# Stamp holding the current flags; rewritten ONLY when they actually change
-# (cmp), so objects rebuild exactly when — and only when — the flags differ.
-.PHONY: force_cflags_check
-.cflags_stamp: force_cflags_check
-	@printf '%s' '$(CFLAGS_FW)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(CFLAGS_FW)' > $@
-
-
-%.o: %.c $(HEADERS) .cflags_stamp
-	@$(CC) $(CFLAGS_FW) -c $< -o $@
-
-%.o: %.s
-	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(HUTT_SDK) $< -o $@
-
-.PHONY: $(HUTT_SDK)/hutt.a
-$(HUTT_SDK)/hutt.a:
-	$(MAKE) -C $(HUTT_SDK)
-
-$(PROJECT_NAME).elf: $(HUTT_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(HUTT_SDK)/hutt.a
-	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -Wl,--defsym,TEX_SPI_BYTE_ADDR=$(TEX_SPI_BYTE_ADDR) -T $(HUTT_SDK)/memmap $(HUTT_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(HUTT_SDK)/hutt.a -lc -o $@
-
-$(PROJECT_NAME).bin: $(PROJECT_NAME).elf
-	@$(OBJCOPY) $< -O binary $@
-
-$(PROJECT_NAME).hex: $(PROJECT_NAME).bin
-	@od -An -t x1 -w4 -v $< > $@

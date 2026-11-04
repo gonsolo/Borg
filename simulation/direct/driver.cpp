@@ -28,7 +28,6 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
   size_t i = 0;
   bool target_seen = false;   // a 0xB6 packet carries the app's clear colour; otherwise the default
   while (i < b.size()) {
-    if (b[i] == 0xB1) { i++; continue; }   // serial-reload trigger: not a draw packet
     int len = borg_core_pkt_len(b[i]);
     if (!len || i + (size_t)len > b.size()) {
       fprintf(stderr, "[direct] bad packet 0x%02x at byte %zu\n", b[i], i);
@@ -44,12 +43,6 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
       if (!target_seen)
         borg_core_set_clear(clear_rgb16, clear_rgb16, clear_rgb16);
       borg_core_list_draw();    // queued: one render for the whole pass
-      draws++;
-    }
-    if (kind == BC_MVP && borg_core_ready()) {
-      if (!target_seen)
-        borg_core_set_clear(clear_rgb16, clear_rgb16, clear_rgb16);
-      borg_core_draw(nullptr, 0);
       draws++;
     }
     i += (size_t)len;

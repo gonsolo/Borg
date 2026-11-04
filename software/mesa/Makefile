@@ -1,8 +1,6 @@
-# Build the borgvk Mesa Vulkan driver — the host-side native ICD for the Borg
-# GPU. It runs unmodified Vulkan apps (e.g. Vulkan-Tools/cube.c) on the host and
-# ships rendering work to the ULX3S over serial. Driver source lives in the
-# `mesa/` submodule under src/borg/vulkan/. See
-# ~/.claude/plans/atomic-questing-stream.md.
+# Build the borgvk Mesa Vulkan driver, the native ICD for the Borg GPU. It runs unmodified
+# Vulkan apps (e.g. Vulkan-Tools/cube.c) on the simulated GPU or the board. Driver source lives
+# in the `mesa/` submodule under src/borg/vulkan/.
 
 REPO_ROOT := $(abspath $(CURDIR)/../..)
 MESA_SRC  := $(REPO_ROOT)/mesa
@@ -23,7 +21,7 @@ MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
 # Devenv ICD manifest (points at the in-tree .so; for use via VK_DRIVER_FILES).
 ICD := $(BUILD_DIR)/src/borg/vulkan/borg_devenv_icd.$(shell uname -m).json
 
-.PHONY: all configure build install clean icd-path enumtest inittest submittest vulkaninfo cross-rv64
+.PHONY: all configure build install clean icd-path enumtest inittest vulkaninfo cross-rv64
 
 all: build
 
@@ -74,16 +72,6 @@ inittest: build
 	@echo "--- borgvk init harness ---"
 	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
 		$(BUILD_DIR)/borgvk_init_test
-
-# Phase 3 submit harness: records a frame and submits it, then checks the driver
-# pulled the MVP from the bound uniform buffer and emitted the 0xAD serial packet.
-# Pure host-side (BORGVK_SERIAL → temp file); no FPGA needed.
-submittest: build
-	@gcc borgvk_submit_test.c -o $(BUILD_DIR)/borgvk_submit_test \
-		$$(pkg-config --cflags --libs vulkan)
-	@echo "--- borgvk submit harness ---"
-	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
-		$(BUILD_DIR)/borgvk_submit_test
 
 # Run the system vulkaninfo against the borg driver (lists "Borg (ULX3S)").
 vulkaninfo: build
