@@ -27,20 +27,12 @@ arc.h: state.json
 	python3 arcilator-header-cpp.py $< > $@
 
 SRCS = main.cpp
-OBJS = $(SRCS:.cpp=.o) borg_spirb.o borg_core.o
-# arc.h defines its layout statics non-inline, so exactly one translation unit may
-# include it: main.cpp pulls in driver.cpp (unity build).
-HDRS = direct_sim.h driver.h driver.cpp arc.h $(wildcard $(FIRMWARE_DIR)/*.h) $(RDL_C_OUT)/borg_regs.h
+OBJS = $(SRCS:.cpp=.o)
+# arc.h defines its layout statics non-inline, so exactly one translation unit may include it.
+HDRS = direct_sim.h arc.h $(wildcard $(FIRMWARE_DIR)/*.h) $(RDL_C_OUT)/borg_regs.h
 
 %.o: %.cpp $(HDRS)
 	$(HOSTCXX) -std=c++17 -O3 -I. -I$(RDL_C_OUT) -I$(FIRMWARE_DIR) -c $< -o $@
-
-# The shared driver core, built for the host (register / DRAM access via bh_* in driver.cpp).
-borg_core.o: $(FIRMWARE_DIR)/borg_core.c $(FIRMWARE_DIR)/borg_core.h $(wildcard $(FIRMWARE_DIR)/*.h) $(RDL_C_OUT)/borg_regs.h
-	$(HOSTCC) -O2 -DBORG_HOST -I$(FIRMWARE_DIR) -I$(RDL_C_OUT) -c $< -o $@
-
-borg_spirb.o: $(FIRMWARE_DIR)/borg_spirb.c $(FIRMWARE_DIR)/borg_spirb.h
-	$(HOSTCC) -O2 -DBORG_HOST -I$(FIRMWARE_DIR) -c $< -o $@
 
 direct_sim: $(OBJS) arc.o
 	$(HOSTCXX) -O3 $^ -o $@
@@ -54,12 +46,12 @@ $(VDIR)/filelist.f: $(ROOT)/out/hardware/borg/firrtl_direct/BorgDirectSimTop.fir
 	$(FIRTOOL) $< -O=release --split-verilog --disable-all-randomization \
 	  --lowering-options=disallowLocalVariables,disallowPackedArrays,noAlwaysComb -o $(VDIR)
 
-direct_sim_v: $(VDIR)/filelist.f main_v.cpp main.cpp direct_sim.h driver.h driver.cpp borg_core.o borg_spirb.o
+direct_sim_v: $(VDIR)/filelist.f main_v.cpp main.cpp direct_sim.h
 	rm -rf obj_v
 	verilator --cc --exe --build -j 0 -O3 -x-assign fast -x-initial fast -Wno-fatal -Wno-lint -Wno-style \
 	  --Mdir obj_v -I$(VDIR) -I$(VDIR)/verification -I$(VDIR)/verification/assert --top-module BorgDirectSimTop \
 	  -CFLAGS "-std=c++17 -O3 -DDIRECT_VERILATOR -I$(CURDIR) -I$(RDL_C_OUT) -I$(FIRMWARE_DIR)" \
-	  -LDFLAGS "$(CURDIR)/borg_core.o $(CURDIR)/borg_spirb.o" -DENABLE_INITIAL_MEM_ \
+	  -DENABLE_INITIAL_MEM_ \
 	  $$(sed 's|^|$(VDIR)/|' $(VDIR)/filelist.f) $(wildcard $(VDIR)/verification/layers-*.sv) \
 	  $(CURDIR)/main_v.cpp -o direct_sim_v
 	cp obj_v/direct_sim_v .

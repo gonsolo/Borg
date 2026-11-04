@@ -1,13 +1,13 @@
-// direct_sim <stream.bin> <W> <H> [out.rgb [rgba8]]   -- replay a borgvk wire stream through
-// the driver straight onto the arcilated Borg module; RGB888 goes to stdout (or a file).
-#include "driver.h"
-#include "driver.cpp"
+// direct_sim: the Borg module alone (arcilated, or Verilated as direct_sim_v) as a device for the
+// driver (--raw), a compute job (--compute) or QEMU's MMIO (--bridge).
+#include "direct_sim.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <string>
 #include <iterator>
+#include <vector>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -179,29 +179,6 @@ int main(int argc, char **argv) {
   if ((argc == 4 || argc == 5) && std::string(argv[1]) == "--compute")   // <job> <out> [<device heap fd>]
     return run_compute(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : -1);
   if (argc == 4 && std::string(argv[1]) == "--bridge") return run_bridge(argv[2], argv[3]);
-  if (argc < 4) { fprintf(stderr, "usage: %s <stream.bin> <W> <H> [out.rgb]\n", argv[0]); return 1; }
-  std::ifstream f(argv[1], std::ios::binary);
-  if (!f) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
-  std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-  int W = atoi(argv[2]), H = atoi(argv[3]);
-
-  DirectSim sim;
-  Driver drv(sim);
-  bool rgba8 = argc > 5 && std::string(argv[5]) == "rgba8";
-  drv.init(W, H, rgba8);
-  int draws = drv.run_stream(bytes);
-  report_faults(sim);
-  if (getenv("DIRECT_DBG")) {
-    fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
-    uint32_t p[9];
-    borg_core_perf(p);
-    fprintf(stderr, "[direct] last run: %u cycles, shader %u, issued %u, waits: register %u, branch %u, drain %u"
-            " (empty %u, unit %u, %u drains)\n", p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]);
-  }
-  if (!draws) return 2;
-  auto rgb = borg_core_flush_format() == 3 ? drv.framebuffer_raw32() : drv.framebuffer_rgb();
-  FILE *o = argc > 4 ? fopen(argv[4], "wb") : stdout;
-  fwrite(rgb.data(), 1, rgb.size(), o);
-  if (o != stdout) fclose(o);
-  return 0;
+  fprintf(stderr, "usage: %s --raw [<memory fd> [<heap fd>]] | --compute <job> <out> [<heap fd>] | --bridge <memory file> <socket>\n", argv[0]);
+  return 1;
 }

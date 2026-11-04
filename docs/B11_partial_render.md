@@ -8,7 +8,7 @@ Status: built 2026-10-27 (`BorgDrawTests.a_full_bin_renders_in_parts`,
 Pass 1 bins each triangle into every 4 × 4 tile its bounding box covers, at most 256 per tile
 (`maxTrianglesPerTile`, `SEQ_MAX_TRI`). When a bin is full, `BorgBinner` drops the entry and sets
 a sticky overflow; the sequencer then skips Pass 2, so the render writes nothing, and bit 1 of
-`SEQ_TRIGGER` reports it. The firmware (`borg_core_list_flush`) re-renders a list's draws one
+`SEQ_TRIGGER` reports it. The list builder (`list.rs`, `Builder::flush`) re-renders a list's draws one
 render each. A single draw that alone puts more than 256 triangles into one tile overflows again
 and is silently missing from the frame. The retry is also not exact: it loads colour only
 (`load | 9`), so a depth or stencil aspect the pass clears is cleared again by every draw after
