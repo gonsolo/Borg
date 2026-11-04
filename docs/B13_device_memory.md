@@ -4,7 +4,8 @@ Status: plan, 2026-11-04. Steps are built in order; the driver works after every
 1.1 to 1.6 (heap, tiled images, attachments, sampled images and compute buffers in place); of step 3,
 graphics uniform and storage buffers in place through the draw's binding table (root table word 3: base
 and offset limit per binding, as compute's table); 1.7's vertex pulling for triangle pipelines (binding
-table slot 128 + vertex binding) and index buffers; compute storage images in place; of step 2,
+table slot 128 + vertex binding) and index buffers; storage images (compute, fragment 2D) and
+storage texel buffers in place; of step 2,
 the list builder in the driver (`list.rs`) for the simulator and the device (`dev.rs`, the DRM
 render node or a pipe to `direct_sim`), compute jobs on the same raw device; `borg_core.c` and
 `direct_sim`'s other modes are gone.
@@ -104,6 +105,13 @@ Building the lists while recording needs draws that read memory by its GPU addre
 today they copy what they read when the runtime replays the commands at submit (uniform data as
 heap writes, vertex data, descriptors), which a recorded list would freeze. So step 3 and 1.7
 come before the record-time builder.
+
+Draws that need memory contents to build their list keep that work at submit (decided
+2026-11-05): indirect parameters, and the expanded index lists and attribute copies of points
+and lines. The recorded list holds their parameter block; a fixup the command buffer records
+next to it reads the buffers and writes the block and its heap data just before that render
+runs. A submit runs job by job (dispatches, copies, renders), so the fixup sees what earlier
+jobs wrote. No hardware change: Borg has no command processor to read the parameters itself.
 
 The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
 the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
