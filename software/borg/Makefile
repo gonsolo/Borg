@@ -1,5 +1,5 @@
 # The host-side pieces of software/borg: the Python bindings and the SPIR-B parser test.
-# borg_core.c, borg_hw.c and borg_spirb.c build into borgvk (mesa) and direct_sim.
+# borg_spirb.c builds into borgvk (mesa) and direct_sim, borg_core.c into direct_sim.
 .PHONY: all python test-native clean
 all: python
 

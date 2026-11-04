@@ -1,7 +1,10 @@
 # Device memory, command lists and descriptors
 
 Status: plan, 2026-11-04. Steps are built in order; the driver works after every commit. Built:
-1.1 to 1.5 (heap, tiled images, attachments and sampled images in place).
+1.1 to 1.6 (heap, tiled images, attachments, sampled images and compute buffers in place); of step 2,
+the list builder in the driver (`list.rs`) for the simulator (`direct_sim --raw`) and the device
+(`dev.rs`, the DRM render node or a pipe to `direct_sim --raw`), so `borg_core.c` is left only in
+`direct_sim`'s stream-file mode.
 
 ## Why
 
