@@ -183,12 +183,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rdlRegs.io.hw.perf_stall_value := counter(io.gpuMem.req && !io.gpuMem.ready)
     rdlRegs.io.hw.perf_dma_value   := counter(d.io.busy)
     val st = core.io.issueStats
-    val byKind = if (!cfg.hasProgramCounters) Seq() else (0 until 4).flatMap(k => Seq(st.issued && st.kind === k.U, st.active && st.kind === k.U))
+    val byKind = (0 until 4).flatMap(k => Seq(st.issued && st.kind === k.U, st.active && st.kind === k.U))
     val issue = (Seq(st.issued, st.waitReg, st.waitBranch, st.waitDrain, st.waitEmpty, st.waitUnit, st.drains) ++ byKind)
       .map(counter)
     val sel = RegInit(0.U(4.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(3, 0) }
-    perfIssueRead := VecInit(issue.padTo(16, 0.U(32.W)))(sel)
+    perfIssueRead := VecInit(issue :+ 0.U(32.W))(sel)
   }
 
   private def wireBus(): Unit = {

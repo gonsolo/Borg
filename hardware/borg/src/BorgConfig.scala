@@ -29,7 +29,6 @@ case class BorgConfig(
     hasBlend: Boolean = true,
     hasStencil: Boolean = true,
     hasCompute: Boolean = true,
-    hasProgramCounters: Boolean = true, // perf_issue 7..14: issued and cycles per program kind
     quadSlots: Int = 4
 ) {
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
@@ -69,8 +68,7 @@ object BorgConfig {
   // The ULX3S: what unmodified cube.c uses, since the full set does not fit the ECP5-85K.
   // 1024 bin tiles cover its 128x128 framebuffer.
   val Cube = Default.copy(maxBinTiles = 1024, samples = 1, hasBlend = false,
-                          hasStencil = false, hasCompute = false, hasDepthFlush = false,
-                          hasProgramCounters = false)
+                          hasStencil = false, hasCompute = false, hasDepthFlush = false)
 
   // The ASIC (BorgOnlyTop, QspiSocTop too): Default sized down; cube.frag is 59 words.
   val Wafer = Default.copy(
@@ -78,8 +76,7 @@ object BorgConfig {
     maxBinTiles      = 16,
     maxInstructions  = 64,
     maxUniforms      = 32,
-    quadSlots        = 1,   // its register files are flops
-    hasProgramCounters = false
+    quadSlots        = 1    // its register files are flops
   )
 
   // Unit tests: the tile dirty bits dominate elaboration time.

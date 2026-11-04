@@ -276,7 +276,7 @@ write port, on memory, on TEX, on a branch. Built as `perf_issue` (the last word
 map): write 0..6 to pick instructions issued, waits on a register, behind a branch, for a
 drain, of those the waits for empty stages and while a unit holds them, and drain instructions
 issued; 7..14 pick instructions issued and cycles run per program (fragment, vertex or
-compute, setup ROM, raster ROM), in configs with `hasProgramCounters` (not Cube or Wafer). Each step reports cycles per instruction on the
+compute, setup ROM, raster ROM). Each step reports cycles per instruction on the
 borgc corpus, the quick driver corpus and the cube (frames per second on the board), next to
 LUTs, FFs, block RAM and Fmax.
 
