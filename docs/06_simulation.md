@@ -8,9 +8,8 @@ harness**, the RV64 SoC on Verilator.
 
 `simulation/direct` models Borg alone: no CPU, no firmware, no UART. The GPU's
 RTL (`BorgDirectSimTop`) is compiled with Arcilator, and a small C++ host
-(`driver.cpp`) gives borgvk the device: register writes, reads and polls, and
-the device memory the driver maps (`--raw`), or the driver's packet stream
-(`--serve`, going with B13 step 2).
+gives borgvk the device (`--raw`): register writes, reads and polls, and the
+device memory the driver maps. borgvk builds the render lists itself.
 
 - **Build**: `make -C simulation/direct` builds `direct_sim`;
   `make -C simulation/direct direct_sim_v` the same harness on Verilator, for

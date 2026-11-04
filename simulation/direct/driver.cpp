@@ -51,61 +51,6 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
   return draws;
 }
 
-// Serve mode: packets on `in`, answers on `out`, memory shared with the driver process.
-//   0xBC w16 h16   set the target size; answers 28 bytes: the byte addresses of the colour,
-//                  depth and stencil attachments, of the heap and of colour attachments 1-3
-//                  (u32 each, little endian)
-//   0xBE k n r16   render strip k of n strips of r tile rows each, from now on
-//   0xBD           answers one byte when every draw so far has finished
-//   anything else  a wire packet for borg_core_packet(); a draw packet renders
-#include <unistd.h>
-static bool read_all(int fd, uint8_t *p, size_t n) {
-  while (n) { ssize_t r = read(fd, p, n); if (r <= 0) return false; p += r; n -= (size_t)r; }
-  return true;
-}
-static bool write_all(int fd, const uint8_t *p, size_t n) {
-  while (n) { ssize_t r = write(fd, p, n); if (r <= 0) return false; p += r; n -= (size_t)r; }
-  return true;
-}
-int Driver::serve(int in, int out) {
-  std::vector<uint8_t> pkt(BC_PKT_LEN_MAX);
-  for (;;) {
-    if (!read_all(in, pkt.data(), 1)) return 0;
-    if (pkt[0] == 0xBC) {
-      if (!read_all(in, &pkt[1], 4)) return 0;
-      borg_core_list_flush();
-      init(pkt[1] | pkt[2] << 8, pkt[3] | pkt[4] << 8, false);
-      const uint32_t a[7] = {DRAM_OUT_BASE_SPI, BORG_ZB_SPI, BORG_SB_SPI, BORG_HEAP_SPI,
-                             BORG_ATT_SPI(1), BORG_ATT_SPI(2), BORG_ATT_SPI(3)};
-      uint8_t r[28];
-      for (int i = 0; i < 7; i++) for (int k = 0; k < 4; k++) r[4 * i + k] = a[i] >> (8 * k);
-      if (!write_all(out, r, 28)) return 0;
-      continue;
-    }
-    if (pkt[0] == 0xBE) {
-      if (!read_all(in, &pkt[1], 4)) return 0;
-      borg_core_list_flush();
-      borg_core_set_strip(pkt[1], pkt[2], pkt[3] | pkt[4] << 8);
-      continue;
-    }
-    if (pkt[0] == 0xBD) {
-      borg_core_list_flush();
-      uint8_t ok = 1;
-      if (!write_all(out, &ok, 1)) return 0;
-      continue;
-    }
-    int len = borg_core_pkt_len(pkt[0]);
-    if (!len) { fprintf(stderr, "[direct] bad packet 0x%02x\n", pkt[0]); return 1; }
-    if (!read_all(in, &pkt[1], (size_t)len - 1)) return 0;
-    int kind = borg_core_packet(pkt.data());
-    if (kind == BC_BAD) { fprintf(stderr, "[direct] rejected packet 0x%02x\n", pkt[0]); continue; }
-    if (kind == BC_DRAW) {
-      borg_core_list_draw();
-      draws++;
-    }
-  }
-}
-
 // The attachment's 32-bit words (RAW32 target), pixel order, little endian.
 std::vector<uint8_t> Driver::framebuffer_raw32() const {
   std::vector<uint8_t> out((size_t)W * H * 4);
