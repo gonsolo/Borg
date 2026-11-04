@@ -5,9 +5,11 @@ import chisel3._
 import chisel3.util._
 import chisel3.experimental.{Analog, attach}
 
-import soc.{MinimalSoCLogic, HdmiScanoutFp16, TmdsEncoder}
+import soc.{MinimalSoCLogic, HdmiScanoutFp16, TmdsEncoder, Emit}
 
 import memory.{FlashBootLoader, MigBackend}
+
+import _root_.circt.stage.ChiselStage
 
 // Minimal Nexys Video top: Hutt CPU + memory controller + UART + HDMI scan-out, on DDR3. No Borg GPU.
 // Start-up order:
@@ -199,4 +201,105 @@ class nexysvideo_minimal_top(val CLOCK_MHZ: Int = 25, fbSize: Int = 32) extends 
     flashBoot.io.backend.done := Mux(!bootDone, backend.io.backend.done, false.B)
     flashBoot.io.backend.busy := Mux(!bootDone, backend.io.backend.busy, false.B)
     flashBoot.io.backend.accept := Mux(!bootDone, backend.io.backend.accept, false.B)
+
+    // HDMI clock: 125 MHz, a pixel every 5th cycle
+    val hdmiClock = clkGen.io.clk125
+    val hdmiRst   = pllRst
+
+    // Pixel tick: 1 on every 5th cycle = 25 MHz pixel rate
+    val hdmiCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
+    val hdmiTick25 = (hdmiCount === 4.U)
+    withClockAndReset(hdmiClock, hdmiRst) {
+        when(hdmiTick25) { hdmiCount := 0.U } .otherwise { hdmiCount := hdmiCount + 1.U }
+    }
+
+    // Screen timing: 640x480 at 60 Hz
+    val hCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(10.W)) }
+    val vCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(10.W)) }
+    val hTotal = 800.U;  val vTotal = 525.U
+    val hActive = 640.U; val vActive = 480.U
+    val hFront = 16.U;   val hSync = 96.U
+    val vFront = 10.U;   val vSync = 2.U
+    withClockAndReset(hdmiClock, hdmiRst) {
+        when(hdmiTick25) {
+            when(hCount === hTotal - 1.U) {
+                hCount := 0.U
+                when(vCount === vTotal - 1.U) { vCount := 0.U }
+                .otherwise { vCount := vCount + 1.U }
+            } .otherwise { hCount := hCount + 1.U }
+        }
+    }
+    val de    = (hCount < hActive) && (vCount < vActive) // inside the visible area
+    val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
+    val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync))
+
+    // Scan-out screen side: which pixel, and its clock
+    scanout.io.hCount := hCount
+    scanout.io.vCount := vCount
+    scanout.io.de     := de
+    scanout.io.tick25 := hdmiTick25
+    scanout.io.pixClk.get := hdmiClock
+    scanout.io.pixRst.get := hdmiRst
+
+    // Boot delay
+    val scanoutBootDelay = withClockAndReset(sysClock, pllRst) { RegInit(0.U(21.W)) }
+    val scanoutReady     = scanoutBootDelay(20)
+    withClockAndReset(sysClock, pllRst) {
+        when(!scanoutReady) { scanoutBootDelay := scanoutBootDelay + 1.U }
+    }
+    scanout.io.enable := scanoutReady
+
+    // TMDS encoders: 8-bit colour -> 10-bit HDMI code (blue also carries hsync/vsync)
+    val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
+    encB.io.en := hdmiTick25; encB.io.data := scanout.io.blue
+    encB.io.c  := Cat(vsync, hsync); encB.io.de := de
+    val encG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
+    encG.io.en := hdmiTick25; encG.io.data := scanout.io.green
+    encG.io.c  := 0.U; encG.io.de := de
+    val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
+    encR.io.en := hdmiTick25; encR.io.data := scanout.io.red
+    encR.io.c  := 0.U; encR.io.de := de
+
+    // The encoder takes 2 cycles, so the serializers load 2 cycles after the tick
+    val hdmiTick25D1 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25, false.B) }
+    val hdmiTick25D2 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25D1, false.B) }
+
+    // Serializers (Xilinx ODDR): 10 bits out one at a time
+    val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+    serB.io.en := hdmiTick25D2; serB.io.tmds := encB.io.tmds
+    val serG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+    serG.io.en := hdmiTick25D2; serG.io.tmds := encG.io.tmds
+    val serR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+    serR.io.en := hdmiTick25D2; serR.io.tmds := encR.io.tmds
+    val serClk = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+    serClk.io.en := hdmiTick25D2; serClk.io.tmds := "b0000011111".U // HDMI clock pattern
+
+    // Wire-pair buffers onto the HDMI pins 
+    val bufB = Module(new OBUFDS); bufB.I := serB.io.out
+    val bufG = Module(new OBUFDS); bufG.I := serG.io.out
+    val bufR = Module(new OBUFDS); bufR.I := serR.io.out
+    val bufClk = Module(new OBUFDS); bufClk.I := serClk.io.out
+    hdmi_tx_clk_p := bufClk.O
+    hdmi_tx_clk_n := bufClk.OB
+    hdmi_tx_p := Cat(bufR.O, bufG.O, bufB.O)
+    hdmi_tx_n := Cat(bufR.OB, bufG.OB, bufB.OB)
+
+    // LEDs (same layout as ulx3s_minimal_top)
+    // LD7: clocks stable (pllLocked)
+    // LD6: program copied from flash into DDR3 (bootDone)
+    // LD5-LD2: bootloader step, as a 4-bit number (stays at the first step until DDR3 is calibrated)
+    // LD1: memory busy (MigBackend busy)
+    // LD0: UART transmit line (flickers when the CPU sends text)
+    led := Cat(pllLocked, bootDone, flashBoot.io.debug_state, backend.io.backend.busy, uo_out_val(6))
+}
+
+object NexysVideoMinimalMain extends App{
+    val targetDir = "out/nexysvideo_minimal/verilog"
+    Emit.cleanTargetDir(targetDir)
+
+    ChiselStage.emitSystemVerilogFile(
+        gen = new nexysvideo_minimal_top(),
+        args = Array("--target-dir", targetDir),
+        firtoolOpts = Emit.firtoolOpts
+    )
 }
