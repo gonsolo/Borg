@@ -102,8 +102,7 @@ static void wr(const void *p, size_t n) {
   while (n) { ssize_t r = write(1, b, n); if (r <= 0) exit(0); b += r; n -= (size_t)r; }
 }
 // The memories may be the driver's: the private one and the device heap (memfds, -1: the process's own).
-static int run_raw(int mem_fd, int heap_fd) {
-  DirectSim sim(mem_fd, heap_fd);
+static int raw_loop(DirectSim &sim) {
   for (uint8_t c; rd(&c, 1);) {
     uint32_t a[2];
     if (c == 'W') {
@@ -137,6 +136,13 @@ static int run_raw(int mem_fd, int heap_fd) {
     } else return 1;
   }
   return 0;
+}
+static int run_raw(int mem_fd, int heap_fd) {
+  DirectSim sim(mem_fd, heap_fd);
+  int r = raw_loop(sim);
+  report_faults(sim);
+  if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
+  return r;
 }
 
 // direct_sim --bridge <memory file> <socket>: the Borg behind QEMU's "borg" device.  The device
@@ -173,15 +179,6 @@ int main(int argc, char **argv) {
   if ((argc == 4 || argc == 5) && std::string(argv[1]) == "--compute")   // <job> <out> [<device heap fd>]
     return run_compute(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : -1);
   if (argc == 4 && std::string(argv[1]) == "--bridge") return run_bridge(argv[2], argv[3]);
-  if ((argc == 3 || argc == 4) && std::string(argv[1]) == "--serve") {   // --serve <memory fd> [<device heap fd>]
-    DirectSim sim(atoi(argv[2]), argc == 4 ? atoi(argv[3]) : -1);
-    Driver drv(sim);
-    int r = drv.serve(0, 1);
-    report_faults(sim);
-    borg_core_perf_report();
-    if (sim.progress) fprintf(stderr, "[direct %d] total %llu cycles\n", (int)getpid(), (unsigned long long)sim.cycles);
-    return r;
-  }
   if (argc < 4) { fprintf(stderr, "usage: %s <stream.bin> <W> <H> [out.rgb]\n", argv[0]); return 1; }
   std::ifstream f(argv[1], std::ios::binary);
   if (!f) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
