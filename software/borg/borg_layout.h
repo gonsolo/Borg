@@ -107,6 +107,9 @@
 // Colour attachments 1-3 (simulator), above the stencil plane: 16 MB each, enough for a 4096 x 4096 RAW8 target.
 #define BORG_ATT_SPI(k)         (0x4A00000 + ((k) - 1) * 0x1000000)
 #define BORG_SIM_MEM_BYTES      0x8000000      // the simulator's memory, a power of two above 0x4900000
+// The device heap (simulator): VkDeviceMemory, shared by the driver and every simulator process.
+#define BORG_DEVICE_BASE        0x10000000
+#define BORG_DEVICE_BYTES       0x10000000
 
 // -------------------------------------------------------------------------
 // Framebuffer region — starts immediately after texture.
