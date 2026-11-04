@@ -30,14 +30,14 @@ static void report_faults(DirectSim &sim) {
 // nregs x (gpr, value), nbufs x (byte address, byte size, size bytes of data).  The program is
 // written to IMEM, the buffers to DRAM, one dispatch runs, and every buffer's bytes are written
 // to out.bin in order.  Memory is sequentially consistent (see docs/B0_compiler_contract.md).
-static int run_compute(const char *jobf, const char *outf) {
+static int run_compute(const char *jobf, const char *outf, int heap_fd) {
   std::ifstream f(jobf, std::ios::binary);
   if (!f) { fprintf(stderr, "cannot open %s\n", jobf); return 1; }
   std::vector<uint8_t> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   size_t p = 0;
   auto rd = [&]() { uint32_t v = b[p] | b[p+1] << 8 | b[p+2] << 16 | (uint32_t)b[p+3] << 24; p += 4; return v; };
   uint32_t nprog = rd(), gx = rd(), gy = rd(), gz = rd(), lx = rd(), ly = rd(), lz = rd(), nregs = rd(), nbufs = rd(), bx = rd(), by = rd(), bz = rd();
-  DirectSim sim;
+  DirectSim sim(-1, heap_fd);
   const uint32_t GPR = 0, IMEM = 128, CONTROL = 424, C_CTRL = 752, C_PC = 756, C_XY = 760, C_Z = 764, C_LOCAL = 768;
   sim.mmio(CONTROL, true, 2);
   // IMEM holds 72 words; a longer program lives in DRAM (docs/B0_compiler_contract.md, "All
@@ -160,7 +160,8 @@ static int run_bridge(const char *memf, const char *sockf) {
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--raw") return run_raw();
-  if (argc == 4 && std::string(argv[1]) == "--compute") return run_compute(argv[2], argv[3]);
+  if ((argc == 4 || argc == 5) && std::string(argv[1]) == "--compute")   // <job> <out> [<device heap fd>]
+    return run_compute(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : -1);
   if (argc == 4 && std::string(argv[1]) == "--bridge") return run_bridge(argv[2], argv[3]);
   if ((argc == 3 || argc == 4) && std::string(argv[1]) == "--serve") {   // --serve <memory fd> [<device heap fd>]
     DirectSim sim(atoi(argv[2]), argc == 4 ? atoi(argv[3]) : -1);
