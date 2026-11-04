@@ -69,6 +69,7 @@ static struct {
 static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
 static int g_vtab_dirty = 1;
 static int g_natt = 1;                 // colour attachments of the pass (host)
+static uint32_t g_place[6], g_pitch;   // the pass's attachments in device memory (host): colour, depth, stencil, 1-3
 static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each, then their sRGB bits [11:9]
 #endif
 #ifdef BORG_HOST
@@ -154,7 +155,7 @@ static inline uint32_t le32(const uint8_t *b) {
 static void core_apply_layout(void) {
   const int width = borg_fb_width, height = borg_fb_height;
   const uint32_t frame_stride = frame_stride_words();
-  BREG_W(flush_fb_base, DRAM_OUT_SPI(0));
+  BREG_W(flush_fb_base, g_place[0] ? g_place[0] : DRAM_OUT_SPI(0));
   BREG_W(flush_format, g_flush_format | g_nocolor << 3 | g_srgb << 4);
   unsigned int log2_w = 0;
   for (unsigned int w = (unsigned int)width; w > 1; w >>= 1) log2_w++;
@@ -162,7 +163,8 @@ static void core_apply_layout(void) {
 
   // TBR DRAM regions: bin lists, then the setup store.
   // Two frames, one for a target over 4 MB (the simulator's render lists only use frame 0).
-  const uint32_t frames = frame_stride > 0x100000u ? 1u : 2u;
+  // Attachments in device memory leave no frame here.
+  const uint32_t frames = g_place[0] || g_pitch ? 0u : frame_stride > 0x100000u ? 1u : 2u;
   uint32_t fb_end_spi = (uint32_t)DRAM_SPI_BASE + (uint32_t)DRAM_OUT_OFFSET + frames * frame_stride * 4u;
   tbr_bin_base = fb_end_spi;
   // The bins are those of one render window (64 x 64 tiles at most).
@@ -173,6 +175,8 @@ static void core_apply_layout(void) {
 void borg_core_init(int width, int height) {
   borg_fb_width = width;
   borg_fb_height = height;
+  memset(g_place, 0, sizeof g_place);
+  g_pitch = 0;
   half_width_f  = borg_float_from_uint((uint32_t)width / 2);
   half_height_f = borg_float_from_uint((uint32_t)height / 2);
   core_apply_layout();
@@ -630,12 +634,12 @@ static void list_trigger(uint32_t list, uint32_t load) {
   const uint32_t frame_stride = frame_stride_words();
   uint32_t cc_lo = ((uint32_t)clear_b << 16) | FP16_MAX_DEPTH;
   uint32_t cc_hi = ((uint32_t)clear_r << 16) | clear_g;
-  BREG_W(seq_fb_base, DRAM_OUT_SPI(0 * frame_stride));
+  BREG_W(seq_fb_base, g_place[0] ? g_place[0] : DRAM_OUT_SPI(0 * frame_stride));
   const int fb_tiles = borg_fb_width >> 2;
   const int win_tiles = fb_tiles < WINDOW_TILES ? fb_tiles : WINDOW_TILES;
   BREG_W(seq_tiles_per_row, win_tiles);
   BREG_W(seq_tile_rows,     win_tiles);
-  BREG_W(fb_pitch,          fb_tiles);
+  BREG_W(fb_pitch,          g_pitch ? g_pitch : (uint32_t)fb_tiles);
   BREG_W(seq_clear_lo,      cc_lo);
   BREG_W(seq_clear_hi,      cc_hi);
   BREG_W(seq_bin_base,      tbr_bin_base);
@@ -650,7 +654,9 @@ static void list_trigger(uint32_t list, uint32_t load) {
   BREG_W(att_cfg, g_natt > 1 ? (uint32_t)(g_natt - 1) | (7u << 2) : 0u);   // all of 1-3 load what the host put there
   if (g_natt > 1) {
     BREG_W(att_format, g_att_fmt);
-    BREG_W(att_base1, BORG_ATT_SPI(1)); BREG_W(att_base2, BORG_ATT_SPI(2)); BREG_W(att_base3, BORG_ATT_SPI(3));
+    BREG_W(att_base1, g_place[3] ? g_place[3] : BORG_ATT_SPI(1));
+    BREG_W(att_base2, g_place[4] ? g_place[4] : BORG_ATT_SPI(2));
+    BREG_W(att_base3, g_place[5] ? g_place[5] : BORG_ATT_SPI(3));
   }
   if (g_strip_n > 1) {
     const int fb_rows = borg_fb_height >> 2, per = g_strip_rows, y0 = g_strip_k * per;
@@ -734,6 +740,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xC5: return BC_PKT_LEN_BIAS;
   case 0xC6: return BC_PKT_LEN_OCC;
   case 0xBF: return BC_PKT_LEN_ATT;
+  case 0xC7: return BC_PKT_LEN_PLACE;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
 #endif
@@ -752,7 +759,7 @@ int borg_core_packet(const uint8_t *p) {
   // Texture, push-constant and geometry packets overwrite memory the queued draws read, and a
   // target or pass packet starts another render: the queued draws come first.
   switch (p[0]) {
-  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF: case 0xC6:
+  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF: case 0xC6: case 0xC7:
     borg_core_list_flush();
   }
 #endif
@@ -869,6 +876,15 @@ int borg_core_packet(const uint8_t *p) {
     g_att_fmt = att;
     return BC_ATT;
   }
+  case 0xC7: { // place: the pass's attachments in device memory (colour, depth, stencil, 1-3), pitch in tiles; 0 = the fixed planes
+    for (int k = 0; k < 6; k++) g_place[k] = le32(p + 1 + 4 * k);
+    g_pitch = le32(p + 25);
+    if (g_pitch > 4095u) return BC_BAD;
+    core_apply_layout();
+    if (g_place[1]) BREG_W(flush_zb_base, g_place[1]);
+    if (g_place[2]) BREG_W(flush_sb_base, g_place[2]);
+    return BC_PLACE;
+  }
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour, 4 per sample,
                // 5 clamp depth to [0, 1] (D24 kept as FP32)
     int srgb, fmt = wire_format(p[1], &srgb);
@@ -880,8 +896,8 @@ int borg_core_packet(const uint8_t *p) {
       g_ms = (p[2] >> 4) & 1;
       core_apply_layout();
     }
-    BREG_W(flush_zb_base, (p[2] & 1) ? BORG_ZB_SPI : 0);
-    BREG_W(flush_sb_base, (p[2] & 2) ? BORG_SB_SPI : 0);
+    BREG_W(flush_zb_base, (p[2] & 1) ? (g_place[1] ? g_place[1] : BORG_ZB_SPI) : 0);
+    BREG_W(flush_sb_base, (p[2] & 2) ? (g_place[2] ? g_place[2] : BORG_SB_SPI) : 0);
     BREG_W(depth_format, ((p[2] >> 2) & 1) | ((p[2] >> 5) & 1) << 1);
     BREG_W(attach_ms, g_ms);
     return BC_PASS;
