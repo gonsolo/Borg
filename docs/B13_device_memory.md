@@ -64,8 +64,13 @@ One address space, as on the board, where CPU and Borg share SDRAM:
    (`compute.rs`, `SLOT_BASE + slot * SLOT_BYTES`), so the shader first takes binding bases and
    sizes from a per-dispatch table: the first part of step 3.
 7. Draw buffers in place: vertex attributes, index buffers and uniform windows at the buffer's
-   GPU address. The vertex fetch is a typed fetch from a tight 4096-wide linear image today
-   (`borg_core.c`, 0xB9), so this needs a strided fetch in the texture unit.
+   GPU address. Uniform and storage buffers go through the draw's binding table (done). The
+   vertex fetch is a typed fetch from a tight 4096-wide linear image the driver converts at draw
+   time; it becomes vertex pulling in the shader (decided 2026-11-04, in place of a strided fetch
+   in the texture unit): a NIR pass at pipeline creation turns each attribute into loads at
+   `base + index * stride + offset`, with the binding's base and limit from the draw's table,
+   and converts the format in the shader. No RTL change, every vertex format the same way. Then
+   index buffers in place, and line and point expansion off the CPU (it reads the indices).
 
 Check after each: driver corpus identical or every difference explained, borgc corpus, cube
 capture, `meson test --suite borg`; render_to_image huge and `image.atomic_operations` after 4
