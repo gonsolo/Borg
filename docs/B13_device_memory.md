@@ -118,6 +118,14 @@ through a table of set addresses; the slot flattening, `BORGVK_MAX_BINDINGS` and
 limit go. This is stage 1 to 4 of the ISA v2 plan ([B8](B8_isa_v2.md)); its hardware part
 (buffer access through a descriptor, a descriptor cache) is measured for area on the ULX3S.
 
+First piece, storage images and texel buffers in place (decided 2026-11-04): today they are
+windows (a size header, then texels the driver decodes in and encodes back). Instead the
+binding table entry points at the view's 64-byte texture descriptor (B2); a load is a
+`texelFetch` through the texture unit (every format), a store or atomic an address from the
+descriptor's base and row pitch with the format packed in the shader (Vulkan 1.0 storage image
+stores name their format). borgc gets a global access (`LW`/`SW`/atomic at a computed
+address); image robustness is not a Vulkan 1.0 requirement.
+
 ## Left out
 
 - A GPU MMU: one process at a time is what Vulkan 1.0 needs.
