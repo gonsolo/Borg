@@ -1,5 +1,5 @@
-// direct_sim: the Borg module alone (arcilated, or Verilated as direct_sim_v) as a device for the
-// driver (--raw) or QEMU's MMIO (--bridge).
+// direct_sim [<memory fd> [<device heap fd>]]: the Borg module alone (arcilated, or Verilated as
+// direct_sim_v) as the driver's device on stdin/stdout; --bridge: QEMU's MMIO.
 #include "direct_sim.h"
 #include <cstdio>
 #include <cstring>
@@ -23,7 +23,7 @@ static void report_faults(DirectSim &sim) {
   if (st & STATUS_REG_T__EXEC_FAULT_bm) fprintf(stderr, "[direct] FAULT: exec mask stack over- or underflow\n");
 }
 
-// direct_sim --raw: the bare device on stdin/stdout, standing in for the DRM render node.
+// The bare device on stdin/stdout, standing in for the DRM render node.
 //   'W' n32 (off32 val32)*n   register writes        'R' off32  -> val32
 //   'M' off32 len32 data      memory write           'm' off32 len32 -> data
 //   'P' off32 mask32 val32    -> val32 once (reg & mask) == val, or after 200M cycles
@@ -111,9 +111,9 @@ static int run_bridge(const char *memf, const char *sockf) {
 }
 
 int main(int argc, char **argv) {
-  if (argc >= 2 && argc <= 4 && std::string(argv[1]) == "--raw")   // [<memory fd> [<device heap fd>]]
-    return run_raw(argc > 2 ? atoi(argv[2]) : -1, argc > 3 ? atoi(argv[3]) : -1);
   if (argc == 4 && std::string(argv[1]) == "--bridge") return run_bridge(argv[2], argv[3]);
-  fprintf(stderr, "usage: %s --raw [<memory fd> [<heap fd>]] | --bridge <memory file> <socket>\n", argv[0]);
+  if (argc <= 3 && (argc < 2 || std::string(argv[1]).rfind("--", 0) != 0))
+    return run_raw(argc > 1 ? atoi(argv[1]) : -1, argc > 2 ? atoi(argv[2]) : -1);
+  fprintf(stderr, "usage: %s [<memory fd> [<heap fd>]] | --bridge <memory file> <socket>\n", argv[0]);
   return 1;
 }

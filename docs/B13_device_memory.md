@@ -2,9 +2,9 @@
 
 Status: plan, 2026-11-04. Steps are built in order; the driver works after every commit. Built:
 1.1 to 1.6 (heap, tiled images, attachments, sampled images and compute buffers in place); of step 2,
-the list builder in the driver (`list.rs`) for the simulator (`direct_sim --raw`) and the device
-(`dev.rs`, the DRM render node or a pipe to `direct_sim --raw`), so `borg_core.c` is left only in
-`direct_sim`'s stream-file mode.
+the list builder in the driver (`list.rs`) for the simulator and the device (`dev.rs`, the DRM
+render node or a pipe to `direct_sim`), compute jobs on the same raw device; `borg_core.c` and
+`direct_sim`'s other modes are gone.
 
 ## Why
 
@@ -91,6 +91,11 @@ A backend then runs a render as register writes and `SEQ_TRIGGER`: direct_sim th
 list builder and the 0xB0-0xC8 packets go from the host path. Work done at submit today moves to
 record time or into shaders: vertex format conversion, line and point expansion, clears of
 render areas that are not tile aligned.
+
+Building the lists while recording needs draws that read memory by its GPU address at run time:
+today they copy what they read when the runtime replays the commands at submit (uniform data as
+heap writes, vertex data, descriptors), which a recorded list would freeze. So step 3 and 1.7
+come before the record-time builder.
 
 The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
 the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
