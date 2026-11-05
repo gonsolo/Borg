@@ -122,6 +122,13 @@ is built at submit as before, until the fixups replace that. Push constants are 
 buffer's, not the device's. In a 600-case CTS sample 1,256 passes were built while recording and
 56 at submit.
 
+Step 2: no pass builds at submit any more. Clears in a pass and query ends without a draw are
+steps that run in order with the kept batches. A batch whose draws read host memory while
+recording (points and lines, copied textures and windows, indirect parameters) or that runs
+secondaries replays live: its commands are marked, and at submit the replay runs the kept steps
+placed before each command, then the live commands themselves. In a 500-case sample aimed at
+these paths, 140 of 501 passes had live batches, 158 of 1,306 commands.
+
 The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
 the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
 `cube.rs`, the 0xAD/0xAE/0xAF packets, the cube ioctls, the serial transport and the firmware
