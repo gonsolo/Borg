@@ -54,9 +54,8 @@ value to `DRAW_VS_CONST` or `DRAW_FS_CONST` plus `4 * (u - 25)` or
 can eventually carry a real FP32 constant -- `borgc` has no FP32 codegen path
 yet, so every current producer still writes an FP16 bit pattern zero-extended
 into the low 16 bits. This is a wire-format widening only; see
-`mesa/src/borg/compiler/encode.rs`'s `emit_blob` doc comment and
-`software/borg/borg_spirb.h`'s `const_vals` doc comment (same commit) for the
-full note.
+`mesa/src/borg/compiler/encode.rs`'s `emit_blob` doc comment for the full
+note. borgvk reads the draw extension in `list.rs` (`draw_ext`).
 
 The instruction list does **not** include the implicit halt word (0x0000);
 the firmware appends it when loading IMEM.
