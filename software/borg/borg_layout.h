@@ -250,3 +250,8 @@
 // ISA v2 root table for the register-driven draw paths (a list's draws allocate their own):
 // LW/SW base, texture and sampler descriptor tables, buffer table (docs/B8_isa_v2.md).
 #define DRAW_ROOT_SPI               (DRAW_FRAG_SHADER_SPI + DRAW_FRAG_SHADER_MAX_WORDS * 4)
+
+// The tile buffer's depth clear (65504, the largest finite FP16) and the fragment program's
+// IMEM offset.
+#define FP16_MAX_DEPTH              0x7BFF
+#define BORG_IMEM_FRAG_OFFSET       1
