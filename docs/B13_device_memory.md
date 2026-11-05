@@ -129,6 +129,13 @@ secondaries replays live: its commands are marked, and at submit the replay runs
 placed before each command, then the live commands themselves. In a 500-case sample aimed at
 these paths, 140 of 501 passes had live batches, 158 of 1,306 commands.
 
+Step 3: the list builder runs when a batch ends, so while recording for every batch that is not
+live, and writes into a program the command buffer keeps: the memory words of lists, blocks and
+tables, the register writes, a render of the tile windows and the occlusion counts. At submit a
+simulator only replays it, as its strip of tile rows: the lists are the same for every strip, only
+the windows differ. The builders kept per simulator and per device are gone. Quick corpus
+identical with one strip per pass and with every pass split in three; vkcube golden exact.
+
 The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
 the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
 `cube.rs`, the 0xAD/0xAE/0xAF packets, the cube ioctls, the serial transport and the firmware
