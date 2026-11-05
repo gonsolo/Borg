@@ -87,9 +87,9 @@ Lives in `hardware/borg/src/`. `Borg.scala` is the top, with the in-tree FMA pip
 
 If you add or change a register, edit the `.rdl`, then re-run `make rdl` (or any target that depends on `.verilog_stamp`).
 
-### Host-side C (`software/borg/`)
+### Memory layout
 
-There is no GPU firmware: the serial vkcube demo and its `borg_kernel.c` were removed 2026-11-04. `software/borg/` keeps the limits of borgvk's list builder commands (`borg_core.h`; borgvk's `list.rs` builds the render lists while recording, `borg_core.c` went 2026-11-04), the SPIR-B parser, math and layout headers.
+There is no GPU firmware: the serial vkcube demo was removed 2026-11-04 and `software/borg/` went 2026-11-05. The memory layout (GPU addresses and sizes shared by borgvk, borgc and `direct_sim`) is `hardware/rdl/layout.txt`; `make rdl` generates `out/hardware/borg/rdl/borg_layout.h` from it next to `borg_regs.h`. borgvk's `list.rs` builds the render lists while recording.
 
 ### ULX3S bring-up harnesses (the recent active work)
 
