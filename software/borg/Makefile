@@ -1,5 +1,5 @@
 # The host-side pieces of software/borg: the Python bindings and the SPIR-B parser test.
-# borg_spirb.c builds into borgvk (mesa); borg_core.h is the packet format borgvk reads.
+# borg_spirb.c builds into borgvk (mesa).
 .PHONY: all python test-native clean
 all: python
 
