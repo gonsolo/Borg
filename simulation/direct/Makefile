@@ -29,10 +29,10 @@ arc.h: state.json
 SRCS = main.cpp
 OBJS = $(SRCS:.cpp=.o)
 # arc.h defines its layout statics non-inline, so exactly one translation unit may include it.
-HDRS = direct_sim.h arc.h $(wildcard $(FIRMWARE_DIR)/*.h) $(RDL_C_OUT)/borg_regs.h
+HDRS = direct_sim.h arc.h $(RDL_C_OUT)/borg_regs.h $(RDL_C_OUT)/borg_layout.h
 
 %.o: %.cpp $(HDRS)
-	$(HOSTCXX) -std=c++17 -O3 -I. -I$(RDL_C_OUT) -I$(FIRMWARE_DIR) -c $< -o $@
+	$(HOSTCXX) -std=c++17 -O3 -I. -I$(RDL_C_OUT) -c $< -o $@
 
 direct_sim: $(OBJS) arc.o
 	$(HOSTCXX) -O3 $^ -o $@
@@ -50,7 +50,7 @@ direct_sim_v: $(VDIR)/filelist.f main_v.cpp main.cpp direct_sim.h
 	rm -rf obj_v
 	verilator --cc --exe --build -j 0 -O3 -x-assign fast -x-initial fast -Wno-fatal -Wno-lint -Wno-style \
 	  --Mdir obj_v -I$(VDIR) -I$(VDIR)/verification -I$(VDIR)/verification/assert --top-module BorgDirectSimTop \
-	  -CFLAGS "-std=c++17 -O3 -DDIRECT_VERILATOR -I$(CURDIR) -I$(RDL_C_OUT) -I$(FIRMWARE_DIR)" \
+	  -CFLAGS "-std=c++17 -O3 -DDIRECT_VERILATOR -I$(CURDIR) -I$(RDL_C_OUT)" \
 	  -DENABLE_INITIAL_MEM_ \
 	  $$(sed 's|^|$(VDIR)/|' $(VDIR)/filelist.f) $(wildcard $(VDIR)/verification/layers-*.sv) \
 	  $(CURDIR)/main_v.cpp -o direct_sim_v

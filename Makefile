@@ -15,7 +15,7 @@ help:
 	@echo -e "  ------------------------------------------------------------------------------"
 	@echo -e "  isa-copy-check:\t\tFail if mesa's copy of the ISA spec differs."
 	@echo -e "  no-generated-check:\t\tFail if a generated file is tracked."
-	@echo -e "  rdl:\t\t\t\tGenerate the register block, borg_isa.h and borg_tex_format.h."
+	@echo -e "  rdl:\t\t\t\tGenerate the register block, borg_isa.h, borg_tex_format.h and borg_layout.h."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
@@ -230,7 +230,7 @@ export RDL_C_OUT := $(CURDIR)/out/hardware/borg/rdl
 # resolve to a different nativeBuildInput's bundled interpreter instead.
 RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3-borg-rdl
 
-rdl: $(RDL_SRC)
+rdl: $(RDL_SRC) $(RDL_DIR)/layout.txt
 	@mkdir -p $(RDL_C_OUT)
 	@$(RDL_PYTHON) $(RDL_DIR)/validate_rdl.py
 	@$(RDL_PYTHON) $(RDL_DIR)/generate.py $(RDL_SCALA_OUT) $(RDL_C_OUT)
@@ -239,6 +239,7 @@ rdl: $(RDL_SRC)
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 	@python3-borg-rdl scripts/isa_gen.py hardware/borg/isa --c $(RDL_C_OUT)/borg_isa.h
 	@python3-borg-rdl scripts/tex_format_gen.py hardware/borg/isa/tex_formats.txt --c $(RDL_C_OUT)/borg_tex_format.h
+	@python3-borg-rdl scripts/layout_gen.py $(RDL_DIR)/layout.txt --c $(RDL_C_OUT)/borg_layout.h
 
 # mesa/src/borg/isa is a byte-exact copy of hardware/borg/isa and its two generators.
 ISA_COPY := $(filter-out %/__pycache__,$(wildcard hardware/borg/isa/*)) scripts/isa_gen.py scripts/tex_format_gen.py

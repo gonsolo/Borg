@@ -37,7 +37,7 @@ case class BorgConfig(
   def fifoDepth: Int = 2
   def fattrCacheLog2: Int = 7           // FATTR's varying cache, 2^n components
   def texDescCacheLog2: Int = 2
-  def maxTrianglesPerTile: Int = 256    // at least SEQ_MAX_TRI in software/borg/borg_layout.h
+  def maxTrianglesPerTile: Int = 256    // at least SEQ_MAX_TRI in hardware/rdl/layout.txt
   // The three edges and Zn; the far plane's sample deltas are Zn's, negated.
   def coveragePlanesStored: Int = 4
   def tileDepthBits: Int = 32           // holds every D16/D24 value and D32_SFLOAT exactly

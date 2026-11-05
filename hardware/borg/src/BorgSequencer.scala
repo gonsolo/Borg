@@ -10,7 +10,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // A tile-grid extent never exceeds maxBinTiles; narrow operands shrink the tile-index multiplies.
   private val tileRowWidth = math.min(10, log2Ceil(cfg.maxBinTiles + 1))
 
-  // binRowBytes is at most maxTrianglesPerTile * 2 (borg_layout.h's SEQ_MAX_TRI).
+  // binRowBytes is at most maxTrianglesPerTile * 2 (hardware/rdl/layout.txt's SEQ_MAX_TRI).
   private val binRowBytesWidth = math.min(20, log2Ceil(cfg.maxTrianglesPerTile * 2 + 1))
 
   val start = Input(Bool())

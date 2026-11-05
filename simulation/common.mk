@@ -2,7 +2,6 @@
 
 ROOT         := $(shell git rev-parse --show-toplevel)
 RDL_C_OUT    ?= $(ROOT)/out/hardware/borg/rdl
-FIRMWARE_DIR ?= $(ROOT)/software/borg
 
 # Chisel + RDL sources: a change re-emits the model.
 CHISEL_SRCS = $(shell find $(ROOT)/hardware/borg/src $(ROOT)/hardware/soc/src \

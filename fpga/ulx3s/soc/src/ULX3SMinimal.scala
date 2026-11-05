@@ -91,7 +91,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   }
   scanout.io.frontBuf := false.B   // minimal SoC has no Borg; always read fbBase
   // Minimal SoC has no firmware programming the base; pin it to the test region.
-  // With a Borg the scanout shows its frame: DRAM_OUT_BASE_SPI of software/borg/borg_layout.h.
+  // With a Borg the scanout shows its frame: DRAM_OUT_BASE_SPI of hardware/rdl/layout.txt.
   val fbAddr = if (borgCfg.isDefined) 0x85680 else 0x100000
   scanout.io.fbBase   := fbAddr.U
   scanout.io.fbBase1  := fbAddr.U

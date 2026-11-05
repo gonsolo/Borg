@@ -188,21 +188,6 @@ def emit_python(path, rdl_consts):
         f.write("STARTUP_DELAY_CYCLES = 10000\n")
         f.write("DRAM_SPI_BASE = 0x00001000\n")
         f.write("DRAM_IO_SPI_ADDR = DRAM_SPI_BASE\n")
-        # Parse DRAM layout from borg_layout.h (single source of truth)
-        layout_h = os.path.join(rdl_dir, "..", "..", "software", "borg", "borg_layout.h")
-        layout_vals = {}
-        with open(layout_h) as lh:
-            import re
-            for line in lh:
-                m = re.match(r'#define\s+(\w+)\s+(0x[\da-fA-F]+|\d+)', line)
-                if m:
-                    layout_vals[m.group(1)] = int(m.group(2), 0)
-        dram_out_off = layout_vals.get("DRAM_OUT_OFFSET", 0x84000)
-        tex_byte_addr = layout_vals.get("TEX_DRAM_BYTE_ADDR_FIXED", 0x5000)
-        dram_spi_base = layout_vals.get("DRAM_SPI_BASE", 0x1000)
-        tex_byte_offset = tex_byte_addr - dram_spi_base
-        f.write(f"DRAM_OUT_OFFSET = {dram_out_off}\n")  # from borg_layout.h
-        f.write(f"TEX_DRAM_BYTE_OFFSET = {tex_byte_offset}\n")  # TEX_DRAM_BYTE_ADDR_FIXED - DRAM_SPI_BASE
         f.write("\n")
         
         f.write("# --- SPIR-B Format Constants ---\n")

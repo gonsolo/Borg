@@ -1,0 +1,63 @@
+# Borg memory layout: GPU byte addresses and sizes, shared by the driver, the compiler and the
+# simulator. `make rdl` turns it into borg_layout.h (scripts/layout_gen.py). One entry per line:
+# name, value, comment; a value may use the names above it.
+
+DRAM_SPI_BASE               0x1000        # DRAM word 0
+
+# The texture unit's tables (docs/B2_texture_unit.md): 256 texture descriptors of 64 bytes (slot
+# 0 the application's texture, slots BORG_VATTR_SLOT0.. vertex attributes), then 256 sampler
+# descriptors of 16 bytes, at the start of a 512 KB region; the framebuffer follows it.
+TEX_DESC_TABLE_ADDR         0x5680
+BORG_TEX_SLOTS              256
+SAMPLER_DESC_TABLE_ADDR     TEX_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 64
+BORG_VATTR_SLOT0            128
+BORG_MAX_VATTRS             43            # 16 locations, the point corner or line attribute, 16 more, the rest pulled
+BORG_VTEX_SLOT              BORG_VATTR_SLOT0 + BORG_MAX_VATTRS   # the texture slots as the vertex shader sees them
+TEX_REGION_BYTES            0x80000
+DRAM_OUT_BASE_SPI           TEX_DESC_TABLE_ADDR + TEX_REGION_BYTES   # framebuffer, then bins and setup records
+DRAM_OUT_OFFSET             DRAM_OUT_BASE_SPI - DRAM_SPI_BASE
+
+# Tile binning: a row of SEQ_MAX_TRI 16-bit triangle indices per tile, and a 256-byte setup
+# record per triangle (38 words at 4x MSAA).
+SEQ_MAX_TRI                 256
+TBR_BIN_ENTRY_SIZE          2
+TBR_BIN_ROW_BYTES           SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE
+TBR_SETUP_ENTRY_BYTES       256
+
+# Push constants (128 bytes, word i at byte 4i of the range), the register-driven draw paths'
+# uniform window, the constant windows' u-index ranges, and the shader slots: a draw-mode shader
+# runs from DRAM through the instruction cache, so only its slot bounds its length.
+BORG_PUSH_CONST_SPI         0x400400
+BORG_PUSH_CONST_MAX_WORDS   32
+DRAW_UBO_SPI                BORG_PUSH_CONST_SPI + BORG_PUSH_CONST_MAX_WORDS * 4
+DRAW_FS_CONST_WORDS         12
+DRAW_FS_CONST_U0            20            # u20-u31
+DRAW_VS_CONST_MAX_WORDS     7
+DRAW_VS_CONST_U0            25            # u25-u31
+DRAW_VERT_SHADER_SPI        0x40098C
+DRAW_VERT_SHADER_MAX_WORDS  8188
+DRAW_FRAG_SHADER_SPI        DRAW_VERT_SHADER_SPI + DRAW_VERT_SHADER_MAX_WORDS * 4
+DRAW_FRAG_SHADER_MAX_WORDS  8188
+DRAW_ROOT_SPI               DRAW_FRAG_SHADER_SPI + DRAW_FRAG_SHADER_MAX_WORDS * 4   # LW base, texture, sampler and buffer tables
+
+# The simulator's memory: the per-batch heap, the render lists (entries first, then state and
+# parameter blocks, code, constant windows, descriptor tables), the depth and stencil planes and
+# colour attachments 1-3 (16 MB each); then the device heap, VkDeviceMemory shared by the driver
+# and every simulator.
+BORG_HEAP_SPI               0x2000000
+BORG_HEAP_BYTES             0x2000000
+BORG_LIST_SPI               0x4000000
+BORG_LIST_ENTRY_BYTES       0x10000       # 8191 draws and the end entry
+BORG_LIST_BYTES             0x400000
+BORG_ZB_SPI                 0x4400000
+BORG_SB_SPI                 0x4800000
+BORG_ATT_SPI                0x4A00000     # attachment 1; k at + (k - 1) * BORG_ATT_STRIDE
+BORG_ATT_STRIDE             0x1000000
+BORG_SIM_MEM_BYTES          0x8000000
+BORG_DEVICE_BASE            0x10000000
+BORG_DEVICE_BYTES           0x10000000
+
+# The tile buffer's depth clear (65504, the largest finite FP16) and the fragment program's IMEM
+# offset.
+FP16_MAX_DEPTH              0x7BFF
+BORG_IMEM_FRAG_OFFSET       1

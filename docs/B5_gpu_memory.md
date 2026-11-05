@@ -9,7 +9,7 @@ answers with ENOTTY). QEMU tests: `software/linux/tests/borg_drm_test.c`. The ca
 the advertised heap size and shim parity (below) are still open. Before this, borgvk's GEM numbers collided
 with the driver's INFO and REG_WRITES ioctls. It is a reading of
 `mesa/src/borg/vulkan/borgvk_memory.c`, `mesa/src/borg/drm/borg_shim.c`,
-`software/linux/overlay/drivers/gpu/drm/borg/borg.rs`, `software/borg/borg_layout.h` and
+`software/linux/overlay/drivers/gpu/drm/borg/borg.rs`, `hardware/rdl/layout.txt` and
 `software/linux/borg.dts`. Claims marked *(to verify)* have not been checked.
 
 ## Why
