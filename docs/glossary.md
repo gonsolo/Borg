@@ -48,6 +48,6 @@ the same thing, the **bold** term is preferred in technical writing.
 | **firtool** | LLVM/CIRCT tool that converts Chisel's FIRRTL output to Verilog (or MLIR for Arcilator). |
 | **Arcilator** | CIRCT-based fast simulator: compiles MLIR to LLVM IR, then to a native binary. Faster than Verilator for this design. |
 | **Verilator** | Cycle-accurate C++ simulator compiled from the emitted Verilog. |
-| **direct simulator** | `simulation/direct`: Borg alone (no CPU, no firmware) compiled by Arcilator and fed borgvk's packet stream; the Vulkan CTS runs on it. |
+| **direct simulator** | `simulation/direct`: Borg alone (no CPU, no firmware) compiled by Arcilator and fed borgvk's render lists; the Vulkan CTS runs on it. |
 | **SystemRDL / PeakRDL** | Register-description language + toolchain used to define the MMIO layout (`hardware/rdl/*.rdl`). Generates both `BorgGpuRegs.scala` and `borg_regs.h`. |
 | **borgvk** | The Mesa Vulkan ICD (in `mesa/src/borg/vulkan/`) that runs unmodified `vkcube`: on a host with the ULX3S over serial, on the direct simulator, and on Linux on the board through the DRM driver. |

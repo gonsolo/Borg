@@ -89,7 +89,7 @@ If you add or change a register, edit the `.rdl`, then re-run `make rdl` (or any
 
 ### Host-side C (`software/borg/`)
 
-There is no GPU firmware: the serial vkcube demo and its `borg_kernel.c` were removed 2026-11-04. `software/borg/` keeps the packet format (`borg_core.h`; borgvk's `list.rs` builds the render lists, `borg_core.c` went 2026-11-04), the SPIR-B parser, math and layout headers.
+There is no GPU firmware: the serial vkcube demo and its `borg_kernel.c` were removed 2026-11-04. `software/borg/` keeps the limits of borgvk's list builder commands (`borg_core.h`; borgvk's `list.rs` builds the render lists while recording, `borg_core.c` went 2026-11-04), the SPIR-B parser, math and layout headers.
 
 ### ULX3S bring-up harnesses (the recent active work)
 
@@ -134,8 +134,8 @@ It is the only texture path: the legacy `FTEX` instruction and its
 2026-09-25, and R4-type funct2 = 1 is retired, never reused. borgc emits
 `TEX` with a control word of 0 built in-shader (`FNEG`/`FSTEP` of r30), the
 result block is r20–r23, and r23 is a constant register only in shaders that
-never sample. borgvk writes the texture in place in device memory and sends
-its texture and sampler descriptors (packet 0xC8).
+never sample. borgvk writes the texture in place in device memory and puts
+its texture and sampler descriptors in the draw's tables.
 
 ## Colour attachment formats (RAW)
 
