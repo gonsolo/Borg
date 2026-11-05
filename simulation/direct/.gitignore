@@ -1,5 +1,6 @@
 arc.h
 arc.ll
+arc.bc
 borg.mlir
 state.json
 *.o
