@@ -3,8 +3,8 @@
 Applications reach Borg through **borgvk**, a native Vulkan driver in Mesa
 (`mesa/src/borg/vulkan/`), modelled on v3dv. It builds on Mesa's Vulkan runtime
 for objects, synchronization and WSI, compiles shaders with borgc
-([The Shader Compiler](02_compiler.md)), and turns command buffers into a stream
-of packets: geometry, textures, shaders, state and draws, with device memory in
+([The Shader Compiler](02_compiler.md)), and builds Borg's render lists while
+recording: geometry, textures, shaders, state and draws, with device memory in
 a shared heap ([Device Memory](B13_device_memory.md)). The unmodified Khronos
 `cube.c` runs on it three ways:
 
@@ -70,7 +70,7 @@ static library that `libvulkan_borg.so` links whole.
 | `cmd_buffer`, `render`, `clear`, `copy`, `texel`, `draw`, `dispatch` | command buffers and what they record |
 | `queue`, `state_upload`, `texture_upload`, `heap`, `list`, `corpus` | submission, device memory, the render-list builder, the driver corpus recorder |
 | `compiler`, `compile`, `nir_info`, `nir_passes`, `shader_cache` | shaders through borgc, or from a cache file on the board |
-| `wire`, `transport`, `format`, `drm`, `hw`, `sim`, `sim_process` | packets and the back ends |
+| `wire`, `transport`, `format`, `drm`, `hw`, `sim`, `sim_process` | list builder commands and the back ends |
 
 Image layout, tile addressing, the texel formats (generated from `TexFormat.scala`) and the
 texture and sampler descriptors are a crate of their own, `borg_layout` in

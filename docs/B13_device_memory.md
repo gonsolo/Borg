@@ -136,6 +136,12 @@ simulator only replays it, as its strip of tile rows: the lists are the same for
 the windows differ. The builders kept per simulator and per device are gone. Quick corpus
 identical with one strip per pass and with every pass split in three; vkcube golden exact.
 
+Step 4: a recorded draw sends typed commands (`list::Cmd`) instead of wire packets. The open
+batch keeps them until the draw is complete, then hands them to the builder, so a rejected draw
+leaves nothing behind and an unchanged draw state is still sent once. The markers, checksums,
+padding, the packet decoder and `borg_core.h` are gone. Quick corpus identical by content, vkcube
+golden exact.
+
 The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
 the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
 `cube.rs`, the 0xAD/0xAE/0xAF packets, the cube ioctls, the serial transport and the firmware
