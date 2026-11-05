@@ -113,6 +113,15 @@ next to it reads the buffers and writes the block and its heap data just before 
 runs. A submit runs job by job (dispatches, copies, renders), so the fixup sees what earlier
 jobs wrote. No hardware change: Borg has no command processor to read the parameters itself.
 
+Built (2026-11-05), step 1: a primary command buffer's graphics commands run when recorded as
+well as being recorded for replay (`record.rs`), so a render pass's batches are built while
+recording and kept with the command buffer; the replay skips the pass's draws and runs the kept
+batches. Load clears and resolves stay at submit. A pass whose draws read or write host memory
+while recording (a flag in `Host`), or that clears, queries, draws indirect or runs secondaries,
+is built at submit as before, until the fixups replace that. Push constants are the command
+buffer's, not the device's. In a 600-case CTS sample 1,256 passes were built while recording and
+56 at submit.
+
 The cube path is gone (2026-11-04): the unmodified cube.c renders through the general path on
 the simulator (`scripts/vkcube_host.sh`, golden `simulation/golden/vkcube_00.ppm`), and
 `cube.rs`, the 0xAD/0xAE/0xAF packets, the cube ioctls, the serial transport and the firmware
