@@ -1,6 +1,5 @@
 # Borg - Tiny Open Source Graphics Processing Unit
 
-![GDS wafer.space](../../workflows/gds-wafer-space/badge.svg)
 ![Book](../../workflows/book/badge.svg)
 ![Test](../../workflows/test/badge.svg)
 ![FPGA](../../workflows/fpga/badge.svg)
