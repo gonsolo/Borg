@@ -18,13 +18,14 @@ Borg is a **programmable shader processor**, an FP32 core that runs a 2x2 pixel
 quad on four lanes, surrounded by the fixed function Vulkan needs: a draw front
 end that walks whole draws, a tile-based rasterizer, a descriptor-based texture
 unit, depth, stencil, blending and MSAA. On the ULX3S board a small RISC-V CPU
-(Hutt) runs the firmware or Linux next to it; the ASIC carries Borg alone behind a
-memory link.
+(Hutt) sits next to it, and in its RV64 configuration boots Linux; the ASIC carries
+Borg alone behind a memory link.
 
 Applications reach it through Vulkan: borgvk, a Mesa driver with its own shader
-compiler (borgc), runs the unmodified Khronos `cube.c` on the board, on Linux on
-the board itself, and on a simulator of the RTL that runs the Vulkan conformance
-tests.
+compiler (borgc), runs the unmodified Khronos `cube.c` on a simulator of the RTL,
+which also runs the Vulkan conformance tests. It ran on the board and on Linux on
+the board itself; the board comes back through the Linux DRM driver (see
+[Test and demo modes](B14_test_modes.md)).
 
 The design is written in [Chisel](https://www.chisel-lang.org/), a hardware
 construction language embedded in Scala. Chisel generates synthesizable Verilog
