@@ -49,7 +49,7 @@ Draws run in hardware, started from render lists in memory that the Vulkan drive
 recording a command buffer:
 
 1. **Primitive assembly** — lists, strips, fans, indexed draws, primitive restart and instancing
-2. **Vertex shader** — one run per corner of each triangle; it fetches its attributes from the application's vertex buffers itself
+2. **Vertex shader** — one run per triangle, its three corners on three SIMT lanes; it fetches its attributes from the application's vertex buffers itself
 3. **Setup** — 2D homogeneous triangle setup in a ROM program, so no clipping is needed
 4. **Tile binning and rasterization** — triangles sorted into 4×4-pixel tiles, perspective-correct barycentrics
 5. **Fragment shader** — on 2×2 quads, with depth and stencil tests, blending, occlusion queries and 4× MSAA
