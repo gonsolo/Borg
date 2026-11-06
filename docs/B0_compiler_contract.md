@@ -2,13 +2,11 @@
 
 The hardware changes on branch `feat/vulkan-conformance-gaps` (September
 2026) changed or extended what the shader compiler (`borgc`, in the Mesa fork
-at `mesa/src/borg/compiler/`) and the driver/firmware (`borgvk`,
-`software/borg/`) must do. The RTL side is done and tested; this page
+at `mesa/src/borg/compiler/`) and the driver (`borgvk`) must do. The RTL side is done and tested; this page
 collects everything the software side still has to pick up, so that work
 can happen after tapeout without re-deriving it from the RTL.
 
-The texture items are done: `FTEX` is gone, and borgc, borgvk and the
-firmware use `TEX` and the descriptor tables (see
+The texture items are done: `FTEX` is gone, and borgc and borgvk use `TEX` and the descriptor tables (see
 [Texture sampling](#texture-sampling)).
 
 The source of truth for every encoding below is
@@ -37,7 +35,7 @@ What the compiler must know:
   keeps the line state (valid, epoch, far tag) in a RAM next to it instead of
   flops; a flush bumps the epoch, so it costs nothing per line.
 
-What the driver/firmware must do:
+What the driver must do:
 
 - **Keep the whole program contiguous in DRAM**, not only its tail. Any PC
   can miss, including one inside IMEM whose line far code evicted, and the
@@ -48,15 +46,13 @@ What the driver/firmware must do:
   controls how much is preloaded. It is a 6-bit field, and anything past IMEM
   is simply not preloaded, so the natural setting is `min(program length,
   IMEM − offset)`.
-- **Programs written over MMIO** (the compute path, `borg_fpu.c` helpers):
+- **Programs written over MMIO** (the compute path):
   one that fits needs nothing. One longer than IMEM must be in DRAM, with
   `CODE_BASE` (0x318) written **before** its IMEM words, because the write
   flushes the cache and the IMEM writes that follow are the prefill.
-- **Firmware limits to lift:** `borg_stage_shader` in
-  `software/borg/borg_driver.c` rejects blobs longer than 32 (vertex) or
-  `BORG_IMEM_FRAG_LEN` (fragment) words, and stages them into DRAM slots
-  sized for those limits. Both must grow. The blob's 1-byte `num_instrs`
-  (≤ 255) and the `0xB0` packet size (`RX_SHADER_MAX`) cap it next.
+- **Shader size:** done. The list builder (`list.rs`) stages each blob into
+  a DRAM slot of `DRAW_VERT_SHADER_MAX_WORDS` (8188) words, and the blob
+  header counts instructions in 15 bits.
 
 ## Fragment shaders
 
@@ -208,7 +204,7 @@ a lowering convention, each pinned by a hand-written ISA test in
   so memory is sequentially consistent within a dispatch. Memory barriers
   can compile to nothing.
 
-## Driver and firmware
+## Driver
 
 ### Colour attachment format
 
@@ -224,7 +220,7 @@ plane (hasBlend builds, else opaque) and is MSAA-averaged like colour.
 `FLUSH_ZB_BASE` (nonzero = a depth attachment is bound) now advances per
 tile in autonomous renders: tile `t` writes its 16 × D16_UNORM values at
 `zb_base + 32*t`. Before `bcd7f104`, every tile wrote to the same 32 bytes.
-No firmware uses it yet; `borgvk` must also report D16_UNORM as supported.
+`borgvk` uses it for depth attachments.
 
 ### Occlusion queries
 
