@@ -154,26 +154,23 @@ graph TD
 
 ## Memory Layout
 
+A render pass touches four kinds of memory (addresses from `hardware/rdl/layout.txt`,
+generated into `borg_layout.h`):
+
 ```text
-DRAM address space:
-─────────────────────────────────────────────────────────
-  0x85000 +  framebuffer:   fb_width × fb_height pixels × 2 words (lo/hi)
-           ├─ lo word:      { B[31:16], Z[15:0] }
-           └─ hi word:      { R[31:16], G[15:0] }
-─────────────────────────────────────────────────────────
-  tbr_bin_base:
-  bin list:    num_tiles × SEQ_MAX_TRI × 2 bytes (triangle indices, uint16)
-               Each tile has one row: bin_list[tile][0..count-1]
-─────────────────────────────────────────────────────────
-  tbr_setup_base:
-  setup store: SEQ_MAX_TRI × 128 bytes (31 FP16 uniforms per triangle)
-               addr = setupBase + triIdx × 128
-─────────────────────────────────────────────────────────
+attachments   colour, depth and stencil images in device memory, in place, in
+              the 4x4-tiled layout; the render list carries their addresses
+render list   BORG_LIST_SPI: the entries, then the draws' state and parameter
+              blocks, shader code, constant windows and descriptor tables
+bin list      after DRAM_OUT_BASE_SPI: one row of TBR_BIN_ROW_BYTES per tile,
+              SEQ_MAX_TRI 16-bit triangle indices
+setup store   after the bins: TBR_SETUP_ENTRY_BYTES (256) per triangle,
+              38 words at 4x MSAA; addr = setupBase + (triIdx << 8)
 ```
 
 Per-tile triangle counts live in an **on-chip `SyncReadMem`** inside `BorgBinner`
-(up to 1024 tiles × 10-bit counter). They are never written to DRAM — the
-sequencer queries them directly via the `countRead` port.
+(one counter per tile, up to `maxBinTiles` tiles). They are never written to
+DRAM; the sequencer queries them directly via the `countRead` port.
 
 ## Pass 1: Geometry Pass
 

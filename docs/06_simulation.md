@@ -20,7 +20,9 @@ device memory the driver maps. borgvk builds the render lists itself.
   `simulation/golden/vkcube_00.ppm`.
 - **CTS**: `scripts/cts_par.sh` runs dEQP-VK cases on many instances in
   parallel, see [The Software Driver](03_software_driver.md).
-- **Speed**: roughly 140,000 to 230,000 cycles per second per instance.
+- **Speed**: about 90,000 to 125,000 cycles per second per instance on an idle
+  machine (the model goes through `opt -O3`), less under load. A large
+  fragment-bound pass is split into strips of tile rows, one instance each.
 
 ## Linux Boot Harness
 
