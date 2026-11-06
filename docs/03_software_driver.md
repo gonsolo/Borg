@@ -6,15 +6,13 @@ for objects, synchronization and WSI, compiles shaders with borgc
 ([The Shader Compiler](02_compiler.md)), and builds Borg's render lists while
 recording: geometry, textures, shaders, state and draws, with device memory in
 a shared heap ([Device Memory](B13_device_memory.md)). The unmodified Khronos
-`cube.c` runs on it three ways:
+`cube.c` runs on it:
 
 - **On the host.** borgvk drives `direct_sim`, a compiled model of the Borg RTL
   ([Simulation](06_simulation.md)); the Vulkan CTS runs the same way.
-- **Linux in QEMU.** RISC-V Linux with the Borg DRM driver, the simulated GPU
-  behind it (in progress).
-- **The ULX3S.** Linux on the board's CPU if it fits next to Borg, otherwise
-  Linux in QEMU on the host with the DRM driver driving the FPGA
-  ([Running on an FPGA](04_fpga.md)).
+- **With the DRM driver.** Linux with the Borg DRM driver in User Mode Linux or
+  QEMU, the simulated GPU behind it, and on the boards: the ULX3S and the
+  NiteFury II behind PCIe (planned; [Test and demo modes](B14_test_modes.md)).
 
 ## Memory-Mapped Hardware
 
@@ -24,8 +22,9 @@ into `out/hardware/borg/rdl/borg_regs.h`. The Borg peripheral is accessed at `0x
 
 ## How a Draw Runs
 
-The CPU no longer drives shaders per triangle. It writes a draw's state and
-triggers it with `SEQ_TRIGGER`; the hardware does the rest: primitive assembly
+The CPU no longer drives shaders per triangle. borgvk writes each render pass's
+draws as a render list into memory while recording; a submit points the sequencer
+at it and triggers it with `SEQ_TRIGGER`. The hardware does the rest: primitive assembly
 (lists, strips, fans, indices, restart, instancing), one vertex shader run per
 triangle, varyings stored with `SOUT` and read back with `FATTR`, homogeneous
 setup without clipping, binning into tiles, and one fragment shader run per
@@ -64,13 +63,13 @@ static library that `libvulkan_borg.so` links whole.
 
 | Modules | Contents |
 |---|---|
-| `entrypoint`, `object`, `types`, `util` | the `entrypoint!` macro and handle casts, objects allocated in place, limits and plain data |
+| `lib`, `entrypoint`, `object`, `types`, `util`, `vk` | the crate, the `entrypoint!` macro and handle casts, objects allocated in place, limits and plain data, struct accessors |
 | `device`, `physical_device`, `wsi` | instance and devices, properties and format queries, presentation |
 | `memory`, `image`, `sampler`, `descriptor_set`, `pipeline`, `query`, `sync`, `event` | the Vulkan objects |
-| `cmd_buffer`, `render`, `clear`, `copy`, `texel`, `draw`, `dispatch` | command buffers and what they record |
-| `queue`, `state_upload`, `texture_upload`, `heap`, `list`, `corpus` | submission, device memory, the render-list builder, the driver corpus recorder |
+| `cmd_buffer`, `render`, `clear`, `copy`, `texel`, `texels`, `fmt`, `draw`, `dispatch` | command buffers and what they record, texel formats |
+| `queue`, `record`, `state_upload`, `texture_upload`, `heap`, `list`, `corpus` | submission, passes built while recording, device memory, the render-list builder, the driver corpus recorder |
 | `compiler`, `compile`, `nir_info`, `nir_passes`, `shader_cache` | shaders through borgc, or from a cache file on the board |
-| `wire`, `transport`, `format`, `drm`, `hw`, `sim`, `sim_process` | list builder commands and the back ends |
+| `wire`, `transport`, `format`, `drm`, `dev`, `hw`, `sim` | list builder commands and the back ends: the simulators and the device (DRM node or a pipe) |
 
 Image layout, tile addressing, the texel formats (generated from `TexFormat.scala`) and the
 texture and sampler descriptors are a crate of their own, `borg_layout` in
