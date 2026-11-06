@@ -245,9 +245,11 @@ class nexysvideo_minimal_top(val CLOCK_MHZ: Int = 25, fbSize: Int = 32) extends 
     scanout.io.pixClk.get := hdmiClock
     scanout.io.pixRst.get := hdmiRst
 
-    // Boot delay: scan-out off for around 42 ms after the CPU is released (not after the clocks lock),
-    // so the program gets a clear run at memory. 
-    // On this board DDR3 calibration + boot takes longer than 42 ms
+    // Boot delay: keep the scan-out off for ~42 ms after the CPU is released.
+    // Once on, the scan-out uses memory almost non-stop, and the CPU's instruction fetch has the
+    // lowest priority, so the program needs a head start. The count starts at bootDone, not at
+    // clock lock, because on this board DDR3 calibration + boot can take longer than 42 ms
+    // (counting from clock lock let the scan-out start before the CPU and starve it).
     val scanoutRst       = pllRst || !bootDone
     val scanoutBootDelay = withClockAndReset(sysClock, scanoutRst) { RegInit(0.U(21.W)) }
     val scanoutReady     = scanoutBootDelay(20)
