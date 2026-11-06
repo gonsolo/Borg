@@ -3,5 +3,12 @@
 # feature branches (feat/*) are exempt: only what lands on main is reviewed
 # (scripts/review_commits.py adds Reviewed-by; the pre-push hook checks main).
 branch=$(git symbolic-ref --short -q HEAD)
+# During a rebase HEAD is detached: the branch being rebased.
+if [ -z "$branch" ]; then
+  gd=$(git rev-parse --git-dir)
+  for f in "$gd/rebase-merge/head-name" "$gd/rebase-apply/head-name"; do
+    [ -f "$f" ] && { branch=$(sed 's|^refs/heads/||' "$f"); break; }
+  done
+fi
 case "$branch" in exp/*|feat/*) exit 0 ;; esac
 exec python3 "$(git rev-parse --show-toplevel)/scripts/check_ai_policy.py" --msg-file "$1"
