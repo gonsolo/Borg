@@ -13,6 +13,7 @@ SAMPLER_DESC_TABLE_ADDR     TEX_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 64
 BORG_VATTR_SLOT0            128
 BORG_MAX_VATTRS             43            # 16 locations, the point corner or line attribute, 16 more, the rest pulled
 BORG_VTEX_SLOT              BORG_VATTR_SLOT0 + BORG_MAX_VATTRS   # the texture slots as the vertex shader sees them
+BORG_SCRATCH_SPI            0x10000       # the shaders' private arrays and spills: 16 KB per quad slot, in the region
 TEX_REGION_BYTES            0x80000
 DRAM_OUT_BASE_SPI           TEX_DESC_TABLE_ADDR + TEX_REGION_BYTES   # framebuffer, then bins and setup records
 DRAM_OUT_OFFSET             DRAM_OUT_BASE_SPI - DRAM_SPI_BASE
