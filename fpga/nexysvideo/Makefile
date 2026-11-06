@@ -31,8 +31,9 @@ MINIMAL_BIT     := $(BUILD_DIR)/minimal/nexysvideo_minimal_top.bit
 # Where the bootloader looks for the program in flash
 FLASH_OFFSET := 0x00400000
 
-# Andreas's UART test program: sends 'Z' over UART forever
+# Andreas's test programs (run on the minimal SoC's CPU)
 UART_HELLO_SRC := $(ROOT)/fpga/ulx3s/uart_hello.s
+SDRAM_FB_SRC   := $(ROOT)/fpga/ulx3s/sdram_fb.s
 
 help:
 	@echo "make hdmi             - Chisel -> Verilog -> bitstream (HDMI colour bars)"
@@ -43,6 +44,7 @@ help:
 	@echo "make program-minimal  - build if needed, then load onto the board"
 	@echo "make flash-slow-test  - write a 1 MB test file into flash (bootloader takes ~5-10 s to copy it)"
 	@echo "make flash-uart-hello - write Andreas's uart_hello program into flash (sends 'Z' over UART)"
+	@echo "make flash-sdram-fb   - write Andreas's sdram_fb program into flash (red square on HDMI)"
 	@echo "make clean            - delete build outputs"
 
 # Regenerate Verilog only when a Chisel file has changed.
@@ -119,7 +121,20 @@ flash-uart-hello: $(BUILD_DIR)/uart_hello_fw.bin flash.tcl
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
 	    -source $(call host_path,flash.tcl) -tclargs uart_hello_fw.bin $(FLASH_OFFSET)
 
+# HDMI picture test: Andreas's sdram_fb.s paints the framebuffer at 0x100000 red.
+# Same 4 build steps as the UART test.
+$(BUILD_DIR)/sdram_fb_fw.bin: $(SDRAM_FB_SRC)
+	mkdir -p $(BUILD_DIR)
+	riscv32-none-elf-as -march=rv32i -mabi=ilp32 -o $(BUILD_DIR)/sdram_fb.o $<
+	riscv32-none-elf-ld -melf32lriscv -Ttext=0x0 -o $(BUILD_DIR)/sdram_fb.elf $(BUILD_DIR)/sdram_fb.o
+	riscv32-none-elf-objcopy -O binary $(BUILD_DIR)/sdram_fb.elf $(BUILD_DIR)/sdram_fb_raw.bin
+	python3 -c "import struct; d=open('$(BUILD_DIR)/sdram_fb_raw.bin','rb').read(); open('$@','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header')"
+
+flash-sdram-fb: $(BUILD_DIR)/sdram_fb_fw.bin flash.tcl
+	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
+	    -source $(call host_path,flash.tcl) -tclargs sdram_fb_fw.bin $(FLASH_OFFSET)
+
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal flash-slow-test flash-uart-hello clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal flash-slow-test flash-uart-hello flash-sdram-fb clean
