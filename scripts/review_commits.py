@@ -38,6 +38,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
@@ -106,7 +107,13 @@ def run_rebase(base: str, seq_args: str):
     wrapper.chmod(0o755)
     env = dict(os.environ, GIT_SEQUENCE_EDITOR=str(wrapper))
     env.setdefault("GIT_EDITOR", os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vim")
-    r = subprocess.run(["git", "rebase", "-i", base], cwd=ROOT, env=env)
+    # Without commit-msg: the replayed tree's hook would judge each message half-way, the range
+    # is checked after. post-commit still archives the rewritten commits.
+    with tempfile.TemporaryDirectory() as hooks:
+        pc = ROOT / ".githooks" / "post-commit"
+        if pc.exists():
+            (Path(hooks) / "post-commit").symlink_to(pc)
+        r = subprocess.run(["git", "-c", f"core.hooksPath={hooks}", "rebase", "-i", base], cwd=ROOT, env=env)
     wrapper.unlink(missing_ok=True)
     return r.returncode == 0
 
