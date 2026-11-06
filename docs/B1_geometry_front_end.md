@@ -5,8 +5,8 @@ Status: implemented and tested in simulation, September 2026, on branch
 
 The limits check against Vulkan 1.0 found that the geometry front end falls
 short on most of the vertex-to-fragment path. This page describes how the
-hardware closes those gaps. It is the only geometry path: `borgc`, `borgvk`
-and the firmware target it, and the legacy per-triangle descriptors were
+hardware closes those gaps. It is the only geometry path: `borgc` and `borgvk`
+target it, and the legacy per-triangle descriptors were
 removed (see [The legacy path](#the-legacy-path)).
 
 | Limit                   | Legacy Borg                         | Draw front end                       | Vulkan 1.0              |
@@ -406,7 +406,7 @@ stage reads `gl_PointCoord`. Lines are not built.
 
 **Constant windows.** The vertex constant window is u25-u30 and the fragment
 one u20-u30: `Borg.scala` never lets the DMA write u31, which stays
-firmware-owned, so borgc stops one word short of the register-file layout.
+reserved, so borgc stops one word short of the register-file layout.
 
 ## Records and the uniform bank
 
@@ -536,6 +536,6 @@ holds five varying components; use 10 for up to 64.
 
 ## Not covered yet
 
-Nothing in the hardware list. The firmware's side is still cube-specific:
-it rebuilds cube.vert's UBO from the 0xAE geometry packet, and draws with
-vertex-buffer input (the CTS mailbox path) are not wired up.
+Nothing in the hardware list. borgvk records every draw, cube.c's
+included, into the render list, with vertex buffers bound as attribute
+descriptors (`list::Cmd::Vattr`).
