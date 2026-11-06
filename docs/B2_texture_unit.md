@@ -178,18 +178,16 @@ and checks that the second image equals the first pixel for pixel.
   of (texture, sampler) descriptor slots. An array indexed at run time takes
   consecutive entries, and a pipeline with one texture uses index 0. A
   vertex shader's index k is `BORG_VTEX_SLOT + k`.
-- **Firmware** (`software/borg/borg_driver.c`) stores the texture linear
-  RGBA8 at `TEX_TEXEL_ADDR`, and `borg_set_texture` writes texture
-  descriptor 0 and sampler descriptor 0 at the start of the texture region
-  (`borg_layout.h`), then `TEX_DESC_BASE` and `SAMPLER_DESC_BASE`.
 - **borgvk** packs the sampler descriptor from the app's `VkSampler` at
   `vkCreateSampler`; a descriptor set holds packed sampler descriptors,
-  immutable ones from the layout. The cube sends its texture in `0xAF` row
-  packets (marker, row, four descriptor words, 64 RGBA8 texels, checksum).
-  A draw sends each entry k as `0xC4` (texture slot k, sampler slot k,
-  texel base) followed by the `0xC0` level offsets and `0xB5` texel chunks;
-  the list builder (`list.rs`) writes descriptor k, its vertex copy and sampler k, and the
-  texels at the base (32 slots).
+  immutable ones from the layout. While recording a draw it gives each
+  entry k a texture slot, a sampler slot and a texel base (`list::Cmd::TexSlot`).
+  An image or texel buffer in the device heap whose format the sampler
+  reads unconverted (single-sample, linear or tiled) gets only its
+  descriptor (`Cmd::TexDesc`); any other is converted and tiled into the texel region
+  at the base (`Cmd::TexLevels`, `Cmd::TexChunk`). The list builder
+  (`list.rs`) writes descriptor k, its vertex copy at `BORG_VTEX_SLOT + k`
+  and sampler k into the draw's tables (32 slots).
 
 ## Tests
 
