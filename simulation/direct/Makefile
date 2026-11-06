@@ -69,5 +69,6 @@ GOLD = ../golden
 .PHONY: golden
 golden: direct_sim
 	env -u DISPLAY -u WAYLAND_DISPLAY BORGVK_DUMP_PPM=/tmp/direct_vkcube.ppm DIRECT_BIN=$(CURDIR)/direct_sim \
-	  $(ROOT)/scripts/vkcube_host.sh --c 1 --width 128 --height 128 > /dev/null
+	  $(ROOT)/scripts/vkcube_host.sh --c 1 --width 128 --height 128 > /tmp/direct_vkcube.log 2>&1 \
+	  || { rc=$$?; tail -20 /tmp/direct_vkcube.log; echo "vkcube exit $$rc"; exit 1; }
 	python3 $(ROOT)/scripts/compare_ppm.py /tmp/direct_vkcube.ppm $(GOLD)/vkcube_00.ppm --max-diff 0
