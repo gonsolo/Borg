@@ -60,7 +60,7 @@ depending on your goal:
 0. [Introduction](00_introduction.md) — Motivation and project overview
 1. [The Borg Shader Processor](01_shader_processor.md) — FP32 quad core, registers, instruction cache, the ISA
 2. [The Shader Compiler](02_compiler.md) — borgc: NIR to Borg machine code inside Mesa
-3. [The Software Driver](03_software_driver.md) — borgvk, the Vulkan driver, and its three back ends
+3. [The Software Driver](03_software_driver.md) — borgvk, the Vulkan driver, and where it runs
 4. [Running on an FPGA](04_fpga.md) — ULX3S FPGA target
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification
 6. [Simulation](06_simulation.md) — Verilator, Arcilator, the direct simulator, interactive viewing
@@ -68,26 +68,46 @@ depending on your goal:
 
 ### Appendices
 
-1. [Development Roadmap](A0_roadmap.md) — Phases, tile budget, hardware resources
-2. [Gap Analysis and Vulkan Strategy](A2_gap_analysis.md) — vkcube, SuperTuxKart, "No Graphics API", Vulkan ICD plan
-3. [The Hutt CPU](A3_hutt_cpu.md) — Multi-cycle RV32I/RV64I core with Decoupled buses
-4. [Bibliography](A1_bibliography.md) — References and further reading
-5. [Architectural Tricks](A8_architectural_tricks.md) — 15 tricks for minimizing area
-6. [Project Poster](A9_poster.md) — Academic poster summarizing the Borg GPU architecture
-7. [Compiler and Driver Contract](B0_compiler_contract.md) — Pending borgc/borgvk/firmware follow-ups for the Vulkan conformance hardware
-8. [Geometry Front End](B1_geometry_front_end.md) — Draws walked by hardware, homogeneous setup without clipping, perspective-correct varyings
-9. [Texture Unit](B2_texture_unit.md) — Descriptor-based TEX: any size to 4096, mipmaps, 51 formats, compare, gather, fetch
-10. [Colour Attachment Formats](B3_colour_formats.md) — RAW words the shader packs and blends through TLD: every Vulkan colour format up to 128 bits
-11. [ISA Gaps](B4_isa_gaps.md) — What shaders need and the ISA lacks: pow/log/exp, compares, constants; the sRGB idiom case
-12. [GPU Memory](B5_gpu_memory.md) — Design: VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
-13. [borgc design notes](B6_borgc_notes.md) — Why the Rust shader compiler does what it does
-14. [borgvk design notes](B7_borgvk_notes.md) — Why the Vulkan driver does what it does
-15. [ISA v2](B8_isa_v2.md) — The shader ISA as a RISC-V subset (RV32I, Zfinx, Zmmul, Zbb, Zicond) plus custom GPU ops
-16. [Pipeline](B9_pipeline.md) — Design: an in-order pipeline with interlocks, then several quads in flight
-17. [borgc in SSA](B10_borgc_ssa.md) — Design: basic blocks and SSA in the compiler, exec masks and the linear CFG
-18. [Partial render](B11_partial_render.md) — Design: render what is binned when a bin fills, then continue
-19. [borgc spilling](B12_borgc_spilling.md) — Design: one legalization pass, an allocator that spills in one compile, spill stores in helper lanes
-20. [Device memory, command lists and descriptors](B13_device_memory.md) — Plan: GPU-addressed device memory, images and buffers in place, render lists in memory, descriptor sets in memory
-21. [Test and demo modes](B14_test_modes.md) — Where Mesa, the DRM driver, Linux and the GPU run: simulators, UML, QEMU, ULX3S, NiteFury II
-22. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
-23. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
+**Hardware specifications**
+
+- [Geometry Front End](B1_geometry_front_end.md) — Draws walked by hardware, homogeneous setup without clipping, perspective-correct varyings
+- [Texture Unit](B2_texture_unit.md) — Descriptor-based TEX: any size to 4096, mipmaps, 51 formats, compare, gather, fetch
+- [Colour Attachment Formats](B3_colour_formats.md) — RAW words the shader packs and blends through TLD: every Vulkan colour format up to 128 bits
+- [ISA v2](B8_isa_v2.md) — The shader ISA as a RISC-V subset (RV32I, Zfinx, Zmmul, Zbb, Zicond) plus custom GPU ops
+- [Pipeline](B9_pipeline.md) — An in-order pipeline with interlocks, then several quads in flight
+- [Partial render](B11_partial_render.md) — Render what is binned when a bin fills, then continue
+- [SPIR-B](spirb.md) — The shader binary format borgc writes and borgvk loads
+- [The Hutt CPU](A3_hutt_cpu.md) — Multi-cycle RV32I/RV64I core with Decoupled buses
+
+**Compiler and driver design**
+
+- [borgc in SSA](B10_borgc_ssa.md) — Basic blocks and SSA in the compiler, exec masks and the linear CFG
+- [borgc spilling](B12_borgc_spilling.md) — One legalization pass, an allocator that spills in one compile, spill stores in helper lanes
+- [GPU Memory](B5_gpu_memory.md) — VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
+- [Device memory, command lists and descriptors](B13_device_memory.md) — Device memory and images in place, render lists built while recording, descriptor sets in memory
+- [ISA Gaps](B4_isa_gaps.md) — What shaders need and the ISA lacks: pow/log/exp, compares, constants; the sRGB idiom case
+- [Compiler and Driver Contract](B0_compiler_contract.md) — What borgc and borgvk had to do for the Vulkan conformance hardware
+
+**Testing and status**
+
+- [Test and demo modes](B14_test_modes.md) — Where Mesa, the DRM driver, Linux and the GPU run: simulators, UML, QEMU, ULX3S, NiteFury II
+- [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
+
+**Notes and history**
+
+- [borgc design notes](B6_borgc_notes.md) — Why the Rust shader compiler does what it does
+- [borgvk design notes](B7_borgvk_notes.md) — Why the Vulkan driver does what it does
+- [Development Roadmap](A0_roadmap.md) — Phases, tile budget, hardware resources, as the project went
+- [Gap Analysis and Vulkan Strategy](A2_gap_analysis.md) — The early plan: vkcube, SuperTuxKart, "No Graphics API", the Vulkan ICD
+- [Experiments](A4_experiments.md) — Tried and measured: the nibble-serial FMA and others
+- [Register Architecture](A5_register_architecture.md) — The FP16-era register and uniform storage design (April 2026)
+- [Resource Audit](A6_resource_audit.md) — iCE40 UP5K resources, from before the ECP5
+- [FPGA LC Savings](A7_lc_savings.md) — Where the ECP5 logic cells went (April 2026)
+- [Architectural Tricks](A8_architectural_tricks.md) — 15 tricks for minimizing area
+
+**Reference**
+
+- [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
+- [Bibliography](A1_bibliography.md) — References and further reading
+- [Project Poster](A9_poster.md) — Academic poster summarizing the Borg GPU architecture
+- [Generative AI policy](ai_policy.md) — How Borg follows NLnet's policy
