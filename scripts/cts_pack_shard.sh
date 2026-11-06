@@ -19,9 +19,10 @@ jobs=${JOBS:-$(nproc)}
 t0=$(date +%s%N)
 VK_GL_CTS="$P/cts" MESA_ROOT="$P/mesa" OUT="$O/bench" "$P/scripts/cts_one.sh" dEQP-VK.fragment_operations.scissor.triangles.crossing > /dev/null
 slow=$(awk -v ns=$(( $(date +%s%N) - t0 )) 'BEGIN { f = ns / 15.2e9; printf "%.2f", f < 1 ? 1 : f }')
-scale() { awk -v t="$1" -v f="$slow" 'BEGIN { printf "%d", t * f }'; }
+# Never past 330 min: the job's 350 min would drop the results.
+scale() { awk -v t="$1" -v f="$slow" 'BEGIN { s = t * f; printf "%d", s < 19800 ? s : 19800 }'; }
 VK_GL_CTS="$P/cts" MESA_ROOT="$P/mesa" DIRECT_PROGRESS=1 \
-  JOBS="$jobs" SIM_BUDGET="$jobs" TMO="$(scale 900)" CASE_TIMEOUT="$(scale "${CASE_TIMEOUT:-120}")" \
+  JOBS="$jobs" SIM_BUDGET="$jobs" TMO="$(scale "${TMO:-900}")" CASE_TIMEOUT="$(scale "${CASE_TIMEOUT:-120}")" \
   CASELIST="$P/shards/$shard.txt" OUT="$O/$shard" "$P/scripts/cts_par.sh" "$shard"
 cp "$P/manifest.env" "$O/$shard/"
 echo "SLOWDOWN=$slow" > "$O/$shard/speed.env"

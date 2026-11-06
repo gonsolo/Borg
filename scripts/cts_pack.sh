@@ -6,7 +6,8 @@
 #   scripts/cts_pack.sh <label> <caselist> <shards>     a case list, e.g. a whole item
 #   scripts/cts_pack.sh <label> fractions <shards>      the 16 mustpass fractions, <shards> each
 #
-# CASE_TIMEOUT (seconds, default 120) is the limit for a case run alone; the pack keeps it.
+# CASE_TIMEOUT (seconds, default 120) is the limit for a case run alone, TMO (default 900) for a
+# chunk; the pack keeps both. A one-case chunk that hits TMO is not run again.
 # The cases in scripts/cts_slow.txt (over 10 min each) are left out unless SLOW=1.
 #
 # Writes out/cts-pack/<label>/cts-pack.tar.zst and shards.json, the two release assets the
@@ -72,6 +73,7 @@ for f in "$P/shards"/*; do mv "$f" "$f.txt"; done
   echo "MESA=$(git -C "$MESA_ROOT" rev-parse HEAD)$(git -C "$MESA_ROOT" diff --quiet HEAD || echo -dirty)"
   echo "CTS=$(basename "$VK_GL_CTS")"
   echo "CASE_TIMEOUT=${CASE_TIMEOUT:-120}"
+  echo "TMO=${TMO:-900}"
   echo "PACKED=$(date -u +%FT%TZ)"
 } > "$P/manifest.env"
 ls "$P/shards" | sed 's/\.txt$//' | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin]))' > "$OUT/shards.json"
