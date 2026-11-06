@@ -20,7 +20,7 @@ interrupt-timing jitter — absent in a bit-exact simulator and scarce on
 real hardware's unusually clean FPGA clock — which stalled boot
 indefinitely waiting for entropy. `software/linux/borg.dts` now seeds the
 CSPRNG via a `/chosen/rng-seed` device-tree property (regenerated from
-`/dev/urandom` at each firmware build), which Linux already trusts by
+`/dev/urandom` at each image build), which Linux already trusts by
 default (`drivers/char/random.c`'s `trust_bootloader`) — no kernel config
 change needed. See `software/opensbi/` and `software/linux/`.
 
