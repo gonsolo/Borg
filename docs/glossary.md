@@ -9,7 +9,7 @@ the same thing, the **bold** term is preferred in technical writing.
 
 | Term | Meaning |
 |------|---------|
-| **Borg** | The project; the whole GPU system (hardware + firmware + driver). |
+| **Borg** | The project; the whole GPU system (hardware, compiler and driver). |
 | **Borg GPU** | The GPU hardware implemented in Chisel — the FPGA/ASIC portion. Use when distinguishing it from the host-side software stack. |
 | **BorgCore** | The shader execution unit: an FP32 FMA pipeline (FP16 selectable) running a 2x2 quad on four lanes, 32 registers per lane, and an instruction cache over DRAM. The Scala class name; use in technical/RTL contexts. *Synonym (prose only):* "shader processor". |
 | **BorgSequencer** | The tile-based rendering orchestrator. Drives BorgCore and BorgRasterizer across two passes (bin + render). |
@@ -18,7 +18,7 @@ the same thing, the **bold** term is preferred in technical writing.
 | **texture unit** | `BorgSampler`, driven by `TEX`/`TEXA` through texture and sampler descriptor tables in memory. See [Texture Unit](B2_texture_unit.md). |
 | **tile buffer** | The 16-pixel on-chip SRAM (BorgTileBuffer) that holds RGBZ during rasterization. *Not* "on-chip SRAM buffer". |
 | **BorgBinner** | Pass-1 hardware: counts triangles per tile and stores them in the binner's on-chip SRAM. |
-| **Hutt** | The RV32I/RV64I CPU core (replaced TinyQV in 2026-03), parameterized by XLEN: RV32I in the ULX3S vkcube SoC, RV64 for Linux. Runs firmware or Linux; drives Borg through MMIO. The ASIC carries no CPU. |
+| **Hutt** | The RV32I/RV64I CPU core (replaced TinyQV in 2026-03), parameterized by XLEN: RV32I in the ULX3S SoC with Borg, RV64 for Linux. Runs Linux; drives Borg through MMIO. The ASIC carries no CPU. |
 | **MemoryController** | Arbitrates the CPU instruction port, CPU data port, and GPU memory port across QspiBackend (flash/PSRAM) and SdramBackend (SDRAM). |
 
 ## Shader formats
@@ -36,8 +36,8 @@ the same thing, the **bold** term is preferred in technical writing.
 |------|---------|
 | **TBR** | Tile-Based Rendering: split the frame into tiles, bin triangles per tile (Pass 1), then render tile-by-tile in on-chip SRAM (Pass 2), flushing to DRAM/SDRAM between tiles. |
 | **tile** | A 4×4 pixel region. The tile buffer holds one tile worth of RGBZ. |
-| **DRAM** | Pseudo-SRAM: the 8 MB external memory used for the framebuffer and firmware data on the ASIC target. The ULX3S uses SDRAM instead. |
-| **SDRAM** | 32 MB external SDRAM on the ULX3S board; used for framebuffer, firmware, and texture storage. |
+| **DRAM** | Borg's external memory: SDRAM on the ULX3S, a memory model in the simulators, the far side of the chip-to-chip link on the ASIC. |
+| **SDRAM** | 32 MB external SDRAM on the ULX3S board: attachments, textures, buffers and Linux. |
 | **flat MemBackendIO** | The word-wide memory bus that the verilator/arcilator simulator drives directly, bypassing QSPI. The MemoryController exposes this as its backend interface. |
 
 ## Build / toolchain

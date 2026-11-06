@@ -2,7 +2,7 @@
 
 SPIR-B is a compact binary format for Borg shader programs. It encodes
 instructions, register assignments, and compile-time constants into a
-runtime-loadable blob, decoupling shader changes from firmware recompilation.
+blob: borgc writes it when a pipeline is created, and borgvk's list builder loads it.
 
 ## Byte layout
 
@@ -46,9 +46,9 @@ W × 4      window_vals        uint32_le[]
 with `SOUT` (0 in a fragment shader). It sizes the triangle records, which
 take `48 + 3 * V` words. The window is the shader's constant window:
 `window_regs[i]` is a u-index, u25-u31 in a vertex shader and u20-u31 in a
-fragment shader, and `window_vals[i]` its bits. The firmware writes each
-value to `DRAW_VS_CONST` or `DRAW_FS_CONST` plus `4 * (u - 25)` or
-`4 * (u - 20)`. Legacy blobs have `extensions` = 0 and are unchanged.
+fragment shader, and `window_vals[i]` its bits. The list builder writes each
+value into the render list's constant window (`DRAW_VS_CONST` or `DRAW_FS_CONST`)
+at `4 * (u - 25)` or `4 * (u - 20)`. Legacy blobs have `extensions` = 0 and are unchanged.
 
 `const_vals` is `uint32_le` (widened 2026-09-08 from `uint16_le`) so the format
 can eventually carry a real FP32 constant -- `borgc` has no FP32 codegen path
@@ -58,16 +58,15 @@ into the low 16 bits. This is a wire-format widening only; see
 note. borgvk reads the draw extension in `list.rs` (`draw_ext`).
 
 The instruction list does **not** include the implicit halt word (0x0000);
-the firmware appends it when loading IMEM.
+the list builder appends it when it copies the code into the render list.
 
 ## Shader transport
 
 The borgvk driver (`mesa/src/borg/vulkan/`) compiles, with `borgc`, the app's real
-vertex/fragment shaders at pipeline creation and sends each blob in a packet
-(marker `0xB0`):
-`marker(1B) + stage(1B) + len(2B LE) + blob padded to BORGVK_SHADER_BLOB_MAX + checksum`.
-borgvk's list builder (`list.rs`) calls `spirb_parse()`
-on the blob.
+vertex/fragment shaders at pipeline creation. A draw hands each blob to the list
+builder as a command (`list::Cmd::Shader`, the stage and the blob, up to
+`BORGVK_SHADER_BLOB_MAX` bytes); the builder (`list.rs`) reads the draw extension
+itself (`draw_ext`) and copies the code into the render list.
 
 ## Examples
 
@@ -95,7 +94,7 @@ XX XX XX XX
 
 | Tool              | Input      | Output       |
 |-------------------|------------|--------------|
-| `spirv_compiler`  | `.vert`    | `.spvasm`    |
-| `borg_backend.py` | `.s`       | `.borg` / `.borg.h` |
-| host `triangle.py`| `.borg`    | DRAM write  |
-| firmware          | DRAM read | Borg IMEM + regs |
+| `glslang` or the application | GLSL | SPIR-V |
+| borgc (in borgvk, or `borgc-cli`) | SPIR-V | SPIR-B blob |
+| borgvk's list builder (`list.rs`) | SPIR-B blob | code and constant windows in the render list |
+| the shader core | render list | runs the code through the instruction cache |
