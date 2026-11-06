@@ -31,43 +31,52 @@ targeting ECP5 FPGAs (ULX3S) and an ASIC (GF180MCU via wafer.space, Borg only be
 
 ### Borg Shader Processor
 
-A minimal programmable shading unit with:
+A small programmable shading unit with:
 
-- **Fused Multiply-Add (FMA)** — in-tree IEEE-754 unit (FP32 by default, FP16 selectable) supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
-- **32 general-purpose registers** (r0–r31, FP32 by default), MMIO-accessible from the CPU
-- **56-word instruction memory** for shader programs
+- **A RISC-V-based instruction set** (ISA v2) — a subset of RV32I with Zfinx, Zmmul, parts of Zbb and Zicond in standard encodings, plus GPU instructions (texture sampling, derivatives, varyings)
+- **Fused Multiply-Add (FMA)** — in-tree IEEE-754 unit, FP32 by default, FP16 selectable
+- **2×2 quad SIMT** — 4 lanes in lockstep (derivatives across the quad), 32 registers per lane, and 4 quad slots in flight to hide latency
+- **An in-order pipeline** with scoreboard interlocks
+- **Programs in memory** — fetched through a direct-mapped instruction cache, so a shader is limited by memory, not by an instruction RAM
 - **Hardware reciprocal, reciprocal square root and sRGB encode** — LUT + linear interpolation (FRCP, FRSQ, FSRGB)
-- **Hardware Tile Buffer** — 16-pixel buffer for RGB and Z-buffer depth testing
-- **Hardware Texture Unit** — Morton-encoded texture coordinate expansion
-- **4-cycle pipeline** with automatic halt-on-zero-instruction
+- **Hardware Tile Buffer** — 4×4-pixel tiles with depth, stencil and 4× MSAA
+- **Descriptor-based texture unit** — 51 formats, sizes up to 4096, mipmaps, all address modes and border colours, trilinear filtering, depth compare, gather and texel fetch
+- **Compute shaders** — workgroups, shared memory, barriers and atomics
 
 ### Rendering Pipeline
 
-The firmware implements a full triangle rendering pipeline:
+Draws run in hardware, started from render lists in memory that the Vulkan driver builds while
+recording a command buffer:
 
-1. **Vertex Shader** — 4×4 MVP matrix multiply with hardware perspective division, executed as a single shader pass on the Borg FPU
-2. **Screen-Space Translation** — NDC to pixel coordinates with configurable framebuffer resolution
-3. **Rasterization** — Hardware-iterator driven edge evaluation with native coordinate expansion and FSM auto-chaining
-4. **Fragment Shader** — Unified pass (compiled via linear scan allocator) performing barycentric interpolation for RGB, Z, and UV simultaneously
-5. **Hardware Z-Buffer** — Per-pixel depth testing in the hardware tile buffer
-6. **Hardware Texturing** — Morton-encoded texel fetch with snooped fragment coordinates
-7. **Framebuffer Output** — Results written to DRAM, read by host (RP2040) for display
+1. **Primitive assembly** — lists, strips, fans, indexed draws, primitive restart and instancing
+2. **Vertex shader** — one run per corner of each triangle; it fetches its attributes from the application's vertex buffers itself
+3. **Setup** — 2D homogeneous triangle setup in a ROM program, so no clipping is needed
+4. **Tile binning and rasterization** — triangles sorted into 4×4-pixel tiles, perspective-correct barycentrics
+5. **Fragment shader** — on 2×2 quads, with depth and stencil tests, blending, occlusion queries and 4× MSAA
+6. **Tile flush** — finished tiles written to the attachments in device memory, in every Vulkan colour format
 
 ### SPIR-B Shader Format
 
-Shaders are compiled from GLSL-like source to a compact binary format (SPIR-B) and loaded at runtime from DRAM — no firmware reflash needed to change shaders.
+**borgc**, Borg's shader compiler, turns Vulkan SPIR-V through Mesa's NIR into Borg machine code in a compact
+binary format (SPIR-B); the driver compiles every pipeline at creation.
 
 ### SystemRDL & Hardware Command FIFO
 
 The MMIO architecture is generated automatically via the Accellera **SystemRDL** standard using `PeakRDL-chisel`, emitting both the Chisel `BorgGpuRegs` layout and the C-headers directly.
 
-It features an asynchronous 2-entry **Command FIFO** so the CPU can pack and queue asynchronous drawing packets while the GPU handles geometry and rasterization in the background.
+It features an asynchronous 2-entry **Command FIFO** so the CPU can queue commands while the GPU works in the background.
+
+### Software
+
+- **borgvk** — a native Vulkan driver in Mesa, written in Rust (modeled on v3dv), targeting Vulkan 1.0. Device memory is used in place, and render passes become render lists while the command buffer is recorded. It runs the unmodified Khronos `vkcube`.
+- **The direct simulator** — Borg alone, cycle-accurate, compiled from the same Chisel by Arcilator (or Verilator); the Vulkan CTS runs on it.
+- **A Linux DRM driver** — a render-only DRM driver in Rust exposes Borg as a render node, through which borgvk drives the GPU.
 
 ### Hutt CPU
 
-A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The QSPI SoC used for the cocotb SoC tests uses RV32I; the ULX3S FPGA target runs RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
+A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The QSPI SoC used for the cocotb SoC tests and the ULX3S target with Borg use RV32I; RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU runs on the MinimalSoC harness, which boots Linux. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
 
-**Linux boots on Hutt.** OpenSBI + a mainline Linux kernel (device-tree only, no config patches) boot to an interactive shell on real ULX3S hardware and in the cycle-accurate Verilator simulator, cross-validated at matching cycle counts. This unblocks the path to a native, on-device Linux DRM/KMS kernel driver for Borg (see [The Hutt CPU](docs/A3_hutt_cpu.md) and the [roadmap](docs/A0_roadmap.md#phase-4-linux-capable-cpu)).
+**Linux boots on Hutt.** OpenSBI + a mainline Linux kernel (device-tree only, no config patches) boot to an interactive shell on real ULX3S hardware and in the cycle-accurate Verilator simulator, cross-validated at matching cycle counts. On 2026-10-06 the unmodified `cube.c` ran on Linux on Hutt through Mesa and the Rust DRM driver, self-hosted on the board; with the FP32 Borg, RV64 no longer fits on the ECP5 next to it, so that mode returns on a larger FPGA (see [The Hutt CPU](docs/A3_hutt_cpu.md), [The FPGA](docs/04_fpga.md) and [Test and demo modes](docs/B14_test_modes.md)).
 
 ## Prerequisites
 
@@ -77,7 +86,7 @@ A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **D
 
 ## Building and Testing
 
-### Run all tests (Chisel + RTL cocotb)
+### Run all tests (Chisel, cocotb, borgvk, the vkcube golden)
 
 ```bash
 make test-all
@@ -135,8 +144,8 @@ See [Generating the ASIC](docs/05_asic.md).
 ## Generative AI use
 
 Parts of Borg are developed with an AI coding assistant (Claude Code; model and
-version are recorded per commit), mainly for hardware debugging, firmware, test
-scaffolding and documentation. Every change on `main` is reviewed and tested by
+version are recorded per commit), mainly for the Vulkan driver and shader compiler,
+hardware debugging, test scaffolding and documentation. Every change on `main` is reviewed and tested by
 a human, declares its AI use in commit trailers (`AI-Assisted`, `AI-Prompts`,
 `Reviewed-by`), and generated code is checked for copied material. Experiments
 stay on local branches. Generated Verilog, register blocks and compiler output
@@ -153,16 +162,21 @@ are deterministic tool output, not GenAI. Details and enforcement:
 | SPIR-B runtime shader loading | ✅ Done |
 | Per-vertex color interpolation | ✅ Done |
 | Hardware Tile Buffer (Z-Buffer depth test) | ✅ Done |
-| Hardware Texture Address Unit (Morton encoding) | ✅ Done |
+| Descriptor-based texture unit (51 formats, mipmaps) | ✅ Done |
 | 32-bit RISC-V instructions & 32-entry register file | ✅ Done |
 | Hardware perspective projection (4×4 MVP shader) | ✅ Done |
 | Hardware reciprocal (FRCP) | ✅ Done |
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
-| Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
+| Hardware draw front end (primitive assembly, homogeneous setup) | ✅ Done |
+| 4× MSAA | ✅ Done |
+| Compute shaders | ✅ Done |
+| Shader compiler (borgc, SPIR-V via NIR) | ✅ Done |
+| Unmodified Khronos vkcube through borgvk (simulator and ULX3S) | ✅ Done |
 | Linux boot on Hutt (RV64 + Sv39 MMU, ULX3S + Verilator) | ✅ Done |
+| Linux DRM kernel driver for Borg (render node, in Rust) | ✅ Done |
+| Vulkan 1.0 conformance (borgvk on the direct simulator) | 🚧 In progress |
+| Display output through DRM/KMS | ⏳ Pending |
 | Test manufactured chip | ⏳ Pending |
-| Vulkan driver (borgvk) | 🚧 In progress |
-| Native Linux DRM/KMS kernel driver for Borg | ⏳ Pending |
 
 ## Software Bill of Materials
 
@@ -182,7 +196,13 @@ are deterministic tool output, not GenAI. Details and enforcement:
 | [nextpnr](https://github.com/YosysHQ/nextpnr) | FPGA place and route (ECP5) | ISC |
 | [Project Trellis](https://github.com/YosysHQ/prjtrellis) | ECP5 FPGA bitstream tools | ISC |
 | [Netgen](https://github.com/RTimothyEdwards/netgen) | LVS (Layout vs. Schematic) | MIT |
-| [GCC](https://gcc.gnu.org/) | RISC-V cross-compiler (`riscv64-none-elf`) | GPL-3.0 |
+| [GCC](https://gcc.gnu.org/) | RISC-V cross-compiler (OpenSBI, Linux) | GPL-3.0 |
+| [Mesa](https://gitlab.freedesktop.org/mesa/mesa) | Vulkan runtime, NIR; home of borgvk and borgc | MIT |
+| [Rust](https://www.rust-lang.org/) | Language of borgvk, borgc and the DRM driver | MIT / Apache-2.0 |
+| [Linux](https://kernel.org/) | Kernel on Hutt and the Borg DRM driver | GPL-2.0 |
+| [OpenSBI](https://github.com/riscv-software-src/opensbi) | RISC-V supervisor binary interface firmware | BSD-2-Clause |
+| [Vulkan-Tools](https://github.com/KhronosGroup/Vulkan-Tools) | The unmodified `vkcube` | Apache-2.0 |
+| [VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) | Vulkan conformance tests | Apache-2.0 |
 | [Mill](https://github.com/com-lihaoyi/mill) | Scala build tool | MIT |
 | [Nix](https://github.com/NixOS/nix) | Reproducible development environment | LGPL-2.1 |
 | [CIRCT/firtool](https://github.com/llvm/circt) | Chisel → Verilog compiler (FIRRTL) | Apache-2.0 (LLVM) |
@@ -190,8 +210,6 @@ are deterministic tool output, not GenAI. Details and enforcement:
 | [OpenJDK](https://openjdk.org/) | Java runtime for Chisel/Mill | GPL-2.0 + CE |
 | [SystemRDL](https://www.accellera.org/downloads/standards/systemrdl) | Register logic definition standard | Accellera |
 | [PeakRDL](https://github.com/SystemRDL/PeakRDL) | Toolchain for parsing and exporting SystemRDL | GPL-3.0 |
-| [nanobind](https://github.com/wjakob/nanobind) | Zero-overhead C++ to Python bindings | BSD-3-Clause |
-| [Pygame (SDL2)](https://github.com/pygame/pygame) | Hardware-accelerated UI windowing subsystem | LGPL-2.1 |
 
 ## Citation
 
