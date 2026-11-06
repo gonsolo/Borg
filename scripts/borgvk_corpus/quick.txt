@@ -14,11 +14,9 @@ dEQP-VK.draw.renderpass.basic_draw.draw.triangle_list.1
 dEQP-VK.fragment_operations.scissor.triangles.crossing
 dEQP-VK.glsl.builtin.precision.step.highp.vec2
 dEQP-VK.glsl.operator.binary_operator.sub_assign_effect.mediump_uint_fragment
-dEQP-VK.graphicsfuzz.spv-dead-break-and-unroll
 dEQP-VK.glsl.operator.unary_operator.post_increment_effect.mediump_int_fragment
 dEQP-VK.glsl.texture_functions.query.texturesize.sampler2d_float_vertex
 dEQP-VK.glsl.texture_functions.textureoffset.repeat.isampler1d_bias_fragment
-dEQP-VK.graphicsfuzz.spv-stable-maze-O-dead-code
 dEQP-VK.graphicsfuzz.cov-instr-emitter-pow-asinh
 dEQP-VK.graphicsfuzz.cov-simplify-select-fragcoord
 dEQP-VK.pipeline.monolithic.blend.format.r5g6b5_unorm_pack16.states.color_cc_sa_add_alpha_1msa_ca_rsub-color_cc_1mca_sub_alpha_o_1mcc_max-color_z_z_sub_alpha_sa_sa_rsub-color_cc_sc_rsub_alpha_1mdc_dc_rsub
