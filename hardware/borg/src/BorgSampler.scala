@@ -530,7 +530,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val c = MuxLookup(ax, a.u)(Seq(1.U -> a.v, 2.U -> a.w))
       // Rounded to the 8 sub-texel bits: a coordinate on a texel edge stays there (Vulkan allows it).
       val scaled = ((product + (1 << 15).S) >> 16).asSInt // Q.8
-      val x8 = Mux(isFetch, (c(19, 0).asSInt << 8), Mux(unnorm, fpToFixed(c, 8, 28), scaled))
+      val x8 = Mux(isFetch, (c(19, 0).asSInt << 8), Mux(unnorm, (fpToFixed(c, 16, 32) +& 128.S) >> 8, scaled))
       val off = MuxLookup(ax, 0.S(4.W))(Seq(0.U -> offU(ctl), 1.U -> offV(ctl),
                                             2.U -> Mux(ttype === T3D.U, offW(ctl), 0.S)))
       val xs = Mux(linear, x8 - 128.S, x8)                // texel centres at +0.5

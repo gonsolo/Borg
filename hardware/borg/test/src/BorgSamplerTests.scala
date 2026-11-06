@@ -188,7 +188,7 @@ object BorgSamplerTests extends TestSuite {
           val c = coords(a)
           val x8: BigInt =
             if (isFetch) BigInt(Seq(ln.fetch._1, ln.fetch._2, ln.fetch._3)(a)) << 8
-            else if (s.unnorm) fixed(c, 8, 28)
+            else if (s.unnorm) (fixed(c, 16, 32) + 128) >> 8
             else {
               val f = mode(a) match { case Repeat => fixedMod(c, 0); case Mirror => fixedMod(c, 1); case _ => fixed(c, 24, 28) }
               (f * size(a) + (1 << 15)) >> 16
@@ -385,6 +385,13 @@ object BorgSamplerTests extends TestSuite {
           val s = Samp(magLin = lin, minLin = lin, mode = (mode, mode, mode), border = border)
           val lanes = Seq(Lane(-0.3f, 1.7f), Lane(2.61f, -1.05f), Lane(0.99f, 0.01f), Lane(-7.4f, 13.2f))
           sample(d, s"mode $mode lin $lin border $border", t, s, LodExplicit.toLong << 21, lanes, seed = 11 + n)
+          n += 1
+        }
+        // Unnormalized: -0.0027 rounds to -1/256, a border texel.
+        for (lin <- Seq(false, true)) {
+          val s = Samp(magLin = lin, minLin = lin, mode = (ClampBorder, ClampEdge, ClampBorder), unnorm = true)
+          val lanes = Seq(Lane(-0.0027f, 1.5f), Lane(4.999f, 0.4f), Lane(2.5f, -0.001f), Lane(0.3f, 2.9989f))
+          sample(d, s"unnormalized lin $lin", Tex(fm, 5, 3), s, LodExplicit.toLong << 21, lanes, seed = 3)
           n += 1
         }
         println(s"  $n address mode / filter / border combinations on a 5x3 texture")
