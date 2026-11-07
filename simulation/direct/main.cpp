@@ -28,6 +28,7 @@ static void report_faults(DirectSim &sim) {
 //   'M' off32 len32 data      memory write           'm' off32 len32 -> data
 //   'P' off32 mask32 val32    -> val32 once (reg & mask) == val, or after 200M cycles
 //   'S'                       -> one byte once everything before it is done
+//   'D'                       -> n32 page32*n: the 4 KB pages the GPU wrote since the last 'D'
 static bool rd(void *p, size_t n) {
   uint8_t *b = (uint8_t *)p;
   while (n) { ssize_t r = read(0, b, n); if (r <= 0) return false; b += r; n -= (size_t)r; }
@@ -70,6 +71,12 @@ static int raw_loop(DirectSim &sim) {
     } else if (c == 'S') {
       uint8_t ok = 1;
       wr(&ok, 1);
+    } else if (c == 'D') {
+      uint32_t n = sim.dirty.size();
+      wr(&n, 4);
+      wr(sim.dirty.data(), 4 * n);
+      for (uint32_t p : sim.dirty) sim.dirty_bits[p >> 6] = 0;
+      sim.dirty.clear();
     } else return 1;
   }
   return 0;

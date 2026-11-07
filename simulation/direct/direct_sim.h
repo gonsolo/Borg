@@ -75,6 +75,16 @@ public:
   void w16(uint32_t a, uint16_t d) {
     a &= MEM_BYTES - 1;
     mem[a] = d; mem[a + 1] = d >> 8;
+    touch(a);
+  }
+
+  // The 4 KB pages the GPU wrote since the driver last asked ('D'): its pass cache.
+  std::vector<uint64_t> dirty_bits = std::vector<uint64_t>((MEM_BYTES >> 12) / 64);
+  std::vector<uint32_t> dirty;
+  void touch(uint32_t a) {
+    uint32_t p = a >> 12;
+    uint64_t &w = dirty_bits[p >> 6], b = 1ull << (p & 63);
+    if (!(w & b)) { w |= b; dirty.push_back(p); }
   }
 
   // --- clocking ---
