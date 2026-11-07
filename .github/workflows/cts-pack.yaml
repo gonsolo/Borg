@@ -1,15 +1,28 @@
 name: cts-pack
 # Runs a CTS pack built on the workstation (scripts/cts_pack.sh), one job per shard. The pack and
-# its shards.json are assets of the release named by `tag`. Started by hand only.
+# its shards.json are assets of the release named by `tag`. Started by hand only. With `chain`,
+# each shard keeps borgvk's pass cache, and the shards whose case timed out run again from it,
+# round after round, until they finish (at most 40 rounds).
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: Release holding cts-pack.tar.zst and shards.json
         required: true
+      chain:
+        description: Run timed-out shards again from their pass cache until they finish
+        type: boolean
+        default: false
+      shards:
+        description: JSON list of the shards to run (empty for all)
+        default: ''
+      round:
+        description: The chain's round (set by the workflow)
+        default: '1'
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   plan:
@@ -21,6 +34,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ -n '${{ inputs.shards }}' ]; then echo 'shards=${{ inputs.shards }}' >> "$GITHUB_OUTPUT"; exit 0; fi
           gh release download "${{ inputs.tag }}" -R "${{ github.repository }}" -p shards.json
           echo "shards=$(cat shards.json)" >> "$GITHUB_OUTPUT"
 
@@ -40,13 +54,38 @@ jobs:
           gh release download "${{ inputs.tag }}" -R "${{ github.repository }}" -p cts-pack.tar.zst
           tar --zstd -xf cts-pack.tar.zst
           sudo tar -xf pack/nix-closure.tar -C /
+      - uses: actions/cache/restore@v4
+        if: inputs.chain
+        with:
+          path: passcache
+          key: pass-${{ inputs.tag }}-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: pass-${{ inputs.tag }}-${{ matrix.shard }}-
       - name: Run
+        env:
+          PASS_CACHE: ${{ inputs.chain && format('{0}/passcache', github.workspace) || '' }}
         run: pack/scripts/cts_pack_shard.sh "${{ matrix.shard }}" out
+      - uses: actions/cache/save@v4
+        if: always() && inputs.chain
+        with:
+          path: passcache
+          key: pass-${{ inputs.tag }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Unfinished
+        if: always() && inputs.chain
+        run: |
+          mkdir -p unfinished
+          tar --zstd -xOf "out/${{ matrix.shard }}.tar.zst" results.txt | grep -q '^Timeout' && echo "${{ matrix.shard }}" > "unfinished/${{ matrix.shard }}" || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: shard-${{ matrix.shard }}
           path: out/${{ matrix.shard }}.tar.zst
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: always() && inputs.chain
+        with:
+          name: unfinished-${{ matrix.shard }}
+          path: unfinished
+          if-no-files-found: ignore
           retention-days: 14
 
   merge:
@@ -76,3 +115,23 @@ jobs:
             results.txt
             summary.txt
           retention-days: 90
+
+  next:
+    needs: shard
+    if: always() && inputs.chain && fromJSON(inputs.round) < 40
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: unfinished-*
+          path: unfinished
+          merge-multiple: true
+      - name: Next round
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shards=$(cat unfinished/* 2>/dev/null | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
+          [ "$shards" = "[]" ] && { echo "all shards finished"; exit 0; }
+          echo "round $(( ${{ inputs.round }} + 1 )): $shards"
+          gh workflow run cts-pack.yaml -R "${{ github.repository }}" -f tag="${{ inputs.tag }}" -f chain=true \
+            -f shards="$shards" -f round="$(( ${{ inputs.round }} + 1 ))"
