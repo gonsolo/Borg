@@ -13,7 +13,11 @@ printf '#!/bin/sh\necho %s\n' "$LOADER_DIR" > "$P/bin/pkg-config"
 chmod +x "$P/bin/pkg-config"
 export PATH="$P/bin:$PATH"
 [[ "$KIND" == fractions ]] && export DEQP_ARGS="--deqp-log-images=disable --deqp-log-shader-sources=disable"
-jobs=${JOBS:-$(nproc)}
+# A shard of few cases gives each its share of the cores as strips (cts_par: SIM_BUDGET / JOBS).
+cases=$(grep -c . "$P/shards/$shard.txt")
+jobs=${JOBS:-$(( $(nproc) < cases ? $(nproc) : cases ))}
+# PASS_CACHE: borgvk's pass cache, so a chained run goes on where the last one stopped.
+[[ -n "${PASS_CACHE:-}" ]] && export BORGVK_PASS_CACHE="$PASS_CACHE"
 # Runners differ up to 2x in speed: scale the time limits by one case's time here against the
 # workstation's 15.2 s, never below 1.
 t0=$(date +%s%N)
@@ -22,7 +26,7 @@ slow=$(awk -v ns=$(( $(date +%s%N) - t0 )) 'BEGIN { f = ns / 15.2e9; printf "%.2
 # Never past 330 min: the job's 350 min would drop the results.
 scale() { awk -v t="$1" -v f="$slow" 'BEGIN { s = t * f; printf "%d", s < 19800 ? s : 19800 }'; }
 VK_GL_CTS="$P/cts" MESA_ROOT="$P/mesa" DIRECT_PROGRESS=1 \
-  JOBS="$jobs" SIM_BUDGET="$jobs" TMO="$(scale "${TMO:-900}")" CASE_TIMEOUT="$(scale "${CASE_TIMEOUT:-120}")" \
+  JOBS="$jobs" SIM_BUDGET="$(nproc)" TMO="$(scale "${TMO:-900}")" CASE_TIMEOUT="$(scale "${CASE_TIMEOUT:-120}")" \
   CASELIST="$P/shards/$shard.txt" OUT="$O/$shard" "$P/scripts/cts_par.sh" "$shard"
 cp "$P/manifest.env" "$O/$shard/"
 echo "SLOWDOWN=$slow" > "$O/$shard/speed.env"
