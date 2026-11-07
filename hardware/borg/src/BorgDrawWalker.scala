@@ -73,8 +73,8 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgDrawWalkerIO(cfg))
 
   private val (sIdle :: sLoadVS :: sLoadConst :: sWaitDMA :: sAssemble :: sFetchIdx :: sIdxDone :: sRunVS ::
-               sWaitVS :: sStage :: sRunSetup :: sNext :: sHold :: Nil) = Enum(13)
-  private val (bIdle :: bWaitSetup :: bBin :: bWaitBin :: bStore :: bPaused :: Nil) = Enum(6)
+               sWaitVS :: sStage :: sRunSetup :: sNext :: sHold :: sCache :: sCacheDone :: Nil) = Enum(15)
+  private val (bIdle :: bWaitSetup :: bBin :: bWaitBin :: bStore :: bPaused :: bCache :: Nil) = Enum(7)
   private val state = RegInit(sIdle)
   private val bState = RegInit(bIdle)
   private val ctxs = if (cfg.maxUniforms > 32 && cfg.quadSlots >= 2) 2 else 1
@@ -111,6 +111,13 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val stageIdx = RegInit(0.U(5.W))
   private val dmaDescReg = RegInit(0.U.asTypeOf(new DMADescriptor))
 
+  // The box cache (SEQ_TILE_ROWS[13:12]): triangle t's framebuffer box at setupBase - 4 - 4t,
+  // x low, x high, y low, y high in 16-pixel bytes; empty when culled, full behind the eye.
+  private val cacheWord  = RegInit(0.U(32.W))
+  private val bCacheWord = RegInit(0.U(32.W))
+  private val bSkip      = RegInit(false.B)
+  private def cacheAddr(t: UInt) = (io.mmio.setupBase - 4.U - (t << 2))(GpuMemIO.AddrBits - 1, 0)
+
   private val bboxMinX = RegInit(0.U(cfg.coordWidth.W))
   private val bboxMinY = RegInit(0.U(cfg.coordWidth.W))
   private val bboxMaxX = RegInit(0.U(cfg.coordWidth.W))
@@ -125,8 +132,8 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def finished(s: UInt): Bool = slotWasBusy(s) && !io.slotBusy(s)
   private def slotFree(c: UInt): Bool = !eValid(c) || eDone(c)
   // The front's DMAs and the back's bins and store never overlap (a snoop read beside them returns 0).
-  private val frontDma = state === sWaitDMA || state === sLoadVS || state === sLoadConst || state === sFetchIdx
-  private val backMem  = bState === bBin || bState === bWaitBin || bState === bStore
+  private val frontDma = state === sWaitDMA || state === sLoadVS || state === sLoadConst || state === sFetchIdx || state === sCache
+  private val backMem  = bState === bBin || bState === bWaitBin || bState === bStore || bState === bCache
   private def retire(): Unit = { eValid(head) := false.B; if (ctxs > 1) head := ~head; bState := bIdle }
   private val hold = bState === bPaused && !bResume   // a full bin: the front stops where it can
 
@@ -157,12 +164,12 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.binner.clearCounts := false.B
   io.binner.countReadAddr := 0.U
   io.binner.countReadEn   := false.B
-  io.store.active := bState === bStore
+  io.store.active := bState === bStore || bState === bCache
   io.store.req    := false.B
-  io.store.addr   := bRecordBase + (BorgSetupRom.Record.Meta * 4).U
+  io.store.addr   := Mux(bState === bCache, cacheAddr(bTri), bRecordBase + (BorgSetupRom.Record.Meta * 4).U)
   // Meta word: bits 31:2 the draw's state block (a word address, 0 outside a
   // render list), bit 1 = back-facing; bit 0 is unused.
-  io.store.wdata  := Cat(io.stateAddr(GpuMemIO.AddrBits - 1, 2), isBack, 0.U(1.W))
+  io.store.wdata  := Mux(bState === bCache, bCacheWord, Cat(io.stateAddr(GpuMemIO.AddrBits - 1, 2), isBack, 0.U(1.W)))
 
   // Vertex shader: VertexIndex/InstanceIndex, one corner per lane; setup ROM: none.
   private val inVS = state === sRunVS || state === sWaitVS
@@ -201,6 +208,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val indexed  = d.indexType =/= 0.U
   private val idx16    = d.indexType === 1.U
   private val restartOn = d.restart && indexed && !isList
+  private val cacheRead = io.mmio.bboxMode === 2.U && !restartOn
 
   switch(state) {
     is(sIdle) {
@@ -260,8 +268,27 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         for (c <- 0 until 3) pos(c) := Mux(isList, relPos(c), base + relPos(c))
         k := 0.U
         sawRestart := false.B
-        state := Mux(indexed, sFetchIdx, sIdxDone)
+        state := Mux(cacheRead, sCache, Mux(indexed, sFetchIdx, sIdxDone))
       }
+    }
+    is(sCache) {
+      when(!backMem) {
+        val desc = Wire(new DMADescriptor)
+        desc.baseAddr := cacheAddr(tri)
+        desc.length   := 1.U
+        desc.dest     := 2.U                        // snoop only
+        desc.offset   := 0.U
+        dma(desc, sCacheDone)
+      }
+    }
+    is(sCacheDone) {
+      // A triangle whose box misses the window takes no vertex shader and no setup here.
+      val ox = Cat(io.mmio.fbOriginX, 0.U(2.W)); val oy = Cat(io.mmio.fbOriginY, 0.U(2.W))
+      val wx = Cat(io.mmio.fbWidthTiles, 0.U(2.W)); val wy = Cat(io.mmio.fbHeightTiles, 0.U(2.W))
+      val (lx, hx, ly, hy) = (cacheWord(7, 0), cacheWord(15, 8), cacheWord(23, 16), cacheWord(31, 24))
+      def px(v: UInt) = Cat(v, 0.U(4.W))
+      val miss = lx > hx || ly > hy || px(hx) +& 15.U < ox || px(hy) +& 15.U < oy || px(lx) >= ox +& wx || px(ly) >= oy +& wy
+      state := Mux(miss, sNext, Mux(indexed, sFetchIdx, sIdxDone))
     }
     is(sFetchIdx) {
       when(!backMem) {
@@ -381,8 +408,17 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         bboxMinY := Mux(allFront, Cat(ly(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
         bboxMaxX := Mux(allFront, hx(cfg.coordWidth - 1, 0), full)
         bboxMaxY := Mux(allFront, hy(cfg.coordWidth - 1, 0), full)
-        when(culled || outside) { retire() }.otherwise { bState := bBin }
+        def unit(v: UInt) = { val u = v >> 4; Mux(u > 255.U, 255.U, u(7, 0)) }
+        bCacheWord := Mux(culled, "h00ff00ff".U, Mux(allFront,
+          Cat(unit(hiY +& 1.U), unit(loY), unit(hiX +& 1.U), unit(loX)), "hff00ff00".U))
+        bSkip := culled || outside
+        when(io.mmio.bboxMode === 1.U) { bState := bCache }
+          .elsewhen(culled || outside) { retire() }.otherwise { bState := bBin }
       }
+    }
+    is(bCache) {
+      io.store.req := true.B
+      when(io.store.ready) { when(bSkip) { retire() }.otherwise { bState := bBin } }
     }
     is(bBin) {
       io.binner.start := true.B
@@ -418,6 +454,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
   // Index buffer words (snoop-only DMA of the aligned word holding pos(k)).
+  when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sCacheDone) { cacheWord := io.dma.snoop.bits }
   when(io.dma.snoop.valid && state === sWaitDMA && (nextAfterDMA === sFetchIdx || nextAfterDMA === sIdxDone)) {
     val c = k - 1.U                                  // k already advanced
     val byteAddr = d.indexBase +& Mux(idx16, pos(c) << 1, pos(c) << 2)

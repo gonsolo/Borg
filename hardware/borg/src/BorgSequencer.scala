@@ -41,6 +41,9 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val fbOriginX       = Input(UInt(12.W))
   val fbOriginY       = Input(UInt(12.W))
   val fbPitch         = Input(UInt(12.W))
+  // SEQ_TILE_ROWS[13:12]: a word per triangle below setupBase, its framebuffer box; 1 writes
+  // it, 2 skips the triangles whose box misses the window (docs/B1_geometry_front_end.md).
+  val bboxMode        = Input(UInt(2.W))
   val attCount        = Input(UInt(4.W))   // passes: up to 4 attachments, RAW128 ones twice
   // 0 = render the draw in the registers.
   val listBase        = Input(UInt(GpuMemIO.AddrBits.W))

@@ -306,6 +306,15 @@ pixels on the ULX3S/sim build) is drawn as several windows -- the same draw,
 once per window; a triangle entirely outside a window is not binned there.
 With the registers at reset the window is the whole, square framebuffer.
 
+**Box cache.** Every window runs the draw's vertex shader and setup for every
+triangle, even the ones it then culls as outside. `SEQ_TILE_ROWS` bits 13:12
+keep a word per triangle below `SEQ_SETUP_BASE` (triangle t at
+`SEQ_SETUP_BASE - 4 - 4t`): its framebuffer box, x low, x high, y low, y high
+in 16-pixel bytes, empty when culled and full with a corner behind the eye.
+Mode 1 writes it, mode 2 skips the vertex shader and setup of each triangle
+whose box misses the window. Draws with primitive restart do not skip.
+borgvk writes the cache in a strip's first window and reads it in the others.
+
 **Bin capacity.** A tile's bin holds `SEQ_BIN_ROW_BYTES / 2` triangles
 (at most `maxTrianglesPerTile`), and a window's records need
 `SEQ_SETUP_BASE` room for every triangle of the draw. Records are the

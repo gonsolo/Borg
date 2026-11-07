@@ -506,6 +506,33 @@ object BorgDrawTests extends TestSuite {
     rig.window = (0, 0, Size / 4, Size / 4); rig.fbBase = 0x10000
   }
 
+  /** The box cache (SEQ_TILE_ROWS[13:12]): the left window's draw writes each triangle's box,
+    * the right window's skips the two that miss it; the pixels are those without the cache. */
+  def boxCache(rig: DrawRig): Unit = {
+    val (fw, fh) = (64, 16)
+    def p(sx: Double, sy: Double, r: Double = 0, g: Double = 0) =
+      V(sx / (fw / 2.0) - 1, sy / (fh / 2.0) - 1, 0.5, 1.0, r, g)
+    // Two triangles inside the left window (x < 32), one inside the right.
+    val t = Seq(p(1, 1, r = 1), p(14, 1), p(1, 14), p(2, 2, g = 1), p(15, 2), p(2, 15), p(40, 1), p(60, 1), p(40, 14, r = 1))
+    rig.viewport = (fw / 2.0, fh / 2.0, fw / 2.0, fh / 2.0); rig.pitch = fw / 4; rig.fbBase = 0x14000
+    def vsIssued(): BigInt = {
+      rawWrite(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt, 9)
+      rawRead(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt)
+    }
+    def both(left: Int, right: Int): (Seq[(Int, Int, Int)], BigInt) = {
+      rig.window = (0, 0, 8, 4 | left << 12); rig.draw(t)
+      rig.window = (8, 0, 8, 4 | right << 12); rig.draw(t, keep = true)
+      ((for (y <- 0 until fh; x <- 0 until fw) yield rig.pixel(x, y)), vsIssued())
+    }
+    val (plain, vsPlain) = both(0, 0)
+    val (cached, vsCached) = both(1, 2)
+    println(s"  right window: $vsPlain vertex instructions without the cache, $vsCached with it; " +
+            s"${plain.zip(cached).count { case (a, b) => a == b }} of ${plain.size} pixels identical")
+    utest.assert(plain == cached && vsCached * 2 < vsPlain)
+    rig.viewport = (Size / 2.0, Size / 2.0, Size / 2.0, Size / 2.0); rig.pitch = Size / 4
+    rig.window = (0, 0, Size / 4, Size / 4); rig.fbBase = 0x10000
+  }
+
   /** Several colour attachments: the tile is rendered once per attachment,
     * the fragment shader writing the one CSR attachment names. Attachment 0 RGBA8
     * cleared, 1 BGRA8 cleared to its own colour, 2 RGBA8 loaded; depth LESS,
@@ -967,6 +994,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("render_windows_and_non_square_framebuffers") {
       run("render windows", suiteCfg)(windows)
+    }
+    utest.test("the_box_cache_skips_triangles_outside_the_window") {
+      run("box cache", suiteCfg)(boxCache)
     }
     utest.test("depth_is_tested_per_sample") {
       run("per-sample depth", suiteCfg)(perSampleDepth)
