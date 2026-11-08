@@ -66,8 +66,9 @@ jobs:
         run: |
           touch start.stamp
           pack/scripts/cts_pack_shard.sh "${{ matrix.shard }}" out
+      # Not on cancel: a cancelled restore leaves a partial cache that the next round would take.
       - uses: actions/cache/save@v4
-        if: always() && inputs.chain
+        if: ${{ !cancelled() && inputs.chain }}
         with:
           path: passcache
           key: pass-${{ inputs.tag }}-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
