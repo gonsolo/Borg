@@ -2,7 +2,7 @@ name: cts-pack
 # Runs a CTS pack built on the workstation (scripts/cts_pack.sh), one job per shard. The pack and
 # its shards.json are assets of the release named by `tag`. Started by hand only. With `chain`,
 # each shard keeps borgvk's pass cache, and the shards whose case timed out run again from it,
-# round after round, until they finish (at most 40 rounds).
+# round after round, until they finish (at most 40 rounds) or a round saves nothing new.
 on:
   workflow_dispatch:
     inputs:
@@ -63,7 +63,9 @@ jobs:
       - name: Run
         env:
           PASS_CACHE: ${{ inputs.chain && format('{0}/passcache', github.workspace) || '' }}
-        run: pack/scripts/cts_pack_shard.sh "${{ matrix.shard }}" out
+        run: |
+          touch start.stamp
+          pack/scripts/cts_pack_shard.sh "${{ matrix.shard }}" out
       - uses: actions/cache/save@v4
         if: always() && inputs.chain
         with:
@@ -73,7 +75,13 @@ jobs:
         if: always() && inputs.chain
         run: |
           mkdir -p unfinished
-          tar --zstd -xOf "out/${{ matrix.shard }}.tar.zst" results.txt | grep -q '^Timeout' && echo "${{ matrix.shard }}" > "unfinished/${{ matrix.shard }}" || true
+          tar --zstd -xOf "out/${{ matrix.shard }}.tar.zst" results.txt | grep -q '^Timeout' || exit 0
+          # Only a shard that saved something goes on; another round would start it from the same place.
+          if find passcache -type f -newer start.stamp 2>/dev/null | grep -q .; then
+            echo "${{ matrix.shard }}" > "unfinished/${{ matrix.shard }}"
+          else
+            echo "::warning::${{ matrix.shard }} saved nothing in this round, not chained"
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
