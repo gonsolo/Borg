@@ -37,4 +37,6 @@ route_design                                ;# routing
 
 report_timing_summary -file $out_dir/timing.rpt
 report_utilization    -file $out_dir/utilization.rpt
+report_utilization -hierarchical -hierarchical_depth 4 -file $out_dir/utilization_hier.rpt   ;# resources per block
+write_checkpoint -force $out_dir/routed.dcp   ;# saved finished design: more reports later without rebuilding
 write_bitstream -force $out_dir/$top.bit
