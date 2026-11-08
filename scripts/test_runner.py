@@ -219,6 +219,8 @@ def _finish(suite: Suite, root: Path) -> None:
         suite.n_tests = count_tests(suite.log)
     else:
         suite.state = State.FAIL
+        with open(suite.log, "a") as out:
+            out.write(f"\nexit code {suite.proc.returncode}\n")
 
 
 # ── Runner ────────────────────────────────────────────────────────────────────
