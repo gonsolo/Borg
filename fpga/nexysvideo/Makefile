@@ -63,6 +63,7 @@ help:
 	@echo "make flash-sdram-fb   - write Andreas's sdram_fb program into flash (red square on HDMI)"
 	@echo "make flash-uart-test  - write the UART check into flash (message, ID 'A', DDR3 P/F)"
 	@echo "make flash-firmware   - build Andreas's Borg firmware for $(SOC_MHZ) MHz and write it into flash"
+	@echo "make flash-replay     - build Andreas's replay firmware (one captured vkcube frame, no host) and write it into flash"
 	@echo "make clean            - delete build outputs"
 
 # Regenerate Verilog only when a Chisel file has changed.
@@ -198,7 +199,22 @@ flash-firmware: $(BUILD_DIR)/firmware_fw.bin flash.tcl
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
 	    -source $(call host_path,flash.tcl) -tclargs firmware_fw.bin $(FLASH_OFFSET)
 
+# Replay firmware: renders one captured vkcube frame with no host (borg_replay.c), shows it
+# on HDMI and prints it over the UART between FRAME-BEGIN/FRAME-END. Compared with the
+# simulation golden (simulation/golden/vkcube_cts_uart_00.ppm): the on-board golden-image test.
+.PHONY: $(FIRMWARE_DIR)/replay.bin
+$(FIRMWARE_DIR)/replay.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(SOC_MHZ) EXTRA_CFLAGS="-DTARGET_ULX3S" replay
+
+$(BUILD_DIR)/replay_fw.bin: $(FIRMWARE_DIR)/replay.bin
+	mkdir -p $(BUILD_DIR)
+	python3 -c "import struct; d=open('$<','rb').read(); open('$@','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header')"
+
+flash-replay: $(BUILD_DIR)/replay_fw.bin flash.tcl
+	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
+	    -source $(call host_path,flash.tcl) -tclargs replay_fw.bin $(FLASH_OFFSET)
+
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal borg program-borg flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal borg program-borg flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
