@@ -169,6 +169,7 @@ mesa/build-borg/build.ninja:
 	  -Dcpp_rtti=false -Dtools=drm-shim -Dbuild-tests=false
 
 test-borgvk: mesa/build-borg/build.ninja
+	ninja -C mesa/build-borg
 	meson test -C mesa/build-borg --suite borg
 
 test-chisel-borg:
