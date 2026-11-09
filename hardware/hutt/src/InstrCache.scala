@@ -70,7 +70,6 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
   switch(state) {
 
     is(sFlush) {
-      tagMem.write(flushIdx, 0.U)
       flushIdx := flushIdx + 1.U
       when(flushIdx === (numLines - 1).U) { state := sIdle }
     }
@@ -106,15 +105,18 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
       io.cpu.resp.bits  := io.mem.resp.bits
       when(io.mem.resp.fire) {
         dataMem.write(addrReg(indexBits - 1, 0), io.mem.resp.bits)
-        tagMem.write(
-          addrReg(indexBits - 1, 0),
-          Cat(true.B, addrReg(wordAddrWidth - 1, indexBits))
-        )
         dbgFillSeqReg      := dbgFillSeqReg + 1.U
         dbgFillWordAddrReg := addrReg
         dbgFillDataReg     := io.mem.resp.bits
         state := sIdle
       }
     }
+  }
+
+  // One write call, so tagMem gets one write port and maps to Block RAM.
+  val flushing = state === sFlush
+  when(flushing || (state === sMissWait && io.mem.resp.fire)) {
+    tagMem.write(Mux(flushing, flushIdx, addrReg(indexBits - 1, 0)),
+      Mux(flushing, 0.U, Cat(true.B, addrReg(wordAddrWidth - 1, indexBits))))
   }
 }
