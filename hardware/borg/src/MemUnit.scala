@@ -187,9 +187,11 @@ class MemUnit(cfg: BorgConfig) extends Module {
     when(fcEpoch === 255.U) { fcEpoch := 1.U; fcSweeping := true.B; fcSweepIdx := 0.U }
       .otherwise { fcEpoch := fcEpoch + 1.U }
   }
-  // One write port: the sweep wins over a fill, which only costs a hit.
-  when(fcSweeping) { fcMem.write(fcSweepIdx, 0.U(fcWidth.W)) }
-    .elsewhen(fcFill) { fcMem.write(fcIndex(attrHead), Cat(fcAddr, fcEpoch, memWord, attrWords(1), attrWords(0))) }
+  // One write call, so one write port (Block RAM): the sweep wins over a fill, which only costs a hit.
+  when(fcSweeping || fcFill) {
+    fcMem.write(Mux(fcSweeping, fcSweepIdx, fcIndex(attrHead)),
+      Mux(fcSweeping, 0.U(fcWidth.W), Cat(fcAddr, fcEpoch, memWord, attrWords(1), attrWords(0))))
+  }
 
   when(state === sAttrReq) {
     fcAddr := attrHead(GpuMemIO.AddrBits - 1, 2)
