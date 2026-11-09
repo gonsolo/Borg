@@ -26,8 +26,9 @@ import _root_.circt.stage.ChiselStage
 class nexysvideo_top(val CLOCK_MHZ: Int = 25) extends RawModule with SoCLogic {
     // GPU configuration used by vkcube demo
     override def BORG_CFG: BorgConfig = BorgConfig.Cube
-    // Firmware runs bare-metal, so the CPU's supervisor mode is unused
-    override def hasSupervisorMode: Boolean = false
+    // Experiment: 64-bit Hutt with supervisor mode (the CPU Linux needs), to measure its size
+    override def xlen: Int = 64
+    override def hasSupervisorMode: Boolean = true
     // GPU addresses carry bit 24 like the CPU's, so both see the same memory
     override def gpuVramRegionBit: Boolean = true
     // Tells the firmware which picture the scan-out is currently showing
