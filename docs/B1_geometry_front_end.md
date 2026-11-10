@@ -313,7 +313,13 @@ keep a word per triangle below `SEQ_SETUP_BASE` (triangle t at
 in 16-pixel bytes, empty when culled and full with a corner behind the eye.
 Mode 1 writes it, mode 2 skips the vertex shader and setup of each triangle
 whose box misses the window. Draws with primitive restart do not skip.
-borgvk writes the cache in a strip's first window and reads it in the others.
+Mode 3 writes it for the triangles t = k (mod n) only, k and n in bits 20:16
+and 25:21, and bins nothing; draws with primitive restart write every box.
+On the simulator borgvk splits a pass into strips, each its own GPU: every
+strip writes its slice of the boxes in mode 3, takes the others' from their
+memory, and renders its windows in mode 2, so each triangle's vertex shader
+runs once for the boxes and then only in the strips it reaches. With one
+strip, borgvk writes the cache in the first window and reads it in the others.
 
 **Bin capacity.** A tile's bin holds `SEQ_BIN_ROW_BYTES / 2` triangles
 (at most `maxTrianglesPerTile`), and a window's records need

@@ -759,9 +759,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.fbWidthTiles    := seqCfgPipe(seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0))
       // Render window: SEQ_TILE_ROWS 0 = square, FB_PITCH 0 = the window's width.
       val tileRowsReg = RegInit(0.U(12.W)); val originReg = RegInit(0.U(32.W)); val pitchReg = RegInit(0.U(12.W))
-      val bboxModeReg = RegInit(0.U(2.W))
+      val bboxModeReg = RegInit(0.U(2.W)); val boxSliceReg = RegInit(0.U(10.W))
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_tile_rows_offset) {
-        tileRowsReg := bus.data_in(11, 0); bboxModeReg := bus.data_in(13, 12)
+        tileRowsReg := bus.data_in(11, 0); bboxModeReg := bus.data_in(13, 12); boxSliceReg := bus.data_in(25, 16)
       }
       when(bus.is_writing && bus.address === BorgGpuRegs.fb_origin_offset)     { originReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.fb_pitch_offset)      { pitchReg := bus.data_in(11, 0) }
@@ -771,6 +771,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.fbOriginY       := seqCfgPipe(originReg(27, 16))
       s.io.mmio.fbPitch         := seqCfgPipe(Mux(pitchReg === 0.U, seqTilesPerRowReg, pitchReg))
       s.io.mmio.bboxMode        := seqCfgPipe(bboxModeReg)
+      s.io.mmio.boxSlice        := seqCfgPipe(boxSliceReg)
       windowRows := rows
       pixelOriginX := Cat(originReg(11, 0), 0.U(2.W)); pixelOriginY := Cat(originReg(27, 16), 0.U(2.W))
       // CULL_CFG. Reset 2/0 = cull back faces, front counter-clockwise.
