@@ -70,7 +70,7 @@ Bottom: lessons, QR codes to the repository, the book and the video.
 
 ## Open
 
-- Rust in the talk? The abstract left it out on purpose.
-- Camera on the speaker, or voice only?
-- A fresh full CTS run for the numbers (CI, needs a go).
-- New footage of the board (and the Nexys Video, if it runs by then).
+- A fresh full CTS run for the numbers (CI, needs a go): later.
+- New footage of the board (and the Nexys Video, if it runs by then): later.
+
+Decided 11-10: Rust is in the talk (the driver's language); voice only, no camera.
