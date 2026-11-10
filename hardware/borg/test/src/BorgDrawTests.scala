@@ -533,6 +533,33 @@ object BorgDrawTests extends TestSuite {
     rig.window = (0, 0, Size / 4, Size / 4); rig.fbBase = 0x10000
   }
 
+  /** Mode 3: two slices of the triangles (t = k mod 2) write the boxes without binning; the right
+    * window then skips what misses it and draws what it draws without the cache. */
+  def boxSlices(rig: DrawRig): Unit = {
+    val (fw, fh) = (64, 16)
+    def p(sx: Double, sy: Double, r: Double = 0, g: Double = 0) =
+      V(sx / (fw / 2.0) - 1, sy / (fh / 2.0) - 1, 0.5, 1.0, r, g)
+    val t = Seq(p(1, 1, r = 1), p(14, 1), p(1, 14), p(2, 2, g = 1), p(15, 2), p(2, 15), p(40, 1), p(60, 1), p(40, 14, r = 1))
+    rig.viewport = (fw / 2.0, fh / 2.0, fw / 2.0, fh / 2.0); rig.pitch = fw / 4; rig.fbBase = 0x14000
+    def vsIssued(): BigInt = {
+      rawWrite(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt, 9)
+      rawRead(rig.borg, BorgGpuRegs.perf_issue_offset.litValue.toInt)
+    }
+    def right(): Seq[(Int, Int, Int)] = for (y <- 0 until fh; x <- fw / 2 until fw) yield rig.pixel(x, y)
+    rig.window = (8, 0, 8, 4); rig.draw(t)
+    val (plain, vsPlain) = (right(), vsIssued())
+    rig.window = (0, 0, 8, 1 | 3 << 12 | 0 << 16 | 2 << 21); rig.draw(t)
+    rig.window = (0, 0, 8, 1 | 3 << 12 | 1 << 16 | 2 << 21); rig.draw(t, keep = true)
+    val vsSlice = vsIssued()
+    rig.window = (8, 0, 8, 4 | 2 << 12); rig.draw(t, keep = true)
+    val sliced = right()
+    println(s"  one slice of two: $vsSlice vertex instructions, a window without the cache $vsPlain; " +
+            s"${plain.zip(sliced).count { case (a, b) => a == b }} of ${plain.size} pixels identical")
+    utest.assert(plain == sliced && vsSlice * 2 < vsPlain)
+    rig.viewport = (Size / 2.0, Size / 2.0, Size / 2.0, Size / 2.0); rig.pitch = Size / 4
+    rig.window = (0, 0, Size / 4, Size / 4); rig.fbBase = 0x10000
+  }
+
   /** Several colour attachments: the tile is rendered once per attachment,
     * the fragment shader writing the one CSR attachment names. Attachment 0 RGBA8
     * cleared, 1 BGRA8 cleared to its own colour, 2 RGBA8 loaded; depth LESS,
@@ -997,6 +1024,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("the_box_cache_skips_triangles_outside_the_window") {
       run("box cache", suiteCfg)(boxCache)
+    }
+    utest.test("box_slices_fill_the_cache_without_binning") {
+      run("box slices", suiteCfg)(boxSlices)
     }
     utest.test("depth_is_tested_per_sample") {
       run("per-sample depth", suiteCfg)(perSampleDepth)

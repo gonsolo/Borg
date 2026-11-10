@@ -209,6 +209,10 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val idx16    = d.indexType === 1.U
   private val restartOn = d.restart && indexed && !isList
   private val cacheRead = io.mmio.bboxMode === 2.U && !restartOn
+  // Mode 3: the boxes of this simulator's slice of the triangles, nothing binned.
+  private val boxesOnly = io.mmio.bboxMode === 3.U
+  private val sliceAt   = RegInit(0.U(5.W))
+  private val notMine   = boxesOnly && !restartOn && sliceAt =/= io.mmio.boxSlice(4, 0)
 
   switch(state) {
     is(sIdle) {
@@ -216,6 +220,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         inst := 0.U; prim := 0.U; base := 0.U
         when(io.first) {
           tri := 0.U
+          sliceAt := 0.U
           io.binner.clearCounts := true.B
         }
         // BorgSequencer routes Pass 1's DMA port from the next cycle on.
@@ -268,7 +273,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         for (c <- 0 until 3) pos(c) := Mux(isList, relPos(c), base + relPos(c))
         k := 0.U
         sawRestart := false.B
-        state := Mux(cacheRead, sCache, Mux(indexed, sFetchIdx, sIdxDone))
+        state := Mux(notMine, sNext, Mux(cacheRead, sCache, Mux(indexed, sFetchIdx, sIdxDone)))
       }
     }
     is(sCache) {
@@ -368,6 +373,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     is(sNext) {
       tri  := tri + 1.U
+      sliceAt := Mux(sliceAt +& 1.U >= io.mmio.boxSlice(9, 5), 0.U, sliceAt + 1.U)
       prim := prim + 1.U
       state := sAssemble
     }
@@ -412,13 +418,13 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         bCacheWord := Mux(culled, "h00ff00ff".U, Mux(allFront,
           Cat(unit(hiY +& 1.U), unit(loY), unit(hiX +& 1.U), unit(loX)), "hff00ff00".U))
         bSkip := culled || outside
-        when(io.mmio.bboxMode === 1.U) { bState := bCache }
+        when(io.mmio.bboxMode(0)) { bState := bCache }
           .elsewhen(culled || outside) { retire() }.otherwise { bState := bBin }
       }
     }
     is(bCache) {
       io.store.req := true.B
-      when(io.store.ready) { when(bSkip) { retire() }.otherwise { bState := bBin } }
+      when(io.store.ready) { when(bSkip || boxesOnly) { retire() }.otherwise { bState := bBin } }
     }
     is(bBin) {
       io.binner.start := true.B
