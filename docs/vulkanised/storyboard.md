@@ -65,7 +65,9 @@ Bottom: lessons, QR codes to the repository, the book and the video.
 ## Production
 
 - Slides and poster in LaTeX next to `abstract.tex` (beamer, tikzposter), one `make`.
-- Recording: OBS, slides plus voice; footage of the board recorded with a camera.
+- Recording: OBS, slides plus voice; footage of the board recorded with a camera. The voice is
+  the speaker's own, recorded per section with retakes, then `clean_voice.sh take.wav out.wav`
+  (rumble and noise out, de-essing, compression, -16 LUFS, 48 kHz).
 - Live parts: a terminal running `cts_par.sh` on a few cases; vkcube on the simulator.
 
 ## Open
