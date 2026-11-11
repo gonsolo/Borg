@@ -70,6 +70,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val drawMode    = Input(Bool())       // the raster ROM runs the draw front end's program
   val drawSingle  = Input(Bool())       // one sample: it stops before the per-sample depths
   val setupShort  = Input(Bool())       // one sample, no depth bias
+  val setupBox    = Input(Bool())       // box cache mode 3: the setup ROM stops after the box
   val descWritten = Input(Bool())       // the texture unit forgets its descriptors
   val issueStats  = Output(new IssueStatsIO)
 }
@@ -181,6 +182,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   fetch.io.drawMode   := io.drawMode
   fetch.io.drawSingle := io.drawSingle
   fetch.io.setupShort := io.setupShort
+  fetch.io.setupBox   := io.setupBox
   fetch.io.codeBase   := io.codeBase
   fetch.io.flush      := io.icacheFlush
   val fetchedInstruction = fetch.io.word

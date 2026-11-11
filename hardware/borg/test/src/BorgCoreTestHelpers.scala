@@ -161,6 +161,7 @@ object BorgCoreTestHelpers {
     core.io.drawMode.poke(false.B)
     core.io.drawSingle.poke(false.B)
     core.io.setupShort.poke(false.B)
+    core.io.setupBox.poke(false.B)
     core.io.descWritten.poke(false.B)
     core.io.laneCoverage.foreach(_.poke(0.U))
     val r = core.io.record

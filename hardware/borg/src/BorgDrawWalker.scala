@@ -22,6 +22,7 @@ class DrawMmioIO extends Bundle {
   val depthScale    = UInt(32.W)
   val depthOffset   = UInt(32.W)
   val singleSample  = Bool()       // rasterizationSamples = 1: every sample at the centre
+  val pointSetup    = Bool()       // a point's triangle on the short path: BorgSetupRom.pointPc
   val depthBiasConst = UInt(32.W)  // FP32 depthBiasConstantFactor
   val depthBiasSlope = UInt(32.W)  // FP32 depthBiasSlopeFactor
   val depthD32      = Bool()       // D32_SFLOAT: r per triangle, else D16's 2^-16
@@ -361,6 +362,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         .elsewhen(!eValid(fc)) {
           io.coreTrigger.valid   := true.B
           io.coreTrigger.isSetup := true.B
+          io.coreTrigger.pc      := Mux(d.pointSetup, BorgSetupRom.pointPc.U, 0.U)
           eValid(fc) := true.B; eDone(fc) := false.B; eTri(fc) := tri
           for (c <- 0 until 3) eClipW(fc)(c) := clip(c)(3)
           if (ctxs > 1) fc := ~fc

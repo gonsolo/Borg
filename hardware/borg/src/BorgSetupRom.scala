@@ -61,11 +61,11 @@ private[borg] object BorgSetupRom {
   val uBiasSlope = 22; val uBiasConst = 23; val uRFloor = 24
   val Uniforms = 25
 
-  private val program: (Seq[BigInt], Int) = {
+  private val program: (Seq[BigInt], Seq[Int]) = {
     import Instructions._
     import Opcodes._
     val uu = 1; val rOne = 2          // a uniform word read by CSR; 1.0
-    val rS = Seq(3, 4, 5, 6, 7, 22)   // screen x, y of corners 0..2, from after the planes
+    val rS = Seq(3, 4, 5, 6, 7, 22)   // screen x, y of corners 0..2, on the long path
     val rW  = Seq(9, 10, 11);  val rX  = Seq(12, 13, 14); val rY = Seq(15, 16, 17)
     val rNW = Seq(18, 19, 20)
     val rSignMask = 21; val rDetSign = 22; val rAbsInv = 23
@@ -90,6 +90,25 @@ private[borg] object BorgSetupRom {
         p += FMADD_S(r, r, tmp, r)
       }
     }
+    // Edge plane (ra, rb, rc) of columns i and j.
+    def plane(rX: Seq[Int], rY: Seq[Int], rW: Seq[Int], rNW: Seq[Int], i: Int, j: Int): Unit = {
+      p += FMUL_S(ra, rY(i), rW(j))                   // Yi*Wj - Wi*Yj
+      p += FMUL_S(t, rNW(i), rY(j))
+      p += FADD_S(ra, ra, t)
+      p += FMUL_S(rb, rW(i), rX(j))                   // Wi*Xj - Xi*Wj
+      p += FMUL_S(t, rX(i), rNW(j))
+      p += FADD_S(rb, rb, t)
+      p += FMUL_S(rc, rX(i), rY(j))                   // Xi*Yj - Yi*Xj
+      p += FMUL_S(t, rY(i), rX(j))
+      p += FNEG(rs1 = t, rd = t)
+      p += FADD_S(rc, rc, t)
+    }
+    // X'*r, Y'*r into SetupScreen idx and idx + 1.
+    def screen(x: Int, y: Int, r: Int, tmp: Int, idx: Int): Unit =
+      for ((c, o) <- Seq(x, y).zipWithIndex) {
+        p += FMUL_S(tmp, c, r)
+        p += CSRRW(0, tmp, Csr.SetupScreen0 + idx + o)
+      }
     // The two MSAA sample deltas of plane (a, b): d0 = -0.125a - 0.375b,
     // d1 = 0.375a - 0.125b; samples 2 and 3 are their negations.
     def delta(a: Int, b: Int, d: Int): Unit = {
@@ -193,18 +212,10 @@ private[borg] object BorgSetupRom {
     // Not divided by det M and no FMA: each component is round(p) - round(q), so a triangle
     // sharing the edge gets the exact negation and the tie rule on zeros is watertight.
     // The barycentrics E_k / sum(E) cancel the missing division.
+    var boxPc = 0
     for (k <- 0 until 3) {
       val i = (k + 1) % 3; val j = (k + 2) % 3
-      p += FMUL_S(ra, rY(i), rW(j))                   // Yi*Wj - Wi*Yj
-      p += FMUL_S(t, rNW(i), rY(j))
-      p += FADD_S(ra, ra, t)
-      p += FMUL_S(rb, rW(i), rX(j))                   // Wi*Xj - Xi*Wj
-      p += FMUL_S(t, rX(i), rNW(j))
-      p += FADD_S(rb, rb, t)
-      p += FMUL_S(rc, rX(i), rY(j))                   // Xi*Yj - Yi*Xj
-      p += FMUL_S(t, rY(i), rX(j))
-      p += FNEG(rs1 = t, rd = t)
-      p += FADD_S(rc, rc, t)
+      plane(rX, rY, rW, rNW, i, j)
       if (k == 0) {
         // det M = column 0 . (column 1 x column 2): its sign is the facing,
         // |1/det| scales the planes' sum into 1/w.
@@ -212,6 +223,12 @@ private[borg] object BorgSetupRom {
         p += FMADD_S(rDet, rY(0), rb, rDet)
         p += FMADD_S(rDet, rW(0), rc, rDet)
         p += CSRRW(0, rDet, Csr.SetupDet)
+        // Screen positions for the bounding box: X'/W, Y'/W. A box-only run stops after them.
+        for (c <- 0 until 3) {
+          rcp(rW(c), rNW(c), 3, 4)
+          screen(rX(c), rY(c), 3, 5, 2 * c)
+        }
+        boxPc = p.length
         p += LUI(rSignMask, 0x80000)
         p += AND(rDetSign, rDet, rSignMask)
         p += FNEG(rs1 = rDet, rd = t)
@@ -233,18 +250,10 @@ private[borg] object BorgSetupRom {
     }
     for (acc <- Seq(za, zb, zc)) p += FMUL_S(acc, acc, rAbsInv)
 
-    // Screen positions for the bounding box: X'/W, Y'/W.
-    for (k <- 0 until 3) {
-      rcp(rW(k), rNW(k), ra, rb)
-      p += FMUL_S(rS(2 * k), rX(k), ra)
-      p += FMUL_S(rS(2 * k + 1), rY(k), ra)
-    }
-    for (r <- 0 until 6) p += CSRRW(0, rS(r), Csr.SetupScreen0 + r)
-
     // A primitive in the far plane (Z = W at every corner: a skybox) gets the exact plane Zn = 1:
     // from rounded coefficients it misses Zf >= 0 and LEQUAL against a 1.0 clear by an ulp.
     locally {
-      val (f, g, m) = (12, 13, 14)
+      val (f, g, m) = (3, 4, 5)
       ld(uu, uZ(0)); seq(f, uu, rW(0))
       for (k <- 1 until 3) {
         ld(uu, uZ(k)); seq(g, uu, rW(k))
@@ -261,7 +270,7 @@ private[borg] object BorgSetupRom {
     }
     // Flat depth (the same Z and W at every corner: a point's quad) gets the exact plane Zn = Z/W.
     locally {
-      val (f, g, m, z, r) = (12, 13, 14, 15, 16)
+      val (f, g, m, z, r) = (3, 4, 5, 6, 7)
       ldAdd(z, uZ(0))
       ld(uu, uZ(1)); seq(f, uu, z)
       ld(uu, uZ(2)); seq(g, uu, z)
@@ -290,6 +299,11 @@ private[borg] object BorgSetupRom {
     p += SOUT(rs2 = rOne, index = Record.One)
     // A single-sample draw without depth bias stops here (BorgCore, setupShort).
     val shortPc = p.length
+    for (k <- 0 until 3) {
+      rcp(rW(k), rNW(k), ra, rb)
+      p += FMUL_S(rS(2 * k), rX(k), ra)
+      p += FMUL_S(rS(2 * k + 1), rY(k), ra)
+    }
     depthBias()
     p += SOUT(rs2 = rBiasedOffset, index = Record.DepthOffset)
     covDelta(3, za, zb)
@@ -299,9 +313,78 @@ private[borg] object BorgSetupRom {
       ld(uu, uDepthScale); p += FMUL_S(t, t, uu)
       p += SOUT(rs2 = t, index = Record.SampleDepth + d)
     }
-    // Each part scheduled on its own: the short path still ends at shortPc.
-    (RomSchedule(p.take(shortPc).toSeq) ++ RomSchedule(p.slice(shortPc, p.length).toSeq) :+ BigInt(0), shortPc)   // HALT
+    // Each part scheduled on its own: the box and short paths still end at boxPc and shortPc.
+    val general = RomSchedule(p.take(boxPc).toSeq) ++ RomSchedule(p.slice(boxPc, shortPc).toSeq) ++
+      RomSchedule(p.slice(shortPc, p.length).toSeq) :+ BigInt(0)   // HALT
+
+    // A point's triangle (BorgCore, setupPoint): one sample, no bias, and every corner with the
+    // same Z and W, so the record is the short path's bit for bit: one 1/W, the flat depth
+    // plane, no far-plane test and no sample deltas.
+    p.clear()
+    var pointBox = 0
+    locally {
+      val (w, nw, r1, r2, tmp, v, mask, z) = (9, 18, 3, 4, 5, 6, 10, 10)
+      val (ws, nws) = (Seq(w, w, w), Seq(nw, nw, nw))
+      ld(rOne, uOne)
+      ldAdd(rSx, uSx); ldAdd(rSy, uSy); ldAdd(w, uW(0))
+      ld(uu, uOx); p += FMUL_S(ra, w, uu)
+      ld(uu, uOy); p += FMUL_S(rb, w, uu)
+      for (k <- 0 until 3) {
+        ld(uu, uX(k)); p += FMADD_S(rX(k), uu, rSx, ra)
+        ld(uu, uY(k)); p += FMADD_S(rY(k), uu, rSy, rb)
+      }
+      p += FNEG(rs1 = w, rd = nw)
+      // 1/W after one Newton step (the box) and after two (the snap and the depth plane).
+      p += FRCP_V2(r1, w)
+      p += FMADD_S(tmp, nw, r1, rOne); p += FMADD_S(r1, r1, tmp, r1)
+      p += FMADD_S(tmp, nw, r1, rOne); p += FMADD_S(r2, r1, tmp, r1)
+      val (magic, negMagic) = (21, 22)
+      p += LUI(magic, 0x47400); p += LUI(negMagic, 0xC7400)
+      p += SLT(mask, 0, w)
+      p += SUB(mask, 0, mask)
+      for (c <- rX ++ rY) {
+        p += FMUL_S(v, c, r2)
+        p += FADD_S(v, v, magic); p += FADD_S(v, v, negMagic)
+        p += FMUL_S(v, v, w)
+        p += XOR(v, c, v); p += AND(v, v, mask)
+        p += XOR(c, c, v)
+      }
+      for (k <- 0 until 3) {
+        plane(rX, rY, ws, nws, (k + 1) % 3, (k + 2) % 3)
+        if (k == 0) {
+          p += FMUL_S(rDet, rX(0), ra)
+          p += FMADD_S(rDet, rY(0), rb, rDet)
+          p += FMADD_S(rDet, w, rc, rDet)
+          p += CSRRW(0, rDet, Csr.SetupDet)
+          for (c <- 0 until 3) screen(rX(c), rY(c), r1, tmp, 2 * c)
+          pointBox = p.length
+          p += LUI(rSignMask, 0x80000)
+          p += AND(rDetSign, rDet, rSignMask)
+          p += FNEG(rs1 = rDet, rd = t)
+          rcp(rDet, t, rInvDet, rAbsInv, steps = 2)
+          p += AND(rAbsInv, rInvDet, rSignMask)
+          p += XOR(rAbsInv, rInvDet, rAbsInv)
+        }
+        for (r <- Seq(ra, rb, rc)) p += XOR(r, r, rDetSign)
+        p += SOUT(rs2 = ra, index = Record.plane(k))
+        p += SOUT(rs2 = rb, index = Record.plane(k) + 1)
+        p += SOUT(rs2 = rc, index = Record.plane(k) + 2)
+      }
+      ldAdd(z, uZ(0)); p += FMUL_S(z, z, r2)
+      p += XOR(tmp, tmp, tmp)
+      p += SOUT(rs2 = tmp, index = Record.plane(3))
+      p += SOUT(rs2 = tmp, index = Record.plane(3) + 1)
+      p += SOUT(rs2 = z, index = Record.plane(3) + 2)
+      p += SOUT(rs2 = rAbsInv, index = Record.InvDet)
+      ld(uu, uDepthScale);  p += SOUT(rs2 = uu, index = Record.DepthScale)
+      ld(uu, uDepthOffset); p += SOUT(rs2 = uu, index = Record.DepthOffset)
+      p += SOUT(rs2 = rOne, index = Record.One)
+    }
+    val point = RomSchedule(p.take(pointBox).toSeq) ++ RomSchedule(p.drop(pointBox).toSeq) :+ BigInt(0)
+    (general ++ point, Seq(boxPc, shortPc, general.length, general.length + pointBox))
   }
   val instructions: Seq[BigInt] = program._1
-  val shortPc: Int = program._2
+  /** A box-only run (box cache mode 3) stops at boxPc, a short one at shortPc; a point's
+    * triangle starts at pointPc and its box-only run stops at pointBoxPc. */
+  val Seq(boxPc, shortPc, pointPc, pointBoxPc) = program._2
 }
