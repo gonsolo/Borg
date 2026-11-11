@@ -18,6 +18,7 @@ object BorgSetupRomTests extends TestSuite {
 
   val W = 256.0                      // viewport: (0, 0) .. (256, 256)
   val recordBase = 0x8000
+  var lastCycles = 0
 
   case class Tri(c: Seq[Seq[Double]])   // corners: X, Y, Z, W
 
@@ -40,7 +41,7 @@ object BorgSetupRomTests extends TestSuite {
   }
 
   def runSetup(core: BorgCore, t: Tri, mem: scala.collection.mutable.Map[BigInt, BigInt],
-               bias: (Double, Double, Double) = (0, 0, 0)): Map[Int, BigInt] = {
+               bias: (Double, Double, Double) = (0, 0, 0), pc: Int = 0): Map[Int, BigInt] = {
     def u(i: Int, f: Double): Unit = writeCore(core, 432 + 4 * i, floatToBits(f.toFloat))
     u(BorgSetupRom.uBiasSlope, bias._1); u(BorgSetupRom.uBiasConst, bias._2); u(BorgSetupRom.uRFloor, bias._3)
     for (k <- 0 until 3) {
@@ -52,7 +53,7 @@ object BorgSetupRomTests extends TestSuite {
     val rec = core.io.record
     rec.outBase.poke(recordBase.U); rec.outInterleave.poke(false.B)
     core.io.coreTrigger.valid.poke(true.B); core.io.coreTrigger.isSetup.poke(true.B)
-    core.io.coreTrigger.pc.poke(0.U)
+    core.io.coreTrigger.pc.poke(pc.U)
     core.clock.step(1)
     core.io.coreTrigger.valid.poke(false.B); core.io.coreTrigger.isSetup.poke(false.B)
     var started = false; var done = false; var cycles = 0
@@ -71,6 +72,7 @@ object BorgSetupRomTests extends TestSuite {
     }
     core.io.gpuMem.ready.poke(false.B)
     Predef.assert(done, "setup ROM never finished")
+    lastCycles = cycles
     csrs.toMap
   }
 
@@ -173,6 +175,43 @@ object BorgSetupRomTests extends TestSuite {
           Predef.assert(math.abs(got - expect) <= 1e-5 * math.abs(m * slope) + ulp(got.toFloat) / 2,
                         f"tri $n bias: $got vs $expect")
         }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("point_and_box_paths_match_the_short_path_bit_for_bit") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgSetupRom: point and box paths ---")
+        idleInputs(core)
+        resetCore(core)
+        val rnd = new scala.util.Random(5)
+        // A point's triangle: one Z and W, corners around its centre (one behind the eye).
+        val pts = (0 until 12).map { n =>
+          val w = if (n == 11) -0.7 else 0.3 + 3 * rnd.nextDouble()
+          val (cx, cy, z) = ((rnd.nextDouble() * 2 - 1) * w, (rnd.nextDouble() * 2 - 1) * w, rnd.nextDouble() * w)
+          val s = (1 + 5 * rnd.nextDouble()) * w / 256
+          Tri(Seq((-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)).map { case (dx, dy) => Seq(cx + dx * s, cy + dy * s, z, w) })
+        }
+        val words = (0 to Record.InvDet).filter(_ != Record.Meta)
+        val csrIds = Csr.SetupDet +: (0 until 6).map(Csr.SetupScreen0 + _)
+        val cycles = scala.collection.mutable.Map[String, Int]().withDefaultValue(0)
+        for ((t, n) <- pts.zipWithIndex) {
+          def run(pc: Int, box: Boolean) = {
+            val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+            core.io.setupShort.poke(true.B); core.io.setupBox.poke(box.B)
+            val out = runSetup(core, t, mem, pc = pc)
+            core.io.setupShort.poke(false.B); core.io.setupBox.poke(false.B)
+            (words.map(i => mem.get(BigInt(recordBase + 4 * i))), csrIds.map(out.get), lastCycles)
+          }
+          val (gRec, gCsr, gc) = run(0, box = false)
+          val (pRec, pCsr, pc) = run(BorgSetupRom.pointPc, box = false)
+          val (_, gbCsr, gbc) = run(0, box = true)
+          val (_, pbCsr, pbc) = run(BorgSetupRom.pointPc, box = true)
+          Predef.assert(gRec.forall(_.isDefined) && pRec == gRec, s"point $n record: $pRec vs $gRec")
+          Predef.assert(pCsr.forall(_.isDefined) && pCsr == gCsr && gbCsr == gCsr && pbCsr == gCsr, s"point $n CSRs")
+          for ((k, c) <- Seq("short" -> gc, "point" -> pc, "box" -> gbc, "point box" -> pbc)) cycles(k) += c
+        }
+        for (k <- Seq("short", "point", "box", "point box")) println(f"  $k%-9s ${cycles(k) / pts.size}%5d cycles")
         println("  PASSED")
       }
     }

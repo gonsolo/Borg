@@ -826,7 +826,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     s.io.slotBusy := core.io.slotBusy
     core.io.drawMode := drawMode
     core.io.drawSingle := (cfg.samples == 1).B || singleSample
-    core.io.setupShort := ((cfg.samples == 1).B || singleSample) && w(14) === 0.U && w(15) === 0.U
+    val setupShort = ((cfg.samples == 1).B || singleSample) && w(14) === 0.U && w(15) === 0.U
+    core.io.setupShort := setupShort
+    core.io.setupBox   := s.io.mmio.bboxMode === 3.U
+    d.pointSetup := setupShort && cfgReg(10)
     rast.io.drawMode := drawMode
     rast.io.topLeft := s.io.topLeft
     // The walker owns r30/r31 while it runs a vertex shader, compute otherwise.

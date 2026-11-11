@@ -27,6 +27,7 @@ class FetchIO(cfg: BorgConfig) extends Bundle {
   val drawMode   = Input(Bool())
   val drawSingle = Input(Bool())
   val setupShort = Input(Bool())
+  val setupBox   = Input(Bool())
   val word       = Output(UInt(32.W))
   val ready      = Output(Bool())              // `word` is the program's word at its PC
   val missOk     = Input(Bool())               // a miss may fill now: running, stages empty
@@ -53,7 +54,8 @@ class Fetch(cfg: BorgConfig) extends Module {
   private val rasterShort = io.drawSingle && rasterRomAddrReg === BorgRasterRom.drawSampleDepthPc.U
   private val rasterWord =
     Mux(io.drawMode, Mux(rasterShort, 0.U, drawRasterRom(rasterRomAddrReg)), rasterRom(rasterRomAddrReg))
-  private val setupStop = io.setupShort && rasterRomAddrReg === BorgSetupRom.shortPc.U
+  private val setupStop = io.setupShort && rasterRomAddrReg === BorgSetupRom.shortPc.U ||
+    io.setupBox && (rasterRomAddrReg === BorgSetupRom.boxPc.U || rasterRomAddrReg === BorgSetupRom.pointBoxPc.U)
   io.word := Mux(fetchRast, rasterWord,
     Mux(fetchSetup, Mux(setupStop, 0.U, setupRom(rasterRomAddrReg)), instructionMemory.read(imemIndex(nextPC))))
 

@@ -155,6 +155,15 @@ The ROM reads its inputs as the CSRs `uniform0..24`, writes the record with
 the whole grid when some `W <= 0`. Otherwise the bounding box comes from the
 screen positions, with a pixel of slack for the reciprocal's rounding.
 
+The ROM has three exits and a second entry. A box-only run (mode 3 below)
+stops once `setup_det` and the screen positions are written (`boxPc`); a
+single-sample draw without depth bias stops before the bias and the sample
+depths (`shortPc`). `DRAW_CFG.points` starts the short path of a draw whose
+triangles have the same Z and W at every corner at `pointPc` instead: one
+`1/W` for all corners, the flat depth plane, no far-plane test and no sample
+deltas, the same record bit for bit in about 60 % of the cycles (40 % for its
+box-only run, `pointBoxPc`).
+
 `FRCP` and `FRSQ` keep FP32's exponent range for this (the LUT core sees only
 the mantissa); one Newton step gives about 22 bits, enough for the bounding
 box and the raster ROM's `1/sum(E)`. `1/det M` takes two, to full FP32: it
@@ -514,7 +523,7 @@ on every configuration. All addresses are GPU byte addresses.
     SEQ_VERT_ADDR/LEN, SEQ_FRAG_ADDR/LEN, FRAG_PC = 1
     SEQ_BIN_BASE, SEQ_BIN_ROW_BYTES, SEQ_SETUP_BASE (records)
     SEQ_FB_BASE, SEQ_TILES_PER_ROW, SEQ_CLEAR_LO/HI, FLUSH_FORMAT, DEPTH_CFG, CULL_CFG
-    DRAW_CFG            = 1 | topology << 1 | index_type << 3 | restart << 5 | record_shift << 6
+    DRAW_CFG            = 1 | topology << 1 | index_type << 3 | restart << 5 | record_shift << 6 | points << 10
     DRAW_VERTEX_COUNT   = vertices (or indices) per instance
     DRAW_INSTANCE_COUNT = 1 or more
     DRAW_FIRST_VERTEX, DRAW_FIRST_INSTANCE, DRAW_VERTEX_OFFSET, DRAW_INDEX_BASE

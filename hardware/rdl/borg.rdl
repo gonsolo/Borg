@@ -586,7 +586,8 @@ reg draw_cfg_reg_t {
     field { sw = rw; hw = r; desc = "0 = no index buffer, 1 = 16-bit, 2 = 32-bit indices."; } index_type[2] = 0;
     field { sw = rw; hw = r; desc = "Primitive restart (strips and fans)."; } restart[1] = 0;
     field { sw = rw; hw = r; desc = "Record stride: triangle t's record is at SEQ_SETUP_BASE + (t << shift)."; } record_shift[4] = 8;
-    field { sw = rw; hw = na; } RSVD[22] = 0;
+    field { sw = rw; hw = r; desc = "Points: every triangle has the same Z and W at its corners (the setup ROM's point path)."; } points[1] = 0;
+    field { sw = rw; hw = na; } RSVD[21] = 0;
 };
 reg draw_word_reg_t {
     name = "Draw Parameter";
