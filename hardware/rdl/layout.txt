@@ -55,6 +55,12 @@ BORG_SB_SPI                 0x4800000
 BORG_ATT_SPI                0x4A00000     # attachment 1; k at + (k - 1) * BORG_ATT_STRIDE
 BORG_ATT_STRIDE             0x1000000
 BORG_SIM_MEM_BYTES          0x8000000
+# The board's HDMI scan-out (MigScanout), past the simulator's memory: a 16-byte descriptor (base,
+# pitch, width | height << 16, format) read every frame, and two 640x480 BGRA8 front buffers the
+# driver alternates.
+BORG_SCANOUT_SPI            BORG_SIM_MEM_BYTES
+BORG_SCANOUT_FB             BORG_SCANOUT_SPI + 0x1000
+BORG_SCANOUT_FB_BYTES       0x12C000
 BORG_DEVICE_BASE            0x10000000
 BORG_DEVICE_BYTES           0x10000000
 
