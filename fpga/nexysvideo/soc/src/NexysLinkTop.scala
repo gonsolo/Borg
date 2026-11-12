@@ -8,7 +8,7 @@ import chisel3.util._
 import chisel3.experimental.{Analog, attach}
 import _root_.circt.stage.ChiselStage
 import borg.{Borg, BorgConfig}
-import soc.{AsyncFifo, Emit, GpuMemArbiter, GpuMemMig, HostLink, UsbFifo}
+import soc.{AsyncFifo, Emit, GpuMemArbiter, GpuMemMig, HostLink, MigScanout, MigUiArbiter, MigUi, UsbFifo}
 
 class IOBUF extends ExtModule {
   val IO = chisel3.IO(Analog(1.W))
@@ -18,7 +18,8 @@ class IOBUF extends ExtModule {
 }
 
 /** Borg on the Nexys Video as the host's device (`borg_ftdi`, BORG_HW_RAW): the direct simulator's
-  * protocol over the FT2232H's synchronous FIFO, memory on the DDR3. No CPU.
+  * protocol over the FT2232H's synchronous FIFO, memory on the DDR3, the presented picture on HDMI.
+  * No CPU.
   */
 class NexysLinkTop extends RawModule {
   val clk        = IO(Input(Clock()))
@@ -33,6 +34,11 @@ class NexysLinkTop extends RawModule {
   val prog_wrn   = IO(Output(Bool()))
   val prog_oen   = IO(Output(Bool()))
   val prog_siwun = IO(Output(Bool()))
+
+  val hdmi_tx_clk_p = IO(Output(Bool()))
+  val hdmi_tx_clk_n = IO(Output(Bool()))
+  val hdmi_tx_p     = IO(Output(UInt(3.W)))
+  val hdmi_tx_n     = IO(Output(UInt(3.W)))
 
   val ddr3_dq      = IO(Analog(16.W))
   val ddr3_dqs_p   = IO(Analog(2.W))
@@ -123,6 +129,45 @@ class NexysLinkTop extends RawModule {
     prog_siwun := p.siwuN
   }
 
+  // The MIG serves Borg and the scan-out, which goes first.
+  val gpuMig = Wire(new MigUi)
+  withClockAndReset(mig.ui_clk, mig.ui_clk_sync_rst) {
+    val arb  = Module(new MigUiArbiter)
+    val scan = Module(new MigScanout(0x8000000))   // BORG_SCANOUT_SPI in hardware/rdl/layout.txt
+    arb.io.a <> gpuMig
+    arb.io.b <> scan.io.mig
+    scan.io.pixClock := clkGen.io.clk125
+    scan.io.pixReset := resetIn(clkGen.io.clk125, !locked)
+    val m = arb.io.mig
+    mig.app_addr     := m.app_addr
+    mig.app_cmd      := m.app_cmd
+    mig.app_en       := m.app_en
+    mig.app_wdf_data := m.app_wdf_data
+    mig.app_wdf_mask := m.app_wdf_mask
+    mig.app_wdf_wren := m.app_wdf_wren
+    mig.app_wdf_end  := m.app_wdf_end
+    m.app_rdy             := mig.app_rdy
+    m.app_wdf_rdy         := mig.app_wdf_rdy
+    m.app_rd_data         := mig.app_rd_data
+    m.app_rd_data_valid   := mig.app_rd_data_valid
+    m.init_calib_complete := mig.init_calib_complete
+
+    withClockAndReset(clkGen.io.clk125, scan.io.pixReset) {
+      val outs = (0 until 4).map { i =>
+        val ser = Module(new TmdsSerializer)
+        ser.io.en   := scan.io.tick
+        ser.io.tmds := scan.io.tmds(i)
+        val buf = Module(new OBUFDS)
+        buf.I := ser.io.out
+        buf
+      }
+      hdmi_tx_p     := Cat(outs(2).O, outs(1).O, outs(0).O)
+      hdmi_tx_n     := Cat(outs(2).OB, outs(1).OB, outs(0).OB)
+      hdmi_tx_clk_p := outs(3).O
+      hdmi_tx_clk_n := outs(3).OB
+    }
+  }
+
   rx.deqClock := clkGen.io.clk25; rx.deqReset := borgReset
   tx.enqClock := clkGen.io.clk25; tx.enqReset := borgReset
   withClockAndReset(clkGen.io.clk25, borgReset) {
@@ -139,19 +184,7 @@ class NexysLinkTop extends RawModule {
     ddr.io.gpu <> arb.io.out
     ddr.io.uiClock := mig.ui_clk
     ddr.io.uiReset := mig.ui_clk_sync_rst || resetIn(mig.ui_clk, usbLost)
-    val m = ddr.io.mig
-    mig.app_addr     := m.app_addr
-    mig.app_cmd      := m.app_cmd
-    mig.app_en       := m.app_en
-    mig.app_wdf_data := m.app_wdf_data
-    mig.app_wdf_mask := m.app_wdf_mask
-    mig.app_wdf_wren := m.app_wdf_wren
-    mig.app_wdf_end  := m.app_wdf_end
-    m.app_rdy             := mig.app_rdy
-    m.app_wdf_rdy         := mig.app_wdf_rdy
-    m.app_rd_data         := mig.app_rd_data
-    m.app_rd_data_valid   := mig.app_rd_data_valid
-    m.init_calib_complete := mig.init_calib_complete
+    gpuMig <> ddr.io.mig
 
     val down = Counter(link.io.in.fire, 1 << 12)._1
     val up   = Counter(link.io.out.fire, 1 << 12)._1

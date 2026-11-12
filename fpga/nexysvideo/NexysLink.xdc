@@ -24,6 +24,16 @@ set_property -dict { PACKAGE_PIN P17 IOSTANDARD LVCMOS33 } [get_ports { prog_siw
 set_property -dict { PACKAGE_PIN Y19 IOSTANDARD LVCMOS33 } [get_ports { prog_txen }]
 set_property -dict { PACKAGE_PIN R19 IOSTANDARD LVCMOS33 } [get_ports { prog_wrn }]
 
+## HDMI out (TMDS), 640x480 from the scan-out
+set_property -dict { PACKAGE_PIN T1  IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_clk_p }]
+set_property -dict { PACKAGE_PIN U1  IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_clk_n }]
+set_property -dict { PACKAGE_PIN W1  IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_p[0] }]
+set_property -dict { PACKAGE_PIN Y1  IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_n[0] }]
+set_property -dict { PACKAGE_PIN AA1 IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_p[1] }]
+set_property -dict { PACKAGE_PIN AB1 IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_n[1] }]
+set_property -dict { PACKAGE_PIN AB3 IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_p[2] }]
+set_property -dict { PACKAGE_PIN AB2 IOSTANDARD TMDS_33 } [get_ports { hdmi_tx_n[2] }]
+
 ## FT2232H data sheet: its outputs change 1-7.15 ns after CLKOUT, its inputs need 8 ns setup, 0 hold.
 create_clock -name usb_clk -period 16.667 [get_ports { prog_clko }]
 set usb_in  [get_ports { prog_d_* prog_rxen prog_txen }]
@@ -34,5 +44,5 @@ set_output_delay -clock usb_clk -max 8.0  $usb_out
 set_output_delay -clock usb_clk -min 0.0  $usb_out
 set_property IOB TRUE $usb_out
 
-## Borg (25 MHz), the MIG's ui_clk and the FIFO's clock meet only in handshakes and Gray-coded FIFOs.
-set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks usb_clk] -group [get_clocks _mmcm_CLKOUT0] -group [get_clocks clk_pll_i]
+## Borg (25 MHz), the MIG's ui_clk, the FIFO's and the pixels' clocks meet only in handshakes and Gray-coded FIFOs.
+set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks usb_clk] -group [get_clocks _mmcm_CLKOUT0] -group [get_clocks clk_pll_i] -group [get_clocks _mmcm_CLKOUT1]
