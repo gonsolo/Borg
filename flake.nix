@@ -190,6 +190,7 @@
           pkgs.vulkan-headers
           pkgs.vulkan-loader
           pkgs.libdrm
+          pkgs.libftdi1 # fpga/nexysvideo/host: the board's sync FIFO link
           pkgs.spirv-headers
           pkgs.spirv-tools
           pkgs.expat
