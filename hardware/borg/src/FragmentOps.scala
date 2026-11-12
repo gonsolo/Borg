@@ -15,6 +15,15 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
                   scissorPass: Vec[Bool], tileIndex: Vec[UInt], frontFacing: Option[Bool]) {
   val perSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 
+  // The source as UNORM8 for the blend, a cycle ahead: slot and lane hold through the tile read's wait.
+  private val srcReg = if (cfg.hasBlend) Some(Reg(new Rgba8)) else None
+  def stage(lane: UInt): Unit = srcReg.foreach { r =>
+    r.r := ColorQuantize.quantize8(outs.frag_r(lane))
+    r.g := ColorQuantize.quantize8(outs.frag_g(lane))
+    r.b := ColorQuantize.quantize8(outs.frag_b(lane))
+    r.a := ColorQuantize.quantize8(outs.frag_a.get(lane))
+  }
+
   /** VkCompareOp on depths in float order: negative below positive, -0 equal to +0. */
   def depthPasses(newZ: UInt, oldZ: UInt): Bool = {
     val w = newZ.getWidth
@@ -35,11 +44,7 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
     // Blend on UNORM8, back to FP16; blending off passes the FP16 bits. The write mask always holds.
     val (blendR, blendG, blendB) = if (cfg.hasBlend) {
       val cfgIn = io.blendCfg.get
-      val src = Wire(new Rgba8)
-      src.r := ColorQuantize.quantize8(outs.frag_r(lane))
-      src.g := ColorQuantize.quantize8(outs.frag_g(lane))
-      src.b := ColorQuantize.quantize8(outs.frag_b(lane))
-      src.a := ColorQuantize.quantize8(outs.frag_a.get(lane))
+      val src = srcReg.get
       val dst = Wire(new Rgba8)
       dst.r := ColorQuantize.quantize8(rd.r)
       dst.g := ColorQuantize.quantize8(rd.g)

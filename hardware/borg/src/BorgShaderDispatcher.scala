@@ -163,6 +163,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val laneCtr = RegInit(0.U(log2Up(N).W))
   val sampleCtr = Option.when(ops.perSample)(RegInit(0.U(log2Up(cfg.samples).W)))
   private val laneIdx: UInt = laneCtr
+  ops.stage(laneIdx)
 
   io.coreTrigger.valid   := false.B
   io.coreTrigger.pc      := 0.U
