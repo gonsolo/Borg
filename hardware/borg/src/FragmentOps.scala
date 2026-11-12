@@ -15,13 +15,18 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
                   scissorPass: Vec[Bool], tileIndex: Vec[UInt], frontFacing: Option[Bool]) {
   val perSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 
-  // The source as UNORM8 for the blend, a cycle ahead: slot and lane hold through the tile read's wait.
+  // The source as UNORM8 for the blend and the samples' depths, a cycle ahead: slot and lane hold
+  // through the tile read's wait.
   private val srcReg = if (cfg.hasBlend) Some(Reg(new Rgba8)) else None
-  def stage(lane: UInt): Unit = srcReg.foreach { r =>
-    r.r := ColorQuantize.quantize8(outs.frag_r(lane))
-    r.g := ColorQuantize.quantize8(outs.frag_g(lane))
-    r.b := ColorQuantize.quantize8(outs.frag_b(lane))
-    r.a := ColorQuantize.quantize8(outs.frag_a.get(lane))
+  private val zReg   = Reg(Vec(cfg.samples, UInt(cfg.tileDepthBits.W)))
+  def stage(lane: UInt): Unit = {
+    srcReg.foreach { r =>
+      r.r := ColorQuantize.quantize8(outs.frag_r(lane))
+      r.g := ColorQuantize.quantize8(outs.frag_g(lane))
+      r.b := ColorQuantize.quantize8(outs.frag_b(lane))
+      r.a := ColorQuantize.quantize8(outs.frag_a.get(lane))
+    }
+    for (s <- 0 until cfg.samples) zReg(s) := outs.zAt(lane, s.U(2.W))
   }
 
   /** VkCompareOp on depths in float order: negative below positive, -0 equal to +0. */
@@ -87,12 +92,12 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
     // depthWriteEnable needs one known sample per write; the broadcast path at MSAA always writes.
     // After ZTEST the depth is final in the tile buffer: keep it.
     io.tileWrite.data.z := (if (cfg.samples == 1 || perSample)
-                              Mux(io.depthWriteEn && !earlyDone, outs.zAt(lane, smp), rd.z)
+                              Mux(io.depthWriteEn && !earlyDone, zReg(smp), rd.z)
                             else outs.zClamp(outs.frag_z(lane)))
 
     // Stencil tests before depth but writes after it on every outcome, so it has its own enable.
     val stencilRes = Option.when(cfg.hasStencil)(BorgStencil.evaluate(io.stencilCfg.get, frontFacing.get,
-      io.stencilRead.get(smp), depthPasses(outs.zAt(lane, smp), rd.z)))
+      io.stencilRead.get(smp), depthPasses(zReg(smp), rd.z)))
 
     // Covered, not discarded, inside the scissor, and in the late pass inside alpha to coverage and
     // the shader's mask (the early tests ran without them).
@@ -102,7 +107,7 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
       cov.coverage(lane)(s) && !outs.killed(lane) && scissorPass(lane) && (early || outs.postMask(lane)(s))
 
     if (perSample) {
-      val testOk = stencilRes.map(_.pass).getOrElse(depthPasses(outs.zAt(lane, smp), rd.z))
+      val testOk = stencilRes.map(_.pass).getOrElse(depthPasses(zReg(smp), rd.z))
       val pass = reachedDyn(smp) && Mux(earlyDone, earlyPass(lane)(smp), testOk)
       val oneHot = UIntToOH(smp, cfg.samples)
       io.tileWrite.coverage := Mux(pass, oneHot, 0.U)
@@ -119,7 +124,7 @@ class FragmentOps(cfg: BorgConfig, io: BorgShaderDispatcherIO, outs: FragOutputs
       val samplePass = (0 until cfg.samples).map { s =>
         val testOk = stencilRes match {
           case Some(r) if s == 0 => r.pass                  // folds in the depth result
-          case _                 => depthPasses(outs.zAt(lane, s.U), io.tileRead.data(s).z)
+          case _                 => depthPasses(zReg(s), io.tileRead.data(s).z)
         }
         reached(s) && Mux(earlyDone, earlyPass(lane)(s), testOk)
       }
