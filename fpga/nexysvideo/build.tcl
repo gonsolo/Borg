@@ -26,6 +26,8 @@ if {$ip_dir ne ""} {
     set xci [glob $ip_copy/*.xci]
     set_property board_part digilentinc.com:nexys_video:part0:1.2 [current_project]   ;# the MIG was made with Digilent's board settings
     read_ip $xci
+    set ip [get_ips [file rootname [file tail $xci]]]
+    if {[get_property IS_LOCKED $ip]} { upgrade_ip $ip }   ;# made with an older Vivado
     set_property generate_synth_checkpoint false [get_files $xci]   ;# build the IP with the design
     generate_target all [get_files $xci]                            ;# make the IP's files and its pin file
 }
