@@ -4,10 +4,10 @@
 package soc
 
 import chisel3._
-import borg.{Borg, BorgConfig, GpuMemIO}
+import borg.{Borg, BorgConfig}
 
-/** Borg behind [[HostLink]], as on a board: the harness (`simulation/direct`, `link_sim`) feeds the
-  * protocol's bytes and answers `gpu` from a flat byte array.
+/** The board's data path: Borg behind [[HostLink]], memory through [[GpuMemMig]]. The harness
+  * (`simulation/direct`, `link_sim`) feeds the protocol's bytes and plays the MIG.
   */
 class BorgLinkSimTop(cfg: BorgConfig) extends RawModule {
   val clk   = IO(Input(Clock()))
@@ -20,14 +20,7 @@ class BorgLinkSimTop(cfg: BorgConfig) extends RawModule {
   val out_ready = IO(Input(Bool()))
   val out_data  = IO(Output(UInt(8.W)))
 
-  val gpu_addr    = IO(Output(UInt(GpuMemIO.AddrBits.W)))
-  val gpu_req     = IO(Output(Bool()))
-  val gpu_data    = IO(Input(UInt(32.W)))
-  val gpu_ready   = IO(Input(Bool()))
-  val gpu_wr      = IO(Output(Bool()))
-  val gpu_wdata   = IO(Output(UInt(32.W)))
-  val gpu_wlen    = IO(Output(UInt(7.W)))
-  val gpu_waccept = IO(Input(Bool()))
+  val mig = IO(new MigUi)
 
   withClockAndReset(clk, !rst_n) {
     val b    = Module(new Borg(cfg))
@@ -44,14 +37,11 @@ class BorgLinkSimTop(cfg: BorgConfig) extends RawModule {
     out_data          := link.io.out.bits
     link.io.out.ready := out_ready
 
-    gpu_addr  := arb.io.out.addr
-    gpu_req   := arb.io.out.req
-    gpu_wr    := arb.io.out.wr
-    gpu_wdata := arb.io.out.wdata
-    gpu_wlen  := arb.io.out.wlen
-    arb.io.out.data    := gpu_data
-    arb.io.out.ready   := gpu_ready
-    arb.io.out.waccept := gpu_waccept
+    val ddr = Module(new GpuMemMig)
+    ddr.io.gpu <> arb.io.out
+    ddr.io.uiClock := clk
+    ddr.io.uiReset := !rst_n
+    mig <> ddr.io.mig
   }
 }
 

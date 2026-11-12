@@ -59,12 +59,12 @@ public:
     v.in_valid = 0; v.out_ready = 0;
 #else
     v.mmio_req_valid = 0; v.mmio_resp_ready = 1;
-#endif
     v.gpu_ready = 0; v.gpu_waccept = 0; v.gpu_data = 0;
+#endif
     model.eval();
     for (int i = 0; i < 8; i++) edge();
     v.rst_n = 1;
-    for (int i = 0; i < 4; i++) tick();
+    for (int i = 0; i < 4; i++) edge();
     if (const char *t = getenv("DIRECT_TRACE")) sscanf(t, "%x:%x", &trace_lo, &trace_hi);
     // DIRECT_LATENCY=read:write (cycles): how long the memory takes; 0:0 is the test harness's.
     if (const char *t = getenv("DIRECT_LATENCY")) sscanf(t, "%u:%u", &read_latency, &write_latency);
@@ -116,6 +116,7 @@ public:
     }
   }
 
+#ifndef DIRECT_LINK
   // One cycle: let the GPU-port slave look at the settled outputs, set its
   // inputs, then take the clock edge.
   void tick() {
@@ -159,7 +160,6 @@ public:
     edge();   // the rising-edge eval sees the inputs just set
   }
 
-#ifndef DIRECT_LINK
   // --- register bus ---
   // Single outstanding transaction, like the SoC's peripheral port.
   uint32_t mmio(uint32_t addr, bool write, uint32_t data) {
