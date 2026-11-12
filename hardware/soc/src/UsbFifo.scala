@@ -38,6 +38,7 @@ class UsbFifo extends Module {
   val wrN   = RegInit(true.B)
   val oeN   = RegInit(true.B)
   val siwuN = RegInit(true.B)
+  val oe    = RegInit(false.B)
   val hold  = Reg(UInt(8.W))
   val held  = RegInit(false.B)
   val rxfN  = RegNext(p.rxfN, true.B)
@@ -59,7 +60,7 @@ class UsbFifo extends Module {
   when(load) { held := true.B }.elsewhen(took) { held := false.B }
 
   p.dOut  := hold
-  p.dOe   := state === sWrite
+  p.dOe   := oe
   p.rdN   := rdN
   p.wrN   := wrN
   p.oeN   := oeN
@@ -68,7 +69,7 @@ class UsbFifo extends Module {
   siwuN := true.B
   switch(state) {
     is(sIdle) {
-      when(io.tx.valid && !txeN) { state := sWrite }
+      when(io.tx.valid && !txeN) { oe := true.B; state := sWrite }
         .elsewhen(!rxfN && room) { oeN := false.B; state := sTurn }
     }
     is(sTurn) { rdN := false.B; state := sRead }
@@ -77,7 +78,7 @@ class UsbFifo extends Module {
     }
     is(sWrite) {
       wrN := !((held && !took) || load)
-      when(!load && (!held || took)) { wrN := true.B; siwuN := false.B; state := sIdle }
+      when(!load && (!held || took)) { wrN := true.B; siwuN := false.B; oe := false.B; state := sIdle }
     }
   }
 }
