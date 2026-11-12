@@ -61,8 +61,27 @@ direct_sim_v: $(VDIR)/filelist.f main_v.cpp main.cpp direct_sim.h
 	  $(CURDIR)/main_v.cpp -o direct_sim_v
 	cp obj_v/direct_sim_v .
 
+# Borg behind the board's HostLink: the protocol in RTL, for BORG_HW_RAW.
+$(ROOT)/out/hardware/borg/firrtl_link/BorgLinkSimTop.fir: $(CHISEL_SRCS)
+	cd $(ROOT) && mill hardware.soc.runMain soc.BorgLinkSimMain
+link.mlir: $(ROOT)/out/hardware/borg/firrtl_link/BorgLinkSimTop.fir
+	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
+link.ll link_state.json &: link.mlir
+	$(ARCILATOR) $< --no-runtime --inline --observe-memories --state-file link_state.json -o link.ll
+link.bc: link.ll
+	$(OPT) -O3 $< -o $@
+link.o: link.bc
+	$(LLC) -O3 -relocation-model=pic --filetype=obj $< -o $@
+arc_link.h: link_state.json
+	python3 arcilator-header-cpp.py $< > $@
+link_main.o: link_main.cpp direct_sim.h arc_link.h $(RDL_C_OUT)/borg_layout.h
+	$(HOSTCXX) -std=c++17 -O3 -DDIRECT_LINK -I. -I$(RDL_C_OUT) -c $< -o $@
+link_sim: link_main.o link.o
+	$(HOSTCXX) -O3 $^ -o $@
+
 clean:
-	rm -rf arc.h arc.ll arc.bc borg.mlir state.json *.o direct_sim direct_sim_v obj_v
+	rm -rf arc.h arc.ll arc.bc borg.mlir state.json *.o direct_sim direct_sim_v obj_v \
+	  arc_link.h link.ll link.bc link.mlir link_state.json link_sim
 
 # Regression: the unmodified vkcube's first frame on borgvk and this simulator, bit for bit.
 GOLD = ../golden
