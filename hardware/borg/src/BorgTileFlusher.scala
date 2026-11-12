@@ -242,43 +242,41 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       accA.foreach(_ := 0.U)
     }
 
+    // The last sample is added like the others; the average and its conversion are staged a cycle later.
+    val finish = RegInit(false.B)
+    when(v3 || (state === sIdle && io.start)) { finish := false.B }
     when(resolveBusy) {
       // Per sample (msReg): one sample, stored as is. Resolved: the average.
-      val s     = pendingSamples(Mux(msReg, sampleIdx, resolveSample))
-      // An sRGB attachment averages in linear (16 bits) and encodes the result.
-      def term(h: UInt): UInt = Mux(srgbReg, DepthQuantize.quantize16(h), Cat(fp16ToUnorm(h, 8), 0.U(8.W)))
-      val rTerm = term(s.r)
-      val gTerm = term(s.g)
-      val bTerm = term(s.b)
-      val rSum  = accR + rTerm
-      val gSum  = accG + gTerm
-      val bSum  = accB + bTerm
-      val aOne  = pendingAlpha.map(_(Mux(msReg, sampleIdx, resolveSample)))
-      val aSum  = accA.map(a => a + Cat(aOne.get, 0.U(8.W)))
-      when(msReg || resolveSample === (samples - 1).U) {
-        def pick(sum: UInt, one: UInt): UInt = Mux(msReg, one, (sum >> sampleBits)(15, 0))(15, 8)
-        def colour(sum: UInt, one: UInt, h: UInt): UInt = {
+      val s = pendingSamples(Mux(msReg, sampleIdx, resolveSample))
+      when(!finish) {
+        // An sRGB attachment averages in linear (16 bits) and encodes the result.
+        def term(h: UInt): UInt = Mux(srgbReg, DepthQuantize.quantize16(h), Cat(fp16ToUnorm(h, 8), 0.U(8.W)))
+        accR := accR + term(s.r)
+        accG := accG + term(s.g)
+        accB := accB + term(s.b)
+        accA.foreach(a => a := a + Cat(pendingAlpha.get(Mux(msReg, sampleIdx, resolveSample)), 0.U(8.W)))
+        when(msReg || resolveSample === (samples - 1).U) { finish := true.B }
+          .otherwise { resolveSample := resolveSample + 1.U }
+      }.otherwise {
+        // Per sample the accumulator holds that one sample's term.
+        def pick(sum: UInt): UInt = Mux(msReg, sum, sum >> sampleBits)(15, 8)
+        def colour(sum: UInt, h: UInt): UInt = {
           val avg = ((sum +& (if (sampleBits > 0) (1 << (sampleBits - 1)) else 0).U) >> sampleBits)(15, 0)   // rounded: samples * 65535 + half still fits
-          Mux(srgbReg, SrgbCodec.encode(Mux(msReg, h, DepthQuantize.dequantize16(avg))), pick(sum, one))
+          Mux(srgbReg, SrgbCodec.encode(Mux(msReg, h, DepthQuantize.dequantize16(avg))), pick(sum))
         }
         stagePixel(capIdx(3, 0),
-          colour(rSum, rTerm, s.r),
-          colour(gSum, gTerm, s.g),
-          colour(bSum, bTerm, s.b),
-          aSum.map(a => pick(a, Cat(aOne.get, 0.U(8.W)))).getOrElse(255.U(8.W)),
+          colour(accR, s.r),
+          colour(accG, s.g),
+          colour(accB, s.b),
+          accA.map(pick).getOrElse(255.U(8.W)),
           pendingExt.getOrElse(0.U(32.W)))
         zVec.foreach(_(capIdx(3, 0)) := pendingSamples(Mux(msReg, sampleIdx, 0.U)).z)
         if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved from %d samples\n",
           capIdx, samples.U)
         capIdx       := capIdx + 1.U
+        finish       := false.B
         resolveBusy  := false.B
         pipelineBusy := false.B
-      }.otherwise {
-        accR := rSum
-        accG := gSum
-        accB := bSum
-        accA.zip(aSum).foreach { case (a, sum) => a := sum }
-        resolveSample := resolveSample + 1.U
       }
     }
   }
