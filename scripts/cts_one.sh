@@ -10,6 +10,8 @@
 #   MESA_ROOT    mesa checkout         (default $HOME/work/Borg/mesa, with build-borg)
 #   OUT          scratch dir           (default /tmp/borg-cts-one)
 #   DIRECT_BIN   the simulator (default simulation/direct/direct_sim; direct_sim_v for BORG_TRACE)
+#   BORG_HW_RAW  instead the device path: a program speaking the simulator's protocol with no shared
+#                memory (simulation/direct/link_sim, fpga/nexysvideo/host/borg_ftdi)
 #   DEQP_ARGS    extra deqp-vk options
 set -euo pipefail
 
@@ -36,8 +38,12 @@ fi
 for f in "$DEQP_DIR/deqp-vk" "$ICD" "$SHIM"; do
   [[ -e "$f" ]] || { echo "missing: $f" >&2; exit 1; }
 done
-[[ -x "$DIRECT_BIN" ]] || { echo "missing: $DIRECT_BIN (make -C simulation/direct)" >&2; exit 1; }
-export BORGVK_SIM_DIRECT="$DIRECT_BIN"
+if [[ -n "${BORG_HW_RAW:-}" ]]; then
+  export BORGVK_HW=1
+else
+  [[ -x "$DIRECT_BIN" ]] || { echo "missing: $DIRECT_BIN (make -C simulation/direct)" >&2; exit 1; }
+  export BORGVK_SIM_DIRECT="$DIRECT_BIN"
+fi
 
 LOADER="$(pkg-config --variable=libdir vulkan)"
 export LD_LIBRARY_PATH="$LOADER:${LD_LIBRARY_PATH:-}"
