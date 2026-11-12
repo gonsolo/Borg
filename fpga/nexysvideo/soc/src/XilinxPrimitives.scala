@@ -26,15 +26,15 @@ class OBUFDS extends ExtModule {
     val OB = IO(Output(Bool())) // - wire
 }
 
-// Xilinx clock block (MMCM): makes 25, 125 and 200 MHz from the 100 MHz board clock
+// Xilinx clock block (MMCM): by default 25, 125 and 200 MHz from the 100 MHz board clock
 // VCO = 100 MHz x 10 = 1000 MHz, then each output divides it down
-class MMCME2_BASE extends ExtModule(Map(
-    "CLKIN1_PERIOD" -> DoubleParam(10.0),
-    "CLKFBOUT_MULT_F" -> DoubleParam(10.0),
+class MMCME2_BASE(inPeriod: Double = 10.0, mult: Double = 10.0, div0: Double = 40.0, div1: Int = 8, div2: Int = 5) extends ExtModule(Map(
+    "CLKIN1_PERIOD" -> DoubleParam(inPeriod),
+    "CLKFBOUT_MULT_F" -> DoubleParam(mult),
     "DIVCLK_DIVIDE" -> IntParam(1),
-    "CLKOUT0_DIVIDE_F" -> DoubleParam(40.0),
-    "CLKOUT1_DIVIDE" -> IntParam(8),
-    "CLKOUT2_DIVIDE" -> IntParam(5)
+    "CLKOUT0_DIVIDE_F" -> DoubleParam(div0),
+    "CLKOUT1_DIVIDE" -> IntParam(div1),
+    "CLKOUT2_DIVIDE" -> IntParam(div2)
 )) {
     val CLKIN1 = IO(Input(Clock()))
     val CLKFBIN = IO(Input(Clock()))
