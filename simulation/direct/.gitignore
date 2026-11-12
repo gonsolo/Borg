@@ -7,3 +7,9 @@ state.json
 direct_sim
 direct_sim_v
 obj_v/
+arc_link.h
+link.ll
+link.bc
+link.mlir
+link_state.json
+link_sim

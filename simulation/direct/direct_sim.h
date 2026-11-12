@@ -9,6 +9,10 @@ struct BorgDirectSimTop {
   VBorgDirectSimTop view;
   void eval() { view.eval(); }
 };
+#elif defined(DIRECT_LINK)
+// Borg behind the board's HostLink (make link_sim): the harness feeds the protocol's bytes.
+#include "arc_link.h"
+using BorgDirectSimTop = BorgLinkSimTop;
 #else
 #include "arc.h"
 #endif
@@ -51,7 +55,11 @@ public:
     }
     auto &v = model.view;
     v.clk = 0; v.rst_n = 0;
+#ifdef DIRECT_LINK
+    v.in_valid = 0; v.out_ready = 0;
+#else
     v.mmio_req_valid = 0; v.mmio_resp_ready = 1;
+#endif
     v.gpu_ready = 0; v.gpu_waccept = 0; v.gpu_data = 0;
     model.eval();
     for (int i = 0; i < 8; i++) edge();
@@ -151,6 +159,7 @@ public:
     edge();   // the rising-edge eval sees the inputs just set
   }
 
+#ifndef DIRECT_LINK
   // --- register bus ---
   // Single outstanding transaction, like the SoC's peripheral port.
   uint32_t mmio(uint32_t addr, bool write, uint32_t data) {
@@ -176,6 +185,7 @@ public:
   }
   void mmio_write(uint32_t addr, uint32_t d) { mmio(addr, true, d); }
   uint32_t mmio_read(uint32_t addr) { return mmio(addr, false, 0); }
+#endif
 
 private:
   enum { IDLE, SAMPLE, DELAY } gstate = IDLE;
