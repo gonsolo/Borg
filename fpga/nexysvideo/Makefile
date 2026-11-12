@@ -32,6 +32,10 @@ MINIMAL_BIT     := $(BUILD_DIR)/minimal/nexysvideo_minimal_top.bit
 BORG_VERILOG := $(ROOT)/out/nexysvideo/verilog
 BORG_BIT     := $(BUILD_DIR)/borg/nexysvideo_top.bit
 
+# Borg alone, the host's device over the USB FIFO (borg_ftdi)
+LINK_VERILOG := $(ROOT)/out/nexysvideo_link/verilog
+LINK_BIT     := $(BUILD_DIR)/link/NexysLinkTop.bit
+
 # Where the bootloader looks for the program in flash
 FLASH_OFFSET := 0x00400000
 
@@ -83,6 +87,10 @@ help:
 	cd $(ROOT) && mill fpga.nexysvideo.soc.runMain nexysvideo.NexysVideoTopMain
 	touch $@
 
+.verilog_stamp_link: $(CHISEL_SRCS)
+	cd $(ROOT) && mill fpga.nexysvideo.soc.runMain nexysvideo.NexysLinkTopMain
+	touch $@
+
 hdmi: $(HDMI_BIT)
 
 $(HDMI_BIT): .verilog_stamp_hdmi build.tcl NexysVideo.xdc
@@ -118,6 +126,18 @@ $(BORG_BIT): .verilog_stamp_borg build.tcl NexysVideoMinimal.xdc $(wildcard $(MI
 	    -source $(call host_path,build.tcl) \
 	    -tclargs nexysvideo_top $(call host_path,$(BORG_VERILOG)) $(call host_path,NexysVideoMinimal.xdc) borg \
 	    $(call host_path,$(MIG_IP))
+
+link: $(LINK_BIT)
+
+$(LINK_BIT): .verilog_stamp_link build.tcl NexysLink.xdc $(wildcard $(MIG_IP)/*)
+	mkdir -p $(BUILD_DIR)
+	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log link.log \
+	    -source $(call host_path,build.tcl) \
+	    -tclargs NexysLinkTop $(call host_path,$(LINK_VERILOG)) $(call host_path,NexysLink.xdc) link \
+	    $(call host_path,$(MIG_IP))
+
+program-link: $(LINK_BIT)
+	openFPGALoader -b nexysVideo $<
 
 program-hdmi: $(HDMI_BIT)
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log program.log \
