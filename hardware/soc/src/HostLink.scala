@@ -22,6 +22,7 @@ import hutt.HuttBus
 class HostLinkIO extends Bundle {
   val in   = Flipped(Decoupled(UInt(8.W)))
   val out  = Decoupled(UInt(8.W))
+  val outEnd = Output(Bool())   // the byte on `out` ends a reply
   val mmio = new HuttBus(10)
   val mem  = new GpuMemIO
 }
@@ -55,6 +56,7 @@ class HostLink extends Module {
   io.in.ready := state === sCmd || state === sArgs || (state === sData && (nbyte =/= 3.U || q.io.enq.ready))
   io.out.valid := state === sSend
   io.out.bits := tx(7, 0)
+  io.outEnd := ntx === 1.U && after === sCmd
 
   io.mmio.req.valid      := state === sMmio
   io.mmio.req.bits.addr  := Mux(cmdIs('W'), args(1), args(0))

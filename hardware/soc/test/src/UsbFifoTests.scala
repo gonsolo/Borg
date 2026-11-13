@@ -45,6 +45,7 @@ object UsbFifoTests extends TestSuite {
           p.dIn.poke(host.headOption.getOrElse(0).U)
           dut.io.tx.valid.poke(toSend.nonEmpty.B)
           dut.io.tx.bits.poke(toSend.headOption.getOrElse(0).U)
+          dut.io.txEnd.poke(false.B)
           val rxReady = rnd.nextInt(3) != 0
           dut.io.rx.ready.poke(rxReady.B)
           val oe = !p.oeN.peek().litToBoolean
@@ -57,6 +58,30 @@ object UsbFifoTests extends TestSuite {
         }
         assert(got.toSeq == down)
         assert(sent.toSeq == up)
+      }
+    }
+    // SIWU# sends what the chip holds at once: only after a reply's last byte, not at every gap.
+    test("a_reply_goes_out_at_once_only_at_its_end") {
+      simulate(new UsbFifo) { dut =>
+        val p = dut.io.pins
+        var left = (1 to 10).toList
+        var sent = 0
+        var nextAt = 0
+        var siwuAfter = Seq[Int]()
+        dut.reset.poke(true.B); dut.clock.step(); dut.reset.poke(false.B)
+        p.rxfN.poke(true.B); p.txeN.poke(false.B); dut.io.rx.ready.poke(true.B)
+        for (c <- 0 until 200) {
+          val give = left.nonEmpty && c >= nextAt      // a gap after every byte
+          dut.io.tx.valid.poke(give.B)
+          dut.io.tx.bits.poke(left.headOption.getOrElse(0).U)
+          dut.io.txEnd.poke((left.size == 1).B)
+          if (!p.siwuN.peek().litToBoolean) siwuAfter :+= sent
+          if (!p.wrN.peek().litToBoolean) sent += 1
+          if (give && dut.io.tx.ready.peek().litToBoolean) { left = left.tail; nextAt = c + 7 }
+          dut.clock.step()
+        }
+        assert(sent == 10)
+        assert(siwuAfter == Seq(10))
       }
     }
     test("async_fifo_keeps_order") {
