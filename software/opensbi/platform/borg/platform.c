@@ -3,11 +3,11 @@
 //
 // Borg SoC OpenSBI platform driver.
 //
-// Console:  Borg debug UART (write-only, 115200 baud at 25 MHz).
+// Console:  Borg debug UART (115200 baud at 25 MHz).
 //           The UART is an MMIO shift-register: write one byte to
-//           BORG_UART_TX (0x08000018) once the status bit clears.
-//           There is no RX in this path; OpenSBI-to-Linux hand-off uses
-//           the SBI console ecall (earlycon=sbi on the kernel command line).
+//           BORG_UART_TX (0x08000018) once status bit 0 clears; a received
+//           byte is read there while status bit 1 is set. Linux uses it
+//           through the SBI console (earlycon=sbi, console=hvc0).
 //
 // Timer:    CLINT at 0x02000000.  mtime increments every SoC clock cycle
 //           (25 MHz on ULX3S), so timebase-frequency = 25_000_000.
@@ -40,9 +40,18 @@ static void borg_putc(char c)
     writel((uint32_t)(unsigned char)c, BORG_UART_TX);
 }
 
+// A received byte waits in the data register while status bit 1 is set; reading takes it.
+static int borg_getc(void)
+{
+    if (!(readl(BORG_UART_STATUS) & 2u))
+        return -1;
+    return readl(BORG_UART_TX) & 0xff;
+}
+
 static struct sbi_console_device borg_console = {
     .name         = "borg-uart",
     .console_putc = borg_putc,
+    .console_getc = borg_getc,
 };
 
 // ---------------------------------------------------------------------------
