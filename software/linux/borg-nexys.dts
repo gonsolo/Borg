@@ -1,0 +1,173 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+//
+// Device tree for the Borg SoC running on the ULX3S (Lattice ECP5-85K).
+//
+// Physical memory map:
+//   0x00000000  SDRAM (32 MB, flat — CPU byte addr = SDRAM byte offset)
+//   0x02000000  CLINT (mtime/mtimecmp, 18.75 MHz mtime)
+//   0x08000C00  Borg GPU registers
+//   0x01000000  GPU memory (5 MB, no-map): GPU address X = SDRAM byte 0x1000000 + X
+//   0x08000018  Debug UART TX (write-only, 115200 baud)
+//   0x0800001C  Debug UART STATUS (bit 0 = busy)
+//
+// Boot flow:
+//   FlashBootLoader reads SPI-flash[0x400000..] → SDRAM[0x0]
+//   OpenSBI starts at PC=0x0 (M-mode)
+//   Linux kernel at 0x200000 (S-mode, Sv39 MMU)
+//
+// console: earlycon=sbi (SBI ecall → OpenSBI → debug UART)
+
+/dts-v1/;
+
+/ {
+    #address-cells = <2>;
+    #size-cells    = <2>;
+    model          = "Borg SoC on the Nexys Video";
+    compatible     = "borg,nexys-video";
+
+    chosen {
+        // SBI console: OpenSBI forwards putchar to the debug UART.
+        // earlycon= must come before console= so kernel gets output
+        // before the serial driver initialises (which needs a driver anyway).
+        // No root=/rootwait/initrd-start-end: the initramfs is embedded
+        // directly in the kernel Image (CONFIG_INITRAMFS_SOURCE) and becomes
+        // the root filesystem automatically once unpacked.
+        // console=hvc0: this platform has no real serial driver
+        // (CONFIG_SERIAL_8250 is not set), so "console=ttyS0" never matches
+        // any registered console. CONFIG_HVC_RISCV_SBI *is* enabled though,
+        // registering a proper late console ("hvc0") over the same SBI DBCN
+        // ecall the earlycon uses -- name it explicitly instead of the
+        // nonexistent ttyS0.
+        bootargs = "earlycon=sbi console=hvc0";
+
+        // Task #15 (2026-07-11): without a hardware RNG (no CONFIG_HW_RANDOM,
+        // no RISC-V Zkr `seed` CSR support) the kernel's CSPRNG can only be
+        // seeded via interrupt-timing jitter, which is either completely
+        // absent (bit-exact deterministic Verilator sim) or scarce/slow (real
+        // ULX3S hardware, whose FPGA PLL clock is unusually clean/low-jitter).
+        // Confirmed via live probe: crng_init sticks at 0 forever, and
+        // anything blocking on wait_for_random_bytes()/get_random_bytes_wait()
+        // (e.g. ASLR/stack-canary setup around the first execve()) then waits
+        // indefinitely -- this is Bug A. drivers/of/fdt.c reads this rng-seed
+        // property and calls add_bootloader_randomness(), which credits it
+        // immediately since the kernel's `trust_bootloader` early_param
+        // defaults to true (drivers/char/random.c) -- no defconfig change
+        // needed. 32 bytes (256 bits) exactly meets POOL_READY_BITS, so this
+        // alone should make crng_init ready right at boot.
+        //
+        // Regenerated fresh at each firmware build from the host's
+        // /dev/urandom (see `make -C software opensbi`); NOT a persistent
+        // per-boot seed (this platform has no persistent storage to save an
+        // entropy pool across boots), so randomness is only as fresh as the
+        // last firmware build -- acceptable for a GPU demo/bring-up board,
+        // not a production security posture.
+        rng-seed = [aa 50 b4 c3 9d 61 b2 1a 43 5f 88 85 6a 2d 75 74 c2 9e 32 df b5 a5 1b 9d 4a e2 46 2a b3 1e 76 aa];
+    };
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells    = <0>;
+        // mtime counts the 25 MHz core clock; claiming twice that doubles the tick period (500k cycles),
+        // since a tick costs about 150k+ cycles here and 187k livelocked the boot. Kernel time runs at half speed.
+        timebase-frequency = <50000000>;
+
+        cpu@0 {
+            device_type  = "cpu";
+            reg          = <0>;
+            status       = "okay";
+            compatible   = "riscv";
+            riscv,isa    = "rv64imac_zicsr_zifencei";
+            mmu-type     = "riscv,sv39";
+
+            interrupt-controller {
+                #interrupt-cells = <1>;
+                compatible = "riscv,cpu-intc";
+                interrupt-controller;
+            };
+        };
+    };
+
+    // 32 MB SDRAM.
+    memory@0 {
+        device_type = "memory";
+        reg = <0x0 0x00000000 0x0 0x02000000>;
+    };
+
+    // Reserve OpenSBI's own firmware footprint (PC=0x0, M-mode) so Linux's
+    // early allocators never hand this range out as free RAM.  The comment
+    // this replaced claimed OpenSBI "automatically reserves its own region
+    // via the SBI memory-region mechanism" -- that fixup (fdt_reserved_memory
+    // in generic platform init) is NOT firing for this custom platform, and
+    // without it the kernel treats [0, kernel_start) as ordinary free memory.
+    // Confirmed by hardware trace: during initramfs unpacking (a bulk memcpy)
+    // the kernel wrote sequentially into OpenSBI's own .text starting at byte
+    // 0x1d500 (inside mtimer_event_start), corrupting it; the next periodic
+    // timer tick's SBI call fetched the clobbered code and crashed with a
+    // garbage PC. Kernel is linked to start at 0x200000 (see
+    // borg_rv64_defconfig), so [0, 0x200000) is exactly OpenSBI's region.
+    reserved-memory {
+        #address-cells = <2>;
+        #size-cells    = <2>;
+        ranges;
+
+        opensbi@0 {
+            reg = <0x0 0x00000000 0x0 0x00200000>;
+            no-map;
+        };
+
+        // The Borg's view of SDRAM starts here (VRAM region bit); Linux must not touch it.
+        borg_mem: gpu@1000000 {
+            reg = <0x0 0x01000000 0x0 0x00500000>;
+            no-map;
+        };
+    };
+
+    soc {
+        #address-cells = <2>;
+        #size-cells    = <2>;
+        compatible     = "simple-bus";
+        ranges;
+
+        // CLINT MTIMER — Core-Local Interruptor timer (mtime + mtimecmp).
+        //
+        // Uses the modern, non-quirked ACLINT MTIMER binding with explicit
+        // reg-names so OpenSBI uses these addresses directly. The legacy
+        // "riscv,clint0" compatible makes OpenSBI apply the SiFive CLINT
+        // offset quirk (mtimecmp @ base+0x4000, mtime @ base+0xBFF8) — that
+        // layout doesn't exist in this hardware; OpenSBI's timer-arm writes
+        // silently landed on mtime_lo/hi instead of mtimecmp (word offset
+        // (0x4000>>2)&0x3 == 0), so the CLINT interrupt could never fire and
+        // Linux hung forever waiting for jiffies to advance.
+        //
+        // Hutt's CLINT has no MSIP register, so no MSWI/IPI node is declared
+        // (this is single-hart; IPI is unused) — only the machine-timer-
+        // interrupt line (hwirq 7) is wired.
+        //   +0x0: mtime_lo  +0x4: mtime_hi
+        //   +0x8: mtimecmp_lo  +0xC: mtimecmp_hi
+        // timebase-frequency is in /cpus (per RISC-V DTS convention).
+        timer@2000000 {
+            compatible = "riscv,aclint-mtimer";
+            reg-names  = "mtime", "mtimecmp";
+            reg        = <0x0 0x02000000 0x0 0x8>,
+                         <0x0 0x02000008 0x0 0x8>;
+            interrupts-extended = <&{/cpus/cpu@0/interrupt-controller} 7>;
+        };
+
+        borg@8000c00 {
+            compatible    = "gonsolo,borg";
+            reg           = <0x0 0x08000c00 0x0 0x400>,
+                            <0x0 0x01000000 0x0 0x00500000>;
+        };
+
+        // Borg debug UART (write-only; RX not wired to this path).
+        // Linux uses SBI console (earlycon=sbi) for output — no native UART
+        // driver is needed for minimal boot.  A full ns16550-style driver
+        // (matching the PeriUart register interface) is a post-Phase-4 item.
+        borg-uart@8000018 {
+            compatible = "borg,debug-uart";
+            reg        = <0x0 0x08000018 0x0 0x10>;
+            status     = "disabled";  // only used by OpenSBI M-mode directly
+        };
+    };
+};
