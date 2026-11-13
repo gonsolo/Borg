@@ -38,6 +38,13 @@ CLINT, a UART, Borg `Default`, `MigScanout`, and the MIG as the one main memory 
 scan-out and `HostLink`. `HostLink` loads memory and holds Hutt in reset until a register
 releases it. Ziad's files stay as they are.
 
+Design: the `MinimalSoC` logic as it is (its memory map: RAM at 0, 32 MB), so the ULX3S device
+tree and OpenSBI platform carry over; the new map (RAM at `0x80000000`, 512 MB) comes with L3,
+which reworks the same path. `MemoryController`'s halfword backend becomes a `GpuMemIO` port
+(`GpuMemBackend`, byte stores by read-modify-write), arbitrated with `HostLink` into the one
+`GpuMemMig`: one port, so Borg's cached line sees every CPU write. `HostLink`'s register writes
+go to a control block (Hutt's reset), not to Borg, whose registers belong to the CPU.
+
 Check: synthesis fits and meets timing at 25 MHz; a small bare-metal program loaded over USB
 prints on the UART.
 
