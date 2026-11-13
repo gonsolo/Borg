@@ -40,9 +40,9 @@
         // ecall the earlycon uses -- name it explicitly instead of the
         // nonexistent ttyS0.
         bootargs = "earlycon=sbi console=hvc0";
-        // software/linux/nexys/: the shell over the built-in initramfs, loaded here (64 KB, zero padded).
+        // software/linux/nexys/: the shell over the built-in initramfs, loaded here (16 MB, zero padded).
         linux,initrd-start = <0x0 0x81c00000>;
-        linux,initrd-end   = <0x0 0x81c10000>;
+        linux,initrd-end   = <0x0 0x82c00000>;
 
         // Task #15 (2026-07-11): without a hardware RNG (no CONFIG_HW_RANDOM,
         // no RISC-V Zkr `seed` CSR support) the kernel's CSPRNG can only be
@@ -123,12 +123,10 @@
         };
 
         // The Borg's view of SDRAM starts here (VRAM region bit); Linux must not touch it.
-        borg_mem: gpu@81000000 {
-            reg = <0x0 0x81000000 0x0 0x00500000>;
-            no-map;
-        };
-        scanout@88000000 {
-            reg = <0x0 0x88000000 0x0 0x00001000>;   // MigScanout's descriptor
+        // Borg's addresses from 0 (its 128 MB layout, then the scan-out's descriptor and two
+        // front buffers): NexysLinuxTop puts them at the DDR3's 256 MB.
+        borg_mem: gpu@90000000 {
+            reg = <0x0 0x90000000 0x0 0x08300000>;
             no-map;
         };
     };
@@ -167,7 +165,7 @@
         borg@8000c00 {
             compatible    = "gonsolo,borg";
             reg           = <0x0 0x08000c00 0x0 0x400>,
-                            <0x0 0x81000000 0x0 0x00500000>;
+                            <0x0 0x90000000 0x0 0x08300000>;
         };
 
         // Borg debug UART (write-only; RX not wired to this path).

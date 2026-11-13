@@ -171,11 +171,11 @@ $(NEXYS_OUT)/fw_payload.bin: $(NEXYS_OUT)/borg-nexys.dtb $(LINUX_IMAGE) $(wildca
 	    O=$(NEXYS_OUT)/opensbi > $(NEXYS_OUT)/opensbi.log
 	cp $(NEXYS_OUT)/opensbi/platform/borg/firmware/fw_payload.bin $@
 
-# Padded to the 64 KB borg-nexys.dts gives it.
+# Padded to the 16 MB borg-nexys.dts gives it.
 $(NEXYS_OUT)/initrd.cpio: linux/nexys/init linux/nexys/initrd.list
 	@mkdir -p $(dir $@)
 	cd linux/nexys && $(LINUX_OUT)/usr/gen_init_cpio initrd.list > $@
-	truncate -s 65536 $@
+	truncate -s 16M $@
 
 nexys-run: nexys
 	python3 -I $(NEXYS_HOST)/hutt_run.py $(NEXYS_OUT)/fw_payload.bin --also $(NEXYS_OUT)/initrd.cpio@0x01c00000
