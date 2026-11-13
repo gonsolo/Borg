@@ -1032,14 +1032,15 @@ reg seq_trigger_reg_t {
     name = "Sequencer Trigger";
     desc = "Write bit 0 = 1 to render the draw set up in DRAW_CFG and the
             draw parameters (docs/B1_geometry_front_end.md).  Self-clearing.
-            Poll STATUS.seq_busy for completion.  nogen: decoded in Borg.scala.
-            Read: bit 0 = done (sticky, cleared by the next trigger). A full
-            bin makes a partial render (docs/B11_partial_render.md).";
+            Poll bit 0 for completion: it reads back done (sticky, cleared by
+            the trigger), which cannot be read before the draw has started, as
+            STATUS.seq_busy can.  nogen: decoded in Borg.scala. A full bin makes
+            a partial render (docs/B11_partial_render.md).";
 
     field {
-        sw = w; hw = r;
+        sw = rw; hw = r;
         singlepulse;
-        desc = "Bit 0: Start sequencer (self-clearing pulse).";
+        desc = "Bit 0: write 1 to start the sequencer (self-clearing pulse); reads 1 once done.";
     } start[1] = 0;
 
     field {
