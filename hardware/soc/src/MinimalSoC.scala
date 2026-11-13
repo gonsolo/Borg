@@ -17,6 +17,12 @@ trait MinimalSoCLogic { self: RawModule =>
   def CLOCK_HZ: Long = CLOCK_MHZ.toLong * 1000000L   // exact when the PLL cannot hit CLOCK_MHZ
   def xlen: Int = 32   // override with def, not val
   def borgCfg: Option[BorgConfig] = None   // Some(cfg) attaches Borg at BORG_BASE (0x08000C00)
+  // RAM, where Hutt starts; the address widths follow (32 MB at 0: 28-bit data, 23-bit fetch).
+  def ramBase: BigInt  = 0
+  def ramBytes: BigInt = 0x2000000
+  def dataAddrBits: Int  = math.max(28, log2Ceil(ramBase + ramBytes))
+  def instrAddrBits: Int = log2Ceil(ramBase + ramBytes) - 2
+  def isRam(a: UInt): Bool = a >= ramBase.U && a < (ramBase + ramBytes).U
 
   def soc_clk: Clock
   def soc_rst_n: Bool
@@ -24,7 +30,7 @@ trait MinimalSoCLogic { self: RawModule =>
   def soc_ui_in: UInt
 
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt(xlen = xlen))
+    Module(new Hutt(instrAddrWidth = instrAddrBits, dataAddrWidth = dataAddrBits, resetVector = ramBase, xlen = xlen))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     // SDRAM: no flash/PSRAM bit, except that a Borg sees SDRAM 16 MB up
@@ -39,9 +45,9 @@ trait MinimalSoCLogic { self: RawModule =>
   }
   lazy val borg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Borg(borgCfg.get)) }
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
-  lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23, 4096)) }
+  lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(instrAddrBits, 4096)) }
   lazy val dCache = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new hutt.DataCache(28, cacheable = (a: UInt) => a(27, 25) === 0.U))
+    Module(new hutt.DataCache(dataAddrBits, cacheable = isRam))
   }
 
   /** Overridden by HDMI bring-up tops, where scanout owns the port. */
@@ -72,7 +78,7 @@ trait MinimalSoCLogic { self: RawModule =>
 
     val cpuData: HuttBus = if (xlen > 32) {
       val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-        Module(new HuttDataWidthAdapter(28))
+        Module(new HuttDataWidthAdapter(dataAddrBits))
       }
       // Memory through the data cache, which Borg's writes empty.
       dCache.io.cpu <> cpu.io.data
@@ -84,7 +90,7 @@ trait MinimalSoCLogic { self: RawModule =>
     }
     val cpuAddr = cpuData.req.bits.addr
 
-    val isMem   = cpuAddr(27, 25) === 0.U
+    val isMem   = isRam(cpuAddr)
     val isClint = cpuAddr(27, 24) === 2.U   // 0x02000000-0x02FFFFFF
     val isSoc   = SoCDecode.socRegion.matches(cpuAddr)
     val isUser  = SoCDecode.userRegion.matches(cpuAddr)
