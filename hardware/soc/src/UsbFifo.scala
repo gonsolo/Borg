@@ -22,6 +22,7 @@ class UsbFifoIO extends Bundle {
   val pins = new UsbFifoPins
   val rx   = Decoupled(UInt(8.W))
   val tx   = Flipped(Decoupled(UInt(8.W)))
+  val txEnd = Input(Bool())     // the byte on `tx` ends a reply: send it at once
 }
 
 /** An FT245-style synchronous FIFO (FT2232H channel A, Digilent's DPTI), in the chip's 60 MHz
@@ -41,6 +42,7 @@ class UsbFifo extends Module {
   val oe    = RegInit(false.B)
   val hold  = Reg(UInt(8.W))
   val held  = RegInit(false.B)
+  val end   = RegInit(false.B)
   val rxfN  = RegNext(p.rxfN, true.B)
   val txeN  = RegNext(p.txeN, true.B)
   val din   = RegNext(p.dIn)
@@ -56,7 +58,7 @@ class UsbFifo extends Module {
   val took = !wrN && !p.txeN
   val load = state === sWrite && (!held || took) && io.tx.valid
   io.tx.ready := load
-  when(load) { hold := io.tx.bits }
+  when(load) { hold := io.tx.bits; end := io.txEnd }
   when(load) { held := true.B }.elsewhen(took) { held := false.B }
 
   p.dOut  := hold
@@ -78,7 +80,8 @@ class UsbFifo extends Module {
     }
     is(sWrite) {
       wrN := !((held && !took) || load)
-      when(!load && (!held || took)) { wrN := true.B; siwuN := false.B; oe := false.B; state := sIdle }
+      // Only a reply's end goes out at once; a gap inside one waits for a full USB packet.
+      when(!load && (!held || took)) { wrN := true.B; siwuN := !end; oe := false.B; state := sIdle }
     }
   }
 }

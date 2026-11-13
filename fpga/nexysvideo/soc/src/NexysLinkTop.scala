@@ -106,14 +106,17 @@ class NexysLinkTop extends RawModule {
   val borgReset = resetIn(clkGen.io.clk25, !locked || usbLost)
 
   val rx = Module(new AsyncFifo(8, 4))
-  val tx = Module(new AsyncFifo(8, 4))
+  val tx = Module(new AsyncFifo(9, 4))
   rx.enqClock := usbClk; rx.enqReset := usbReset
   tx.deqClock := usbClk; tx.deqReset := usbReset
   withClockAndReset(usbClk, usbReset) {
     val usb = Module(new UsbFifo)
     val p   = usb.io.pins
     rx.enq <> usb.io.rx
-    usb.io.tx <> tx.deq
+    usb.io.tx.valid := tx.deq.valid
+    usb.io.tx.bits  := tx.deq.bits(7, 0)
+    usb.io.txEnd    := tx.deq.bits(8)
+    tx.deq.ready    := usb.io.tx.ready
     val bufs = Seq.fill(8)(Module(new IOBUF))
     for ((b, i) <- bufs.zipWithIndex) {
       attach(b.IO, prog_d(i))
@@ -178,7 +181,9 @@ class NexysLinkTop extends RawModule {
     arb.io.in(0) <> b.io.gpuMem
     arb.io.in(1) <> link.io.mem
     link.io.in <> rx.deq
-    tx.enq <> link.io.out
+    tx.enq.valid      := link.io.out.valid
+    tx.enq.bits       := Cat(link.io.outEnd, link.io.out.bits)
+    link.io.out.ready := tx.enq.ready
 
     val ddr = Module(new GpuMemMig)
     ddr.io.gpu <> arb.io.out
