@@ -131,6 +131,31 @@ object BorgBinnerTests extends TestSuite {
       }
     }
 
+    // A 512-pixel-tall window: the walk ends after the last tile row instead of wrapping to row 0.
+    utest.test("last_row_of_a_512_pixel_window") {
+      simulate(new BorgBinner(128)) { d =>
+        resetDut(d)
+        d.io.clearCounts.poke(true.B); d.clock.step(1); d.io.clearCounts.poke(false.B)
+        d.clock.step(140)
+        d.io.binBase.poke(0.U)
+        d.io.binRowBytes.poke(2.U)
+        d.io.tilesPerRow.poke(1.U)
+        d.io.tileRows.poke(128.U)
+        d.io.bbox.min.x.poke(0.U); d.io.bbox.min.y.poke(504.U)
+        d.io.bbox.max.x.poke(4.U); d.io.bbox.max.y.poke(511.U)
+        d.io.start.poke(true.B); d.clock.step(1); d.io.start.poke(false.B)
+        val addrs = scala.collection.mutable.ArrayBuffer[Long]()
+        for (_ <- 0 until 100) {
+          val wr = d.io.gpuMem.wr.peek().litToBoolean
+          if (wr) addrs += d.io.gpuMem.addr.peek().litValue.toLong
+          d.io.gpuMem.ready.poke(wr.B)
+          d.clock.step(1)
+        }
+        utest.assert(addrs == Seq(252L, 254L))
+        utest.assert(!d.io.busy.peek().litToBoolean)
+      }
+    }
+
     // Test: 2×2 tile bbox — four DRAM writes
     utest.test("two_by_two_bbox") {
       simulate(new BorgBinner(TestMaxTiles)) { d =>

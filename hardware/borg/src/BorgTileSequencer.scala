@@ -536,10 +536,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleNextRenderTile(): Unit = {
-    val nextTileX = (tileX >> 2) + 1.U
+    val nextTileX = (tileX >> 2) +& 1.U
     when(nextTileX >= io.mmio.fbWidthTiles) {
       tileX := 0.U
-      val nextTileY = (tileY >> 2) + 1.U
+      val nextTileY = (tileY >> 2) +& 1.U
       when(nextTileY >= io.mmio.fbHeightTiles) {
         io.done := true.B
         state   := sIdle

@@ -230,10 +230,10 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
     }
 
     is(sNextTile) {
-      val nextX = tileX + 4.U
+      val nextX = tileX +& 4.U
       when(nextX >= bboxMaxX) {
         tileX := bboxMinX
-        val nextY = tileY + 4.U
+        val nextY = tileY +& 4.U
         when(nextY >= bboxMaxY) {
           io.done := true.B
           state   := sIdle
