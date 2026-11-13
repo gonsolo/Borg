@@ -40,7 +40,9 @@ trait MinimalSoCLogic { self: RawModule =>
   lazy val borg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Borg(borgCfg.get)) }
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
   lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23, 4096)) }
-  lazy val dCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.DataCache(25)) }
+  lazy val dCache = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new hutt.DataCache(28, cacheable = (a: UInt) => a(27, 25) === 0.U))
+  }
 
   /** Overridden by HDMI bring-up tops, where scanout owns the port. */
   def wireGpuMem(): Unit = {
@@ -65,7 +67,10 @@ trait MinimalSoCLogic { self: RawModule =>
       val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
         Module(new HuttDataWidthAdapter(28))
       }
-      adapter.io.cpu <> cpu.io.data
+      // Memory through the data cache, which Borg's writes empty.
+      dCache.io.cpu <> cpu.io.data
+      dCache.io.flush := mem.io.gpuMem.wr
+      adapter.io.cpu <> dCache.io.mem
       adapter.io.mem
     } else {
       cpu.io.data
@@ -93,14 +98,11 @@ trait MinimalSoCLogic { self: RawModule =>
       borg.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
     }
 
-    // Memory through the data cache, which Borg's writes empty.
-    dCache.io.mem <> mem.io.cpuData
-    dCache.io.flush := mem.io.gpuMem.wr
-    dCache.io.cpu.req.valid            := cpuData.req.valid && isMem
-    dCache.io.cpu.req.bits.addr        := cpuAddr(24, 0)
-    dCache.io.cpu.req.bits.write       := cpuData.req.bits.write
-    dCache.io.cpu.req.bits.size        := cpuData.req.bits.size
-    dCache.io.cpu.req.bits.data        := cpuData.req.bits.data
+    mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
+    mem.io.cpuData.req.bits.addr       := cpuAddr(24, 0)
+    mem.io.cpuData.req.bits.write      := cpuData.req.bits.write
+    mem.io.cpuData.req.bits.size       := cpuData.req.bits.size
+    mem.io.cpuData.req.bits.data       := cpuData.req.bits.data
 
     val socPeri = SoCDecode.socRegion.index(cpuAddr)
 
@@ -173,7 +175,7 @@ trait MinimalSoCLogic { self: RawModule =>
 
     // Unmapped accesses are answered as SoC reads of 0xFFFFFFFF.
     cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
-      isMem   -> dCache.io.cpu.req.ready,
+      isMem   -> mem.io.cpuData.req.ready,
       isClint -> clint.io.mmio.req.ready,
       isBorg  -> borgReady,
       isSoc   -> true.B
@@ -195,18 +197,18 @@ trait MinimalSoCLogic { self: RawModule =>
       }
     }
 
-    dCache.io.cpu.resp.ready := cpuData.resp.ready && activeMem
+    mem.io.cpuData.resp.ready := cpuData.resp.ready && activeMem
     clint.io.mmio.resp.ready  := cpuData.resp.ready && activeClint
     if (borgCfg.isDefined) borg.io.mmio.resp.ready := cpuData.resp.ready && activeBorg
 
     cpuData.resp.valid := MuxCase(false.B, Seq(
-      activeMem   -> dCache.io.cpu.resp.valid,
+      activeMem   -> mem.io.cpuData.resp.valid,
       activeClint -> clint.io.mmio.resp.valid,
       activeBorg  -> (if (borgCfg.isDefined) borg.io.mmio.resp.valid else false.B),
       activeSoc   -> socRespPending
     ))
     cpuData.resp.bits := MuxCase(0.U, Seq(
-      activeMem   -> dCache.io.cpu.resp.bits,
+      activeMem   -> mem.io.cpuData.resp.bits,
       activeClint -> clint.io.mmio.resp.bits,
       activeBorg  -> (if (borgCfg.isDefined) borg.io.mmio.resp.bits else 0.U),
       activeSoc   -> socRespData
