@@ -20,6 +20,9 @@ class IOBUF extends ExtModule {
   * A top drives `gpuMig` and the 25 MHz sides of `rx` and `tx`.
   */
 trait NexysBoard { self: RawModule =>
+  /** Where the scan-out reads its descriptor in the DDR3: Borg's BORG_SCANOUT_SPI (hardware/rdl/layout.txt). */
+  def scanoutDesc: Long = 0x8000000L
+
   val clk        = IO(Input(Clock()))
   val cpu_resetn = IO(Input(Bool()))
   val led        = IO(Output(UInt(4.W)))
@@ -133,7 +136,7 @@ trait NexysBoard { self: RawModule =>
   val gpuMig = Wire(new MigUi)
   withClockAndReset(mig.ui_clk, mig.ui_clk_sync_rst) {
     val arb  = Module(new MigUiArbiter)
-    val scan = Module(new MigScanout(0x8000000))   // BORG_SCANOUT_SPI in hardware/rdl/layout.txt
+    val scan = Module(new MigScanout(scanoutDesc))
     arb.io.a <> gpuMig
     arb.io.b <> scan.io.mig
     scan.io.pixClock := clkGen.io.clk125
