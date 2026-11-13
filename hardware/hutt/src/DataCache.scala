@@ -14,7 +14,7 @@ class DataCacheIO(val addrWidth: Int) extends Bundle {
 
 /** Direct-mapped, write-through data cache on RV64 Hutt's data bus, 16-byte lines. A read hit
   * answers in the cycle after the request; a read miss fills its line with two doubleword reads;
-  * a write goes to memory and updates a line it hits. `flush` empties the cache in a cycle, also
+  * a write is posted to memory and updates a line it hits. `flush` empties the cache in a cycle, also
   * during a fill. Addresses outside `cacheable`, and unaligned accesses, pass through; an
   * unaligned write empties the cache.
   */
@@ -27,7 +27,7 @@ class DataCache(val addrWidth: Int = 28, val numLines: Int = 1024, cacheable: UI
   val data  = SyncReadMem(numLines * 2, Vec(8, UInt(8.W)))
   val valid = RegInit(VecInit(Seq.fill(numLines)(false.B)))
 
-  val sIdle :: sLookup :: sFill :: sPass :: sResp :: Nil = Enum(5)
+  val sIdle :: sLookup :: sWaitW :: sFill :: sPass :: sResp :: Nil = Enum(6)
   val state = RegInit(sIdle)
   val req   = Reg(new HuttBusReq(addrWidth, 64))
   val fillW = Reg(UInt(1.W))
@@ -53,23 +53,30 @@ class DataCache(val addrWidth: Int = 28, val numLines: Int = 1024, cacheable: UI
   val wdata = (req.data << Cat(off, 0.U(3.W)))(63, 0)
   val hitNow = state === sLookup && cached && !req.write && hit
 
+  // A write is posted: it waits in `wbuf` for the memory while the CPU goes on; an access that
+  // needs the memory itself waits for it, so the order on `mem` stays the program's.
+  val wbuf  = Reg(new HuttBusReq(addrWidth, 64))
+  val wbusy = RegInit(false.B)
+  val hitR  = Reg(Bool())
+  val takeW = !wbusy && ((state === sLookup && req.write) || state === sWaitW)
+
   io.cpu.req.ready  := state === sIdle
-  io.cpu.resp.valid := hitNow || state === sResp
-  io.cpu.resp.bits  := Mux(state === sResp, word, extract(dataOut))
-  io.mem.req.valid  := state === sFill || state === sPass
-  io.mem.req.bits   := req
-  when(state === sFill) {
+  io.cpu.resp.valid := hitNow || takeW || state === sResp
+  io.cpu.resp.bits  := Mux(state === sResp, word, Mux(takeW, 0.U, extract(dataOut)))
+
+  // One request in flight on `mem`; the posted write goes first.
+  val sent  = RegInit(false.B)
+  io.mem.req.valid := !sent && (wbusy || state === sFill || state === sPass)
+  io.mem.req.bits  := Mux(wbusy, wbuf, req)
+  when(!wbusy && state === sFill) {
     io.mem.req.bits.addr  := Cat(req.addr(addrWidth - 1, 4), fillW, 0.U(3.W))
     io.mem.req.bits.write := false.B
     io.mem.req.bits.size  := HuttSize.Double
   }
   io.mem.resp.ready := true.B
-
-  // A request in flight on `mem` waits for its response before the next goes out.
-  val sent = RegInit(false.B)
   when(io.mem.req.fire) { sent := true.B }
-  when(io.mem.resp.fire) { sent := false.B }
-  when(sent) { io.mem.req.valid := false.B }
+  when(io.mem.resp.fire) { sent := false.B; when(wbusy) { wbusy := false.B } }
+  val own = io.mem.resp.fire && !wbusy
 
   // An unaligned write passes, and may touch two lines: they all go.
   val unalignedWrite = state === sLookup && req.write && cacheable(req.addr) && !aligned
@@ -82,13 +89,23 @@ class DataCache(val addrWidth: Int = 28, val numLines: Int = 1024, cacheable: UI
   val wrMask = WireDefault(UInt(8.W), mask)
   when(wrEn) { data.write(wrAddr, VecInit((0 until 8).map(i => wrData(8 * i + 7, 8 * i))), wrMask.asBools) }
 
+  when(takeW) {
+    wbuf  := req
+    wbusy := true.B
+    wrEn  := cached && Mux(state === sLookup, hit, hitR)
+    word  := 0.U
+    state := Mux(io.cpu.resp.ready, sIdle, sResp)
+  }
+
   switch(state) {
     is(sIdle) {
       when(io.cpu.req.fire) { req := io.cpu.req.bits; state := sLookup }
     }
     is(sLookup) {
-      when(!cached || req.write) {
-        wrEn  := cached && hit
+      when(req.write) {
+        hitR := hit
+        when(!takeW) { state := sWaitW }
+      }.elsewhen(!cached) {
         state := sPass
       }.elsewhen(hit) {
         word  := extract(dataOut)
@@ -100,7 +117,7 @@ class DataCache(val addrWidth: Int = 28, val numLines: Int = 1024, cacheable: UI
       }
     }
     is(sFill) {
-      when(io.mem.resp.fire) {
+      when(own) {
         val w = io.mem.resp.bits
         wrEn   := true.B
         wrAddr := Cat(index, fillW)
@@ -116,7 +133,7 @@ class DataCache(val addrWidth: Int = 28, val numLines: Int = 1024, cacheable: UI
       }
     }
     is(sPass) {
-      when(io.mem.resp.fire) { word := io.mem.resp.bits; state := sResp }
+      when(own) { word := io.mem.resp.bits; state := sResp }
     }
     is(sResp) {
       when(io.cpu.resp.fire) { state := sIdle }
