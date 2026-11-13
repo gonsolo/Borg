@@ -22,6 +22,9 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
   def CLOCK_MHZ = 25
   override def xlen: Int = 64
   override def borgCfg: Option[BorgConfig] = Some(BorgConfig.Default)
+  // The DDR3, at RISC-V's usual RAM base; Borg's addresses land on the same bytes.
+  override def ramBase: BigInt  = BigInt("80000000", 16)
+  override def ramBytes: BigInt = BigInt("20000000", 16)
 
   val boardReset = resetIn(clkGen.io.clk25, !locked)
   val linkReset  = resetIn(clkGen.io.clk25, !locked || usbLost)
@@ -35,7 +38,7 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
   }
 
   // Hutt's caches and Borg each on the memory port; MemoryController keeps only the MMIO decode.
-  lazy val cpuPort = withClockAndReset(clkGen.io.clk25, !soc_rst_reg_n) { Module(new HuttGpuMem(28, 23, 0)) }
+  lazy val cpuPort = withClockAndReset(clkGen.io.clk25, !soc_rst_reg_n) { Module(new HuttGpuMem(dataAddrBits, instrAddrBits, ramBase)) }
   override def wireGpuMem(): Unit = {
     mem.io.gpuMem.req   := false.B
     mem.io.gpuMem.wr    := false.B
@@ -48,8 +51,8 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
     mem.io.instr.req.valid  := false.B
     mem.io.instr.req.bits   := 0.U
     mem.io.instr.resp.ready := false.B
-    val mmio  = Wire(new HuttBus(28, 64))
-    val toMem = data.req.bits.addr(27, 25) === 0.U
+    val mmio  = Wire(new HuttBus(dataAddrBits, 64))
+    val toMem = isRam(data.req.bits.addr)
     val route = withClockAndReset(clkGen.io.clk25, !soc_rst_reg_n) { RegInit(false.B) }
     cpuPort.io.data.req.valid := data.req.valid && toMem
     cpuPort.io.data.req.bits  := data.req.bits
