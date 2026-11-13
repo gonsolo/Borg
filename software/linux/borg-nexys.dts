@@ -80,7 +80,10 @@
             reg          = <0>;
             status       = "okay";
             compatible   = "riscv";
-            riscv,isa    = "rv64imac_zicsr_zifencei";
+            // Linux reads the extension list (OpenSBI adds zicntr to it); the string is the old form.
+            riscv,isa            = "rv64ima_zicsr_zifencei";
+            riscv,isa-base       = "rv64i";
+            riscv,isa-extensions = "i", "m", "a", "zicsr", "zifencei";
             mmu-type     = "riscv,sv39";
 
             interrupt-controller {
