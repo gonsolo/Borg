@@ -7,7 +7,8 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import borg.BorgConfig
-import soc.{Emit, GpuMemArbiter, GpuMemBackend, GpuMemMig, HostLink, MinimalSoCLogic}
+import hutt.{HuttBus, HuttInstrBus}
+import soc.{Emit, GpuMemArbiter, GpuMemMig, HostLink, HuttGpuMem, MinimalSoCLogic}
 
 /** 64-bit Hutt with Borg on the Nexys Video, for Linux (docs/B15_nexys_linux.md): the minimal
   * SoC on the DDR3, sharing one memory port with the host link. The host loads memory over USB
@@ -33,18 +34,51 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
     Cat(ShiftRegister(uart_tx_in, 2, true.B, true.B), 0.U(7.W))
   }
 
+  // Hutt's caches and Borg each on the memory port; MemoryController keeps only the MMIO decode.
+  lazy val cpuPort = withClockAndReset(clkGen.io.clk25, !soc_rst_reg_n) { Module(new HuttGpuMem(28, 23, 0)) }
+  override def wireGpuMem(): Unit = {
+    mem.io.gpuMem.req   := false.B
+    mem.io.gpuMem.wr    := false.B
+    mem.io.gpuMem.addr  := 0.U
+    mem.io.gpuMem.wdata := 0.U
+    mem.io.gpuMem.wlen  := 1.U
+  }
+  override def wireCpuMem(instr: HuttInstrBus, data: HuttBus): HuttBus = {
+    cpuPort.io.instr <> instr
+    mem.io.instr.req.valid  := false.B
+    mem.io.instr.req.bits   := 0.U
+    mem.io.instr.resp.ready := false.B
+    val mmio  = Wire(new HuttBus(28, 64))
+    val toMem = data.req.bits.addr(27, 25) === 0.U
+    val route = withClockAndReset(clkGen.io.clk25, !soc_rst_reg_n) { RegInit(false.B) }
+    cpuPort.io.data.req.valid := data.req.valid && toMem
+    cpuPort.io.data.req.bits  := data.req.bits
+    mmio.req.valid := data.req.valid && !toMem
+    mmio.req.bits  := data.req.bits
+    data.req.ready := Mux(toMem, cpuPort.io.data.req.ready, mmio.req.ready)
+    when(data.req.fire) { route := toMem }
+    data.resp.valid := Mux(route, cpuPort.io.data.resp.valid, mmio.resp.valid)
+    data.resp.bits  := Mux(route, cpuPort.io.data.resp.bits, mmio.resp.bits)
+    cpuPort.io.data.resp.ready := data.resp.ready && route
+    mmio.resp.ready := data.resp.ready && !route
+    mmio
+  }
+
   uart_rx_out := wireSoC()(6)
+  mem.io.backend.busy    := false.B
+  mem.io.backend.done    := false.B
+  mem.io.backend.accept  := false.B
+  mem.io.backend.dataOut := 0.U
 
   rx.deqClock := clkGen.io.clk25; rx.deqReset := linkReset
   tx.enqClock := clkGen.io.clk25; tx.enqReset := linkReset
   withClockAndReset(clkGen.io.clk25, boardReset) {
-    val back = Module(new GpuMemBackend)
-    val arb  = Module(new GpuMemArbiter(2))
-    back.io.be <> mem.io.backend
-    arb.io.in(0) <> back.io.mem
+    val arb = Module(new GpuMemArbiter(3))
+    arb.io.in(0) <> cpuPort.io.mem
+    arb.io.in(1) <> borg.io.gpuMem
 
     val link = withReset(linkReset) { Module(new HostLink) }
-    arb.io.in(1) <> link.io.mem
+    arb.io.in(2) <> link.io.mem
     link.io.in <> rx.deq
     tx.enq.valid      := link.io.out.valid
     tx.enq.bits       := Cat(link.io.outEnd, link.io.out.bits)
