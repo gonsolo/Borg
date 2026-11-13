@@ -1,7 +1,8 @@
 # Programs for Hutt's Linux (rv64ima, lp64 soft-float, no C, static musl) on borgvk without a
 # loader: borgvk_static with an app's objects linked in. Needs the dev shell and the rootfs
 # toolchain (make -C ../rootfs rootfs); borgvk needs a Rust std for Hutt's ISA (rust/setup.sh).
-# `make` builds $(OUT)/borgvk_clear, the board test of clear_test/.
+# `make` builds $(OUT)/borgvk_clear, the board test of clear_test/; `make vkcube` the unmodified
+# Vulkan-Tools cube.c with VK_KHR_display, its libvulkan from vkdl.c.
 
 TOP     := $(shell git rev-parse --show-toplevel)
 OUT     := $(TOP)/out/software/hutt
@@ -12,6 +13,8 @@ CROSS   := $(OUT)/rv64-musl-rust.cross
 RUST    := $(OUT)/rust
 MESA_B  := $(OUT)/mesa
 CT      := $(OUT)/clear_test
+VKTOOLS ?= $(TOP)/Vulkan-Tools
+LHDRS   := $(TOP)/out/software/rootfs-build/linux-headers/include
 MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms= -Dllvm=disabled -Dglx=disabled \
   -Dtools= -Dvideo-codecs= -Dborg-compiler=full -Dborg-small-nir=true -Dvulkan-layers= -Dglvnd=disabled \
   -Dgbm=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuildtype=minsize \
@@ -19,7 +22,7 @@ MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms= -Dllvm=disab
   -Dzstd=disabled -Dspirv-tools=disabled -Dutil-without-cpp=true -Dborg-without-libdrm=true \
   -Ddefault_library=static
 
-.PHONY: all clean FORCE
+.PHONY: all vkcube clean FORCE
 all: $(OUT)/borgvk_clear
 
 $(CROSS_BASE): rv64-musl.cross
@@ -45,6 +48,23 @@ $(OUT)/borgvk_clear: $(CT)/borgvk_clear_test.o $(CROSS) FORCE
 	    meson setup $(MESA_B) $(TOP)/mesa --cross-file $(CROSS) $(MESON_OPTS) '-Dborg-app-objects=["$<"]'; fi
 	env -u NIX_CFLAGS_COMPILE ninja -C $(MESA_B) src/borg/vulkan/borgvk_static
 	riscv64-none-elf-strip -o $@ $(MESA_B)/src/borg/vulkan/borgvk_static
+
+$(OUT)/cube/cube.o: $(VKTOOLS)/cube/cube.c
+	mkdir -p $(OUT)/cube
+	$(WRAPPER) -c -O2 -D_GNU_SOURCE -D__linux__ -DVK_USE_PLATFORM_DISPLAY_KHR -idirafter $(GCCINC) -I$(LHDRS) \
+	    -I$(VKTOOLS)/cube -I$(TOP)/mesa/include -o $@ $<
+
+$(OUT)/cube/vkdl.o: vkdl.c
+	mkdir -p $(OUT)/cube
+	$(WRAPPER) -c -O2 -idirafter $(GCCINC) -I$(TOP)/mesa/include -o $@ $<
+
+vkcube: $(OUT)/vkcube
+$(OUT)/vkcube: $(OUT)/cube/cube.o $(OUT)/cube/vkdl.o $(CROSS) FORCE
+	if [ ! -f $(OUT)/mesa-cube/build.ninja ]; then env -u CC -u CXX -u PKG_CONFIG_PATH -u PKG_CONFIG_PATH_FOR_TARGET -u NIX_CFLAGS_COMPILE \
+	    meson setup $(OUT)/mesa-cube $(TOP)/mesa --cross-file $(CROSS) $(MESON_OPTS) \
+	    '-Dborg-app-objects=["$(OUT)/cube/cube.o", "$(OUT)/cube/vkdl.o"]'; fi
+	env -u NIX_CFLAGS_COMPILE ninja -C $(OUT)/mesa-cube src/borg/vulkan/borgvk_static
+	riscv64-none-elf-strip -o $@ $(OUT)/mesa-cube/src/borg/vulkan/borgvk_static
 
 FORCE:
 
