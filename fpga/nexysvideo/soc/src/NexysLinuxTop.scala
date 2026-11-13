@@ -25,6 +25,10 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
   // The DDR3, at RISC-V's usual RAM base; Borg's addresses land on the same bytes.
   override def ramBase: BigInt  = BigInt("80000000", 16)
   override def ramBytes: BigInt = BigInt("20000000", 16)
+  // Borg's addresses from 0, its 128 MB layout and the scan-out after it, in a window of the DDR3
+  // at 256 MB (0x90000000 for the CPU), which Linux leaves to the driver.
+  def gpuWindow = 0x10000000L
+  override def scanoutDesc: Long = gpuWindow + 0x8000000L
 
   val boardReset = resetIn(clkGen.io.clk25, !locked)
   val linkReset  = resetIn(clkGen.io.clk25, !locked || usbLost)
@@ -79,6 +83,7 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
     val arb = Module(new GpuMemArbiter(3))
     arb.io.in(0) <> cpuPort.io.mem
     arb.io.in(1) <> borg.io.gpuMem
+    arb.io.in(1).addr := borg.io.gpuMem.addr + gpuWindow.U
 
     val link = withReset(linkReset) { Module(new HostLink) }
     arb.io.in(2) <> link.io.mem
