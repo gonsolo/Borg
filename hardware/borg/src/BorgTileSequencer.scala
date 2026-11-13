@@ -102,6 +102,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val curState   = RegInit(0.U(stateBits.W))
   val resumeTri  = RegInit(false.B)      // the shader reload under way is a state switch
   val savedPage  = RegInit(0.U(1.W))
+  // The fragment shader in IMEM this pass: a state switch to the same one skips the reload.
+  private val fsValid = RegInit(false.B)
+  private val fsAddr  = Reg(chiselTypeOf(io.mmio.fragShaderAddr))
+  private val fsLen   = Reg(chiselTypeOf(io.mmio.fragShaderLen))
   val cacheVictim = RegInit(0.U(1.W))
   val covDeltaCache = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))))) else None
@@ -237,6 +241,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       cacheVictim := 0.U
       curState    := 0.U
       resumeTri   := false.B
+      fsValid     := false.B
       // A render list loads each state's fragment shader at its first triangle.
       state       := Mux(io.listMode, sStartPass2, sLoadRastShader)
     }
@@ -260,12 +265,19 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     desc.dest     := 0.U  // dest=0 -> IMEM
     desc.offset   := 1.U  // BORG_IMEM_FRAG_OFFSET
 
-    dmaDescReg   := desc
-    io.dma.desc  := desc
-    io.dma.start := true.B
-    nextAfterDMA := sLoadFsConst
-    constPage    := 0.U
-    state        := sWaitDMA
+    constPage := 0.U
+    when(fsValid && fsAddr === io.mmio.fragShaderAddr && fsLen === io.mmio.fragShaderLen) {
+      state := sLoadFsConst
+    }.otherwise {
+      fsValid      := true.B
+      fsAddr       := io.mmio.fragShaderAddr
+      fsLen        := io.mmio.fragShaderLen
+      dmaDescReg   := desc
+      io.dma.desc  := desc
+      io.dma.start := true.B
+      nextAfterDMA := sLoadFsConst
+      state        := sWaitDMA
+    }
   }
 
   /** The fragment constant window, into every uniform page the setup cache can
