@@ -1,0 +1,7 @@
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+echo
+echo "Linux on Hutt on the Nexys Video: $(uname -sr)"
+exec /bin/sh

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Load a binary into the Nexys DDR3 over the USB link (NexysLinuxTop) and start Hutt.
 
-    hutt_run.py image.bin [--at ADDR] [--peek ADDR LEN] [--wait SECONDS]
+    hutt_run.py image.bin [--at ADDR] [--also FILE@ADDR ...] [--peek ADDR LEN] [--wait SECONDS]
 """
 import argparse, os, struct, subprocess, time
 
 p = argparse.ArgumentParser()
 p.add_argument("image")
 p.add_argument("--at", type=lambda s: int(s, 0), default=0)
+p.add_argument("--also", nargs="*", default=[])
 p.add_argument("--peek", nargs=2, type=lambda s: int(s, 0))
 p.add_argument("--wait", type=float, default=1.0)
 a = p.parse_args()
@@ -30,13 +31,14 @@ def read(addr, n):
     return link.stdout.read(n)
 
 
-data = open(a.image, "rb").read()
-data += bytes(-len(data) % 4)
 run(False)
-t = time.time()
-send(b"M" + struct.pack("<II", a.at, len(data)) + data)
-assert read(a.at, len(data)) == data, "read-back differs"
-print(f"loaded {len(data)} bytes at {a.at:#x} in {time.time() - t:.2f} s")
+for path, at in [(a.image, a.at)] + [(f, int(x, 0)) for f, x in (s.rsplit("@", 1) for s in a.also)]:
+    data = open(path, "rb").read()
+    data += bytes(-len(data) % 4)
+    t = time.time()
+    send(b"M" + struct.pack("<II", at, len(data)) + data)
+    assert read(at, len(data)) == data, f"{path}: read-back differs"
+    print(f"loaded {len(data)} bytes at {at:#x} in {time.time() - t:.2f} s")
 run(True)
 if a.peek:
     time.sleep(a.wait)

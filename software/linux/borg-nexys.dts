@@ -40,6 +40,9 @@
         // ecall the earlycon uses -- name it explicitly instead of the
         // nonexistent ttyS0.
         bootargs = "earlycon=sbi console=hvc0";
+        // software/linux/nexys/: the shell over the built-in initramfs, loaded here (64 KB, zero padded).
+        linux,initrd-start = <0x0 0x01c00000>;
+        linux,initrd-end   = <0x0 0x01c10000>;
 
         // Task #15 (2026-07-11): without a hardware RNG (no CONFIG_HW_RANDOM,
         // no RISC-V Zkr `seed` CSR support) the kernel's CSPRNG can only be

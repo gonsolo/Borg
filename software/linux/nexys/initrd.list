@@ -1,0 +1,4 @@
+# Over the kernel's built-in initramfs: a console and an /init that starts the shell.
+dir /dev 0755 0 0
+nod /dev/console 0600 0 0 c 5 1
+file /init init 0755 0 0
