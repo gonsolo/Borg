@@ -57,11 +57,18 @@ trait MinimalSoCLogic { self: RawModule =>
     }
   }
 
+  /** Where RV64's caches meet memory: the instruction cache's misses and the data cache's
+    * requests; the bus returned goes on to the MMIO decode. Here both reach MemoryController. */
+  def wireCpuMem(instr: HuttInstrBus, data: HuttBus): HuttBus = {
+    mem.io.instr <> instr
+    data
+  }
+
   def wireSoC(): UInt = {
     import SoCDecode._
 
     iCache.io.cpu <> cpu.io.instr
-    iCache.io.mem <> mem.io.instr
+    if (xlen <= 32) iCache.io.mem <> mem.io.instr
 
     val cpuData: HuttBus = if (xlen > 32) {
       val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
@@ -69,8 +76,8 @@ trait MinimalSoCLogic { self: RawModule =>
       }
       // Memory through the data cache, which Borg's writes empty.
       dCache.io.cpu <> cpu.io.data
-      dCache.io.flush := mem.io.gpuMem.wr
-      adapter.io.cpu <> dCache.io.mem
+      dCache.io.flush := (if (borgCfg.isDefined) borg.io.gpuMem.wr else false.B)
+      adapter.io.cpu <> wireCpuMem(iCache.io.mem, dCache.io.mem)
       adapter.io.mem
     } else {
       cpu.io.data
