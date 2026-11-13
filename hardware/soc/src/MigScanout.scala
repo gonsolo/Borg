@@ -24,7 +24,7 @@ class MigUiArbiterIO extends Bundle {
 
 /** 640x480 HDMI from a picture in the MIG's DDR3. Each frame starts with the 16-byte descriptor at
   * `descAddr`: base, pitch (bytes, both multiples of 16), width | height << 16, format (0 off,
-  * 1 BGRA8, 2 RGBA8). The picture is centred; a line is fetched into a two-line buffer during the
+  * 1 BGRA8, 2 RGBA8; bit 2: in Borg's 4x4 tiles, pitch then a row of tiles). The picture is centred; a line is fetched into a two-line buffer during the
   * line before it is shown. The MIG side runs in this module's clock, the pixels in `pixClock`
   * (125 MHz, a pixel every fifth cycle, as [[HdmiColourBars]]).
   */
@@ -45,6 +45,7 @@ class MigScanout(descAddr: Long) extends Module {
   val width  = RegInit(0.U(10.W))
   val height = RegInit(0.U(9.W))
   val format = RegInit(0.U(2.W))
+  val tiled  = RegInit(false.B)
   val descT  = RegInit(false.B)
   val frameT = Wire(Bool())
   val lineT  = Wire(Bool())
@@ -62,7 +63,8 @@ class MigScanout(descAddr: Long) extends Module {
   val half     = Reg(Bool())
   val lineBase = Reg(UInt(32.W))
 
-  val byteAddr = Mux(state === sLine, lineBase + Cat(issued, 0.U(4.W)), descAddr.U(32.W))
+  // A tiled picture's 16-byte word is one row of a 4x4 tile: the next one is a tile further.
+  val byteAddr = Mux(state === sLine, lineBase + Mux(tiled, Cat(issued, 0.U(6.W)), Cat(issued, 0.U(4.W))), descAddr.U(32.W))
   m.app_addr := Cat(byteAddr(28, 4), 0.U(3.W))
   m.app_en   := (state === sDesc) ||
                 (state === sLine && issued =/= words && issued - received < 16.U && m.init_calib_complete)
@@ -72,7 +74,7 @@ class MigScanout(descAddr: Long) extends Module {
       when(frameS =/= frameSeen && m.init_calib_complete) { frameSeen := frameS; state := sDesc }
         .elsewhen(lineS =/= lineSeen) {
           lineSeen := lineS
-          lineBase := base + row * pitch
+          lineBase := Mux(tiled, base + (row >> 2) * pitch + Cat(row(1, 0), 0.U(4.W)), base + row * pitch)
           half     := row(0)
           issued   := 0.U
           received := 0.U
@@ -85,12 +87,13 @@ class MigScanout(descAddr: Long) extends Module {
         val d  = m.app_rd_data
         val w  = d(79, 64)
         val h  = d(95, 80)
-        val ok = d(3, 0) === 0.U && d(35, 32) === 0.U && w <= 640.U && h <= 480.U && d(127, 98) === 0.U
+        val ok = d(3, 0) === 0.U && d(35, 32) === 0.U && w <= 640.U && h <= 480.U && d(127, 99) === 0.U
         base   := d(31, 0)
         pitch  := d(63, 32)
         width  := w
         height := h
         format := Mux(ok, d(97, 96), 0.U)
+        tiled  := d(98)
         descT  := !descT
         state  := sIdle
       }
