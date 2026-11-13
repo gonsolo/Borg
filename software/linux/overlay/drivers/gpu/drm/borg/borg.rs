@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0 or MIT
 
-//! Borg GPU: render-only DRM driver. Userspace (Mesa borgvk) programs the GPU with register
-//! writes and moves data in and out of the GPU memory carve-out; the kernel only validates
-//! offsets (against the register map generated from borg.rdl) and sequences the accesses.
+//! Borg GPU: DRM driver. Userspace (Mesa borgvk) programs the GPU with register writes and
+//! moves data in and out of the GPU memory carve-out; the kernel only validates offsets (against
+//! the register map generated from borg.rdl) and sequences the accesses. The HDMI scan-out is a
+//! KMS display: its descriptor, in the carve-out, points at the framebuffer.
 
 mod reg_map;
 
 use kernel::{
     device::Core,
     devres::Devres,
-    drm::{self, gem::{shmem, BaseObject}, ioctl},
+    bindings,
+    drm::{self, gem::{dma, BaseObject}, ioctl, kms},
     io::{mem::IoMem, Io},
     of, platform,
     prelude::*,
@@ -37,6 +39,32 @@ struct BorgPlatformDriverData {
 struct BorgDeviceData {
     regs: Devres<IoMem<'static>>,
     mem: Devres<IoMem<'static>>,
+    #[pin]
+    display: kms::SimpleDisplay<BorgDrmDriver, BorgDisplay>,
+}
+
+// The scan-out (MigScanout): its descriptor at Borg's BORG_SCANOUT_SPI in the carve-out, and the
+// DDR3's address for the CPU, as the descriptor counts from it.
+const SCANOUT: usize = 0x800_0000;
+const DDR3_BASE: u64 = 0x8000_0000;
+const DRM_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
+
+struct BorgDisplay;
+
+impl kms::DisplayOps<BorgDrmDriver> for BorgDisplay {
+    fn update(dev: &BorgDrmDevice, fb: Option<&kms::Framebuffer>) {
+        // Base, pitch, width | height << 16, format (1: BGRA8 bytes, XRGB8888; 0: off).
+        let desc = match fb {
+            Some(f) if f.format == DRM_FORMAT_XRGB8888 => {
+                [(f.dma_addr - DDR3_BASE) as u32, f.pitch, f.width | f.height << 16, 1]
+            }
+            _ => [0; 4],
+        };
+        let Some(mem) = dev.mem.try_access() else { return };
+        for (i, w) in desc.iter().enumerate() {
+            let _ = mem.try_write32(*w, SCANOUT + 4 * i);
+        }
+    }
 }
 
 #[pin_data]
@@ -155,8 +183,7 @@ impl BorgDrmFileData {
             return Err(EINVAL);
         }
         let size = (args.size as usize + 4095) & !4095;
-        let config = shmem::ObjectConfig { map_wc: false, parent_resv_obj: None };
-        let obj = shmem::Object::<BoData>::new(ddev, size, config, ())?;
+        let obj = dma::Object::<BoData>::new(ddev, size)?;
         args.handle = obj.create_handle(file)?;
         Ok(0)
     }
@@ -166,7 +193,7 @@ impl BorgDrmFileData {
         args: &mut uapi::drm_borg_gem_mmap,
         file: &BorgDrmFile,
     ) -> Result<u32> {
-        let obj = shmem::Object::<BoData>::lookup_handle(file, args.handle)?;
+        let obj = dma::Object::<BoData>::lookup_handle(file, args.handle)?;
         args.offset = obj.create_mmap_offset()?;
         Ok(0)
     }
@@ -221,9 +248,15 @@ impl platform::Driver for BorgPlatformDriver {
         let regs = pdev.io_request_by_index(0).ok_or(ENODEV)?.iomap()?.into_devres()?;
         let mem = pdev.io_request_by_index(1).ok_or(ENODEV)?.iomap()?.into_devres()?;
 
-        let data = try_pin_init!(BorgDeviceData { regs, mem });
+        let data = try_pin_init!(BorgDeviceData {
+            regs,
+            mem,
+            display <- kms::SimpleDisplay::new(640, 480),
+        });
         let bdev = drm::UnregisteredDevice::<BorgDrmDriver>::new(pdev.as_ref(), data)?;
+        bdev.display.init(&bdev, &[DRM_FORMAT_XRGB8888])?;
         let bdev = drm::driver::Registration::new_foreign_owned(bdev, pdev.as_ref(), 0)?;
+        kms::SimpleDisplay::<BorgDrmDriver, BorgDisplay>::setup_console(bdev);
 
         dev_info!(pdev, "Borg GPU registered\n");
         Ok(BorgPlatformDriverData {
@@ -249,10 +282,14 @@ const INFO: drm::DriverInfo = drm::DriverInfo {
 impl drm::Driver for BorgDrmDriver {
     type Data = BorgDeviceData;
     type File = BorgDrmFileData;
-    type Object<R: drm::DeviceContext> = drm::gem::shmem::Object<BoData, R>;
+    type Object<R: drm::DeviceContext> = dma::Object<BoData, R>;
 
     const INFO: drm::DriverInfo = INFO;
     const FEAT_RENDER: bool = true;
+    const FEAT_MODESET: bool = true;
+    const FBDEV_PROBE: Option<
+        unsafe extern "C" fn(*mut bindings::drm_fb_helper, *mut bindings::drm_fb_helper_surface_size) -> core::ffi::c_int,
+    > = Some(bindings::drm_fbdev_dma_driver_fbdev_probe);
 
     kernel::declare_drm_ioctls! {
         (BORG_INFO, drm_borg_info, ioctl::RENDER_ALLOW, BorgDrmFileData::info),
@@ -269,6 +306,6 @@ kernel::module_platform_driver! {
     type: BorgPlatformDriver,
     name: "borg",
     authors: ["Andreas Wendleder"],
-    description: "Borg GPU render node",
+    description: "Borg GPU and its display",
     license: "Dual MIT/GPL",
 }
