@@ -17,10 +17,14 @@ class MigScanoutRig extends Module {
 }
 
 object MigScanoutTests extends TestSuite {
-  val tests = Tests {
-    test("a_centred_bgra8_picture_reaches_the_pixels") {
+  // Linear: a row every `pitch` bytes. Tiled: Borg's 4x4 tiles of 64 bytes, a row of tiles every
+  // `pitch` bytes, a tile's rows 16 bytes apart.
+  def picture(tiled: Boolean): Unit =
       simulate(new MigScanoutRig) { dut =>
-        val (w, h, base, pitch) = (8, 480, 0x10000L, 64L)
+        val (w, h, base) = (8, 480, 0x10000L)
+        val pitch = if (tiled) (w / 4) * 64L else 64L
+        def at(x: Int, y: Int): Long =
+          if (tiled) base + (y >> 2) * pitch + (x >> 2) * 64 + (y & 3) * 16 + (x & 3) * 4 else base + y * pitch + 4 * x
         val rnd   = new scala.util.Random(5)
         val lines = scala.collection.mutable.Map[Long, BigInt]().withDefaultValue(BigInt(0))
         def put(byte: Long, word: Long): Unit = {
@@ -28,8 +32,8 @@ object MigScanoutTests extends TestSuite {
           lines(l) = lines(l) & ~(BigInt(0xffffffffL) << sh) | (BigInt(word) << sh)
         }
         def pixel(x: Int, y: Int): Long = (0xA0L | x) << 16 | (y & 0xffL) << 8 | (x * 16 + (y & 15))
-        put(0x800, base); put(0x804, pitch); put(0x808, w | h.toLong << 16); put(0x80C, 1)
-        for (y <- 0 until 4; x <- 0 until w) put(base + y * pitch + 4 * x, pixel(x, y))
+        put(0x800, base); put(0x804, pitch); put(0x808, w | h.toLong << 16); put(0x80C, if (tiled) 5 else 1)
+        for (y <- 0 until 4; x <- 0 until w) put(at(x, y), pixel(x, y))
 
         val m = dut.io.mig
         dut.reset.poke(true.B); dut.clock.step(); dut.reset.poke(false.B)
@@ -65,6 +69,9 @@ object MigScanoutTests extends TestSuite {
         }
         assert(checked == 3 * 640)
       }
-    }
+
+  val tests = Tests {
+    test("a_centred_bgra8_picture_reaches_the_pixels") { picture(tiled = false) }
+    test("a_tiled_picture_reaches_the_pixels_in_rows") { picture(tiled = true) }
   }
 }
