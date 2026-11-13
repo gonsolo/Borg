@@ -615,7 +615,8 @@ object BorgDrawTests extends TestSuite {
     * same draws leave one render at a time (each loading the colour the last one stored). */
   def renderList(rig: DrawRig): Unit = renderListWith(rig, 32)
   def renderListParts(rig: DrawRig): Unit = renderListWith(rig, 2)
-  def renderListWith(rig: DrawRig, rowBytes: Int): Unit = {
+  def renderListOneShader(rig: DrawRig): Unit = renderListWith(rig, 32, oneShader = true)
+  def renderListWith(rig: DrawRig, rowBytes: Int, oneShader: Boolean = false): Unit = {
     import Instructions._
     import Opcodes._
     val one = 0x40                               // one sample: a load is then exact
@@ -632,7 +633,8 @@ object BorgDrawTests extends TestSuite {
       FMUL_S(27, 5, 10), FMADD_S(27, 6, 11, 27), FMADD_S(27, 7, 12, 27),
       ldU(28, 20),
       BigInt(0))
-    val fsConstB = 0xB180; val fsAddrB = 0x5400
+    val fsConstB = 0xB180; val fsAddrB = if (oneShader) rig.fsAddr else 0x5400
+    val fsOfB = if (oneShader) rig.fs else fsB
     // State B moves the viewport a pixel: the walker's registers differ between the states too.
     val viewportB = BorgGpuRegs.viewport_ox_offset -> rig.f32(rig.viewport._3 + 1)
     rig.rom(fsConstB) = rig.f32(1.0)
@@ -642,7 +644,7 @@ object BorgDrawTests extends TestSuite {
     // Reference: one render per draw.
     for ((t, i) <- tris.zipWithIndex) {
       val b = stateOf(i) == 1
-      rig.draw(t, frag = if (b) fsB else rig.fs, keep = i > 0, sampleMaskCfg = 0xF | one,
+      rig.draw(t, frag = if (b) fsOfB else rig.fs, keep = i > 0, sampleMaskCfg = 0xF | one,
                extra = (if (i > 0) Seq(BorgGpuRegs.tile_load_offset -> BigInt(1)) else Nil) ++
                        (if (b) Seq(BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB), viewportB) else Nil))
     }
@@ -650,7 +652,7 @@ object BorgDrawTests extends TestSuite {
     Predef.assert(ref.distinct.size > 8, "the reference image is degenerate")
 
     // The same four draws as one render list. Vertices 0..11 in one buffer.
-    rig.rom ++= CsrOutputs(fsB).zipWithIndex.map { case (w, i) => (fsAddrB + 4 * i) -> w }
+    rig.rom ++= CsrOutputs(fsOfB).zipWithIndex.map { case (w, i) => (fsAddrB + 4 * i) -> w }
     val list = 0xD000; val blocks = 0xD100
     def block(a: Int, regs: Seq[(UInt, BigInt)]): Unit = {
       rig.rom(a) = BigInt(regs.size)
@@ -662,7 +664,7 @@ object BorgDrawTests extends TestSuite {
                             BorgGpuRegs.draw_fs_const_offset -> BigInt(rig.fsConst),
                             BorgGpuRegs.viewport_ox_offset -> rig.f32(rig.viewport._3)))
     block(stateAddr(1), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(fsAddrB),
-                            BorgGpuRegs.seq_frag_len_offset -> BigInt(CsrOutputs(fsB).size),
+                            BorgGpuRegs.seq_frag_len_offset -> BigInt(CsrOutputs(fsOfB).size),
                             BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB), viewportB))
     for (i <- tris.indices) {
       val params = blocks + 0x200 + 0x40 * i
@@ -1063,6 +1065,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("a_render_list_renders_in_parts") {
       run("render list in parts", suiteCfg)(renderListParts)
+    }
+    utest.test("render_list_states_with_one_fragment_shader") {
+      run("render list, one shader", suiteCfg)(renderListOneShader)
     }
     utest.test("strips_fans_indices_restart_and_instances") {
       run("topologies", suiteCfg)(topologies)
