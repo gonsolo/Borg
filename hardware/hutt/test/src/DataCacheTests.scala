@@ -10,9 +10,10 @@ import utest._
 object DataCacheTests extends TestSuite {
   val tests = Tests {
     // Random reads and writes of every size against a byte array; memory also changes behind the
-    // cache's back, followed by `flush`. 64 lines, mostly over 1 KB: hits, misses and evictions.
+    // cache's back, followed by `flush`. 64 lines, mostly over 1 KB: hits, misses and evictions;
+    // from 0xc00 nothing is cached.
     test("random_accesses_read_what_memory_holds") {
-      simulate(new DataCache(addrWidth = 25, numLines = 64)) { dut =>
+      simulate(new DataCache(addrWidth = 25, numLines = 64, cacheable = (a: UInt) => a < 0xc00.U)) { dut =>
         val rnd = new scala.util.Random(11)
         val mem = Array.fill(4096)(rnd.nextInt(256))
         var pending: Option[(Int, Boolean, Int, BigInt)] = None   // addr, write, size, data
@@ -59,15 +60,15 @@ object DataCacheTests extends TestSuite {
         access(0x37c, true, 0, 0xce)
         assert(access(0x37c, false, 2, 0) == (0 until 4).map(i => BigInt(mem(0x37c + i)) << (8 * i)).sum)
         for (_ <- 0 until 2000) {
-          val s = rnd.nextInt(3)
+          val s = rnd.nextInt(4)
           val span = if (rnd.nextInt(10) == 0) 4096 else 1024   // mostly what the cache holds
-          val a = rnd.nextInt(span >> s) << s | (if (s == 2 && rnd.nextInt(8) == 0) 2 else 0)
+          val a = (rnd.nextInt(span >> s) << s | (if (s >= 2 && rnd.nextInt(32) == 0) 2 else 0)) min (4096 - (1 << s))
           rnd.nextInt(50) match {
             case 0 =>
               mem(rnd.nextInt(4096)) = rnd.nextInt(256)
               dut.io.flush.poke(true.B); step(); dut.io.flush.poke(false.B)
             case k if k < 16 =>
-              access(a, true, s, BigInt(32, rnd) & ((BigInt(1) << (8 << s)) - 1))
+              access(a, true, s, BigInt(64, rnd) & ((BigInt(1) << (8 << s)) - 1))
             case _ =>
               val n = 1 << s
               val want = (0 until n).map(i => BigInt(mem(a + i)) << (8 * i)).sum
