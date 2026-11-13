@@ -34,6 +34,9 @@ trait MinimalSoCLogic { self: RawModule =>
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
   }
+  lazy val uartRx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new peri.uart.UartRx(13))
+  }
   lazy val borg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Borg(borgCfg.get)) }
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
   lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
@@ -120,12 +123,22 @@ trait MinimalSoCLogic { self: RawModule =>
       }
     }
 
+    // Receive on ui_in bit 7 into a queue, so a pasted line survives a polling console;
+    // reading the data register takes a byte.
+    val rxq = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Queue(UInt(8.W), 64)) }
+    uartRx.io.uart_rxd     := soc_ui_in(7)
+    uartRx.io.baud_divider := debug_baud_divider
+    rxq.io.enq.valid       := uartRx.io.uart_rx_valid
+    rxq.io.enq.bits        := uartRx.io.uart_rx_data
+    uartRx.io.uart_rx_read := rxq.io.enq.ready
+    rxq.io.deq.ready       := socFire && !cpuData.req.bits.write && (socPeri === socPeriU(PERI_DEBUG_UART))
     val debug_uart_tx_busy = uartTx.io.uart_tx_busy
     val socReadData = WireDefault("hffffffff".U(32.W))
     switch(socPeri) {
       is(socPeriU(PERI_ID))                { socReadData := 0x41.U(32.W) }
       is(socPeriU(PERI_GPIO_OUT_SEL))      { socReadData := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
-      is(socPeriU(PERI_DEBUG_UART_STATUS)) { socReadData := Cat(0.U(31.W), debug_uart_tx_busy) }
+      is(socPeriU(PERI_DEBUG_UART))        { socReadData := Cat(0.U(24.W), rxq.io.deq.bits) }
+      is(socPeriU(PERI_DEBUG_UART_STATUS)) { socReadData := Cat(0.U(30.W), rxq.io.deq.valid, debug_uart_tx_busy) }
       is(socPeriU(PERI_DEBUG_UART_BAUD))   { socReadData := Cat(0.U(19.W), debug_baud_divider) }
       is(socPeriU(PERI_TIME_LIMIT))        { socReadData := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
     }
