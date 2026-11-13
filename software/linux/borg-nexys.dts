@@ -30,9 +30,9 @@
         // SBI console: OpenSBI forwards putchar to the debug UART.
         // earlycon= must come before console= so kernel gets output
         // before the serial driver initialises (which needs a driver anyway).
-        // No root=/rootwait/initrd-start-end: the initramfs is embedded
-        // directly in the kernel Image (CONFIG_INITRAMFS_SOURCE) and becomes
-        // the root filesystem automatically once unpacked.
+        // No root=: the initramfs embedded in the kernel Image
+        // (CONFIG_INITRAMFS_SOURCE) is the root filesystem, the initrd below
+        // unpacked over it.
         // console=hvc0: this platform has no real serial driver
         // (CONFIG_SERIAL_8250 is not set), so "console=ttyS0" never matches
         // any registered console. CONFIG_HVC_RISCV_SBI *is* enabled though,
@@ -41,8 +41,8 @@
         // nonexistent ttyS0.
         bootargs = "earlycon=sbi console=hvc0";
         // software/linux/nexys/: the shell over the built-in initramfs, loaded here (64 KB, zero padded).
-        linux,initrd-start = <0x0 0x01c00000>;
-        linux,initrd-end   = <0x0 0x01c10000>;
+        linux,initrd-start = <0x0 0x81c00000>;
+        linux,initrd-end   = <0x0 0x81c10000>;
 
         // Task #15 (2026-07-11): without a hardware RNG (no CONFIG_HW_RANDOM,
         // no RISC-V Zkr `seed` CSR support) the kernel's CSPRNG can only be
@@ -92,9 +92,9 @@
     };
 
     // 32 MB SDRAM.
-    memory@0 {
+    memory@80000000 {
         device_type = "memory";
-        reg = <0x0 0x00000000 0x0 0x02000000>;
+        reg = <0x0 0x80000000 0x0 0x20000000>;
     };
 
     // Reserve OpenSBI's own firmware footprint (PC=0x0, M-mode) so Linux's
@@ -114,14 +114,18 @@
         #size-cells    = <2>;
         ranges;
 
-        opensbi@0 {
-            reg = <0x0 0x00000000 0x0 0x00200000>;
+        opensbi@80000000 {
+            reg = <0x0 0x80000000 0x0 0x00200000>;
             no-map;
         };
 
         // The Borg's view of SDRAM starts here (VRAM region bit); Linux must not touch it.
-        borg_mem: gpu@1000000 {
-            reg = <0x0 0x01000000 0x0 0x00500000>;
+        borg_mem: gpu@81000000 {
+            reg = <0x0 0x81000000 0x0 0x00500000>;
+            no-map;
+        };
+        scanout@88000000 {
+            reg = <0x0 0x88000000 0x0 0x00001000>;   // MigScanout's descriptor
             no-map;
         };
     };
@@ -160,7 +164,7 @@
         borg@8000c00 {
             compatible    = "gonsolo,borg";
             reg           = <0x0 0x08000c00 0x0 0x400>,
-                            <0x0 0x01000000 0x0 0x00500000>;
+                            <0x0 0x81000000 0x0 0x00500000>;
         };
 
         // Borg debug UART (write-only; RX not wired to this path).
