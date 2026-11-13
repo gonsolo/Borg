@@ -12,6 +12,7 @@ frag=${1:-$here/configs/borg_rv64_rust.frag}
 [ $# -gt 0 ] && shift
 [ -d "$src/drivers" ] || "$here/prepare-rust-src.sh" "$src"
 cp -r "$here"/overlay/. "$src"/
+"$here/rust-kms.py" "$src"
 map=$top/out/hardware/borg/rdl/borg_reg_map.rs
 [ "$map" -nt "$top/hardware/rdl/borg.rdl" ] || make -C "$top" rdl > /dev/null
 cp "$map" "$src"/drivers/gpu/drm/borg/reg_map.rs
