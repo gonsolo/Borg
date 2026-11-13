@@ -48,17 +48,18 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val iter_reg        = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
   val shader_iter_reg = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
   val tile_origin_reg = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
-  val tile_max_reg    = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
-
-  val iter_valid = iter_reg.y < tile_max_reg.y
+  // One bit wider: the last tile row of a 512-pixel window ends at 512.
+  val tile_max_reg    = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth + 1)))
+  val iter_valid      = RegInit(false.B)
 
   io.cmdPop.ready := false.B
   when(io.phaseIdle && io.cmdPop.valid && !iter_valid) {
     io.cmdPop.ready     := true.B
     tile_origin_reg     := io.cmdPop.bits.tileOrigin
-    tile_max_reg.x      := io.cmdPop.bits.tileOrigin.x + 4.U
-    tile_max_reg.y      := io.cmdPop.bits.tileOrigin.y + 4.U
+    tile_max_reg.x      := io.cmdPop.bits.tileOrigin.x +& 4.U
+    tile_max_reg.y      := io.cmdPop.bits.tileOrigin.y +& 4.U
     iter_reg            := io.cmdPop.bits.tileOrigin
+    iter_valid          := true.B
     if (BorgDebug.trace) printf("[ITER] cmdPop origin=(%d,%d) phaseIdle=%d iterValid=%d shaderIdx=%d\n",
       io.cmdPop.bits.tileOrigin.x, io.cmdPop.bits.tileOrigin.y,
       io.phaseIdle, iter_valid, tileIndex(shader_iter_reg))
@@ -71,12 +72,13 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     shader_iter_reg := iter_reg
     if (BorgDebug.trace) printf("[ITER] advance iter=(%d,%d) shaderIdx=%d -> shaderIdx=%d\n",
       iter_reg.x, iter_reg.y, tileIndex(shader_iter_reg), tileIndex(iter_reg))
-    when(iter_reg.x + step.U >= tile_max_reg.x) {
+    when(iter_reg.x +& step.U >= tile_max_reg.x) {
       iter_reg.x := tile_origin_reg.x
-      val next_y = iter_reg.y + step.U
+      val next_y = iter_reg.y +& step.U
       iter_reg.y := next_y
       when(next_y >= tile_max_reg.y) {
         tile_complete := true.B
+        iter_valid    := false.B
         if (BorgDebug.trace) printf("[ITER] tileComplete iter=(%d,%d)\n", iter_reg.x, iter_reg.y)
       }
     }.otherwise {

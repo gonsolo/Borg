@@ -73,5 +73,15 @@ object BorgIteratorTests extends TestSuite {
       }
     }
 
+    utest.test("last_tile_row_of_a_512_pixel_window") {
+      simulate(new BorgIterator(BorgConfig.Default)) { it =>
+        reset(it)
+        popTile(it, 252, 508)
+        val tcs = (0 until 4).map(_ => advance(it, 4)._1)
+        utest.assert(tcs == Seq(false, false, false, true))
+        utest.assert(!it.io.iterValid.peek().litToBoolean)
+      }
+    }
+
   }
 }
