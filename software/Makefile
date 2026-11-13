@@ -1,4 +1,4 @@
-.PHONY: all clean opensbi linux flash-linux rootfs
+.PHONY: all clean opensbi linux flash-linux rootfs nexys nexys-run
 
 all: opensbi linux
 
@@ -142,3 +142,40 @@ $(FW_WRAPPED): $(FW_PAYLOAD_BIN)
 	@python3 -c "import struct; d=open('$<','rb').read(); open('$@','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> $@')"
 
 $(FW_PAYLOAD_BIN): opensbi
+
+# ---------------------------------------------------------------------------
+# Linux on the Nexys Video (docs/B15_nexys_linux.md): OpenSBI with the kernel at
+# 0x80000000 and borg-nexys.dts, and the shell initrd (linux/nexys/). The kernel
+# comes from `make linux` (LINUX_IMAGE). `make nexys-run` loads both into the DDR3
+# of a board running NexysLinuxTop and starts Hutt; the console is the UART.
+# ---------------------------------------------------------------------------
+NEXYS_OUT ?= $(CURDIR)/../out/software/nexys
+NEXYS_HOST := $(CURDIR)/../fpga/nexysvideo/host
+
+nexys: $(NEXYS_OUT)/fw_payload.bin $(NEXYS_OUT)/initrd.cpio
+
+$(NEXYS_OUT)/borg-nexys.dtb: linux/borg-nexys.dts
+	@mkdir -p $(dir $@)
+	dtc -I dts -O dtb -o $@ $<
+
+# -B: OpenSBI does not notice a new devicetree or FW_TEXT_START by itself.
+$(NEXYS_OUT)/fw_payload.bin: $(NEXYS_OUT)/borg-nexys.dtb $(LINUX_IMAGE) $(wildcard opensbi/platform/borg/*)
+	$(MAKE) -B -C $(OPENSBI_SRC) \
+	    CROSS_COMPILE=$(CROSS64)- \
+	    PLATFORM_DIR=$(BORG_PLATFORM_PARENT) \
+	    PLATFORM=borg \
+	    FW_TEXT_START=0x80000000 \
+	    FW_PAYLOAD_OFFSET=0x00200000 \
+	    FW_FDT_PATH=$(NEXYS_OUT)/borg-nexys.dtb \
+	    FW_PAYLOAD_PATH=$(LINUX_IMAGE) \
+	    O=$(NEXYS_OUT)/opensbi > $(NEXYS_OUT)/opensbi.log
+	cp $(NEXYS_OUT)/opensbi/platform/borg/firmware/fw_payload.bin $@
+
+# Padded to the 64 KB borg-nexys.dts gives it.
+$(NEXYS_OUT)/initrd.cpio: linux/nexys/init linux/nexys/initrd.list
+	@mkdir -p $(dir $@)
+	cd linux/nexys && $(LINUX_OUT)/usr/gen_init_cpio initrd.list > $@
+	truncate -s 65536 $@
+
+nexys-run: nexys
+	python3 -I $(NEXYS_HOST)/hutt_run.py $(NEXYS_OUT)/fw_payload.bin --also $(NEXYS_OUT)/initrd.cpio@0x01c00000
