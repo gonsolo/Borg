@@ -31,6 +31,7 @@ class DrawMmioIO extends Bundle {
 
 class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val start = Input(Bool())
+  val fsm   = Output(UInt(7.W))
   val done  = Output(Bool())
   val busy  = Output(Bool())
   // Render lists: the first draw clears the bins and numbers triangles from 0, later ones continue.
@@ -78,6 +79,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val (bIdle :: bWaitSetup :: bBin :: bWaitBin :: bStore :: bPaused :: bCache :: Nil) = Enum(7)
   private val state = RegInit(sIdle)
   private val bState = RegInit(bIdle)
+  io.fsm := Cat(bState, state)
   private val ctxs = if (cfg.maxUniforms > 32 && cfg.quadSlots >= 2) 2 else 1
   private val fc = RegInit(0.U(1.W))            // the front's context: its slot and uniform page
   private val cPage = RegInit(0.U(1.W))         // the page the constants load into

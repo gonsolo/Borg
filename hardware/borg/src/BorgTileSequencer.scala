@@ -11,6 +11,7 @@ import chisel3.util._
   * the uniform pages), rasterizes, and flushes. */
 class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val start = Input(Bool())
+  val fsm   = Output(UInt(5.W))
   val done  = Output(Bool())
   val busy  = Output(Bool())
   // Toggled by the wrapper once per frame; indexes the per-buffer dirty bits.
@@ -64,6 +65,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // (A pattern binds at most 22 names.) Render lists: play a state block; back to the triangle.
   val sPlayState = states(20); val sResumeTri = states(21)
   val state = RegInit(sIdle)
+  io.fsm := state
 
   val nextAfterDMA = RegInit(sIdle)
   // Depth, stencil and the occlusion count are the same every pass; Borg.scala

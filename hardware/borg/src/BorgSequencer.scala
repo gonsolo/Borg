@@ -103,6 +103,7 @@ class SeqDmaIO(val cfg: BorgConfig) extends Bundle {
 }
 
 class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
+  val fsm = Output(UInt(16.W))
   val mmio = new SeqMmioIO(cfg)
   val binner = new SeqBinnerIO(cfg)
   val store = new SeqStoreIO
@@ -157,6 +158,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val (wIdle :: wPass1 :: wPass2 :: wDone :: wEntry :: wWaitEntry :: wPlayState :: wPlayParams :: wWaitPlay :: wDraw ::
                wPartial :: wPartClear :: wResume :: Nil) = Enum(13)
   private val wstate = RegInit(wIdle)
+  io.fsm := Cat(p2.io.fsm, dw.io.fsm, wstate)
 
   // Render list entries: state block and parameter block addresses (0 = none); a state address
   // of 0 ends the list. Every draw bins into the same bins, then Pass 2 renders every tile once.

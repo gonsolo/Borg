@@ -188,7 +188,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       .map(counter)
     val sel = RegInit(0.U(4.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(3, 0) }
-    perfIssueRead := VecInit(issue :+ 0.U(32.W))(sel)
+    // States: sequencer list, walker, walker binning, tile sequencer; binner; DMA, flusher, core busy.
+    val fsm = Cat(core.io.status.running, flusher.io.busy, dma.io.busy, binner.io.fsm, sequencer.io.fsm)
+    perfIssueRead := VecInit(issue :+ fsm)(sel)
   }
 
   private def wireBus(): Unit = {

@@ -14,6 +14,7 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWi
   private val countWidth     = math.min(10, log2Ceil(maxTrianglesPerTile + 1))
   val start       = Input(Bool())
   val busy        = Output(Bool())
+  val fsm         = Output(UInt(4.W))
   val done        = Output(Bool())
 
   val triIndex    = Input(UInt(16.W))
@@ -144,6 +145,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
 
   // pendingStart counts as busy: no !busy gap before the auto-start.
   io.busy := state =/= sIdle || clearing || pendingStart
+  io.fsm  := Cat(clearing, state)
   io.done := false.B
 
   io.gpuMem.req   := false.B
