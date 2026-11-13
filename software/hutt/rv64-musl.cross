@@ -1,0 +1,20 @@
+# Meson cross file: Hutt userspace (rv64ima, lp64 soft-float, no C) against the rootfs's static musl.
+# CROSS_ROOT is substituted by Makefile.
+[binaries]
+c = ['@WRAPPER@']
+cpp = ['@WRAPPER@']
+ar = 'riscv64-none-elf-ar'
+strip = 'riscv64-none-elf-strip'
+
+[built-in options]
+c_args = ['-O2', '-D_GNU_SOURCE', '-D__linux__', '-idirafter', '@GCCINC@']
+c_link_args = ['-static']
+
+[host_machine]
+system = 'linux'
+cpu_family = 'riscv64'
+cpu = 'rv64ima'
+endian = 'little'
+
+[properties]
+pkg_config_libdir = '/nonexistent'
