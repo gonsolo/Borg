@@ -141,10 +141,10 @@ class Hutt(
   // mip: bit 7 MTIP is hardware (CLINT); bits 5/1 STIP/SSIP are software-set.
   val mip_sw  = RegInit(0.U(xlen.W))
   val mip     = Cat(0.U((xlen - 8).W), io.interrupt, 0.U(7.W)) | mip_sw
-  // misa: MXL field + I + S extensions.
+  // misa: MXL and the extensions: I, M, A on RV64, S and U with supervisor mode.
   val misaMxl = if (xlen == 64) 2.U(2.W) else 1.U(2.W)
-  val misa    = Cat(misaMxl, 0.U((xlen - 28).W),
-                    ((1 << ('I' - 'A')) | (1 << ('S' - 'A'))).U(26.W))
+  val misaExt = Seq('I', 'M') ++ (if (xlen == 64) Seq('A') else Nil) ++ (if (hasSupervisorMode) Seq('S', 'U') else Nil)
+  val misa    = Cat(misaMxl, 0.U((xlen - 28).W), misaExt.map(c => 1 << (c - 'A')).sum.U(26.W))
 
   // S-mode CSRs (Option: None when !hasSupervisorMode).
   def optReg(): Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
@@ -333,6 +333,10 @@ class Hutt(
     "h180" -> satp,
     "h300" -> mstatus,
     "h301" -> misa,
+    // No JEDEC vendor ID, no registered architecture ID yet; Hutt's first implementation.
+    "hF11" -> 0.U(xlen.W),   // mvendorid
+    "hF12" -> 0.U(xlen.W),   // marchid
+    "hF13" -> 1.U(xlen.W),   // mimpid
     "h304" -> mie,
     "h305" -> mtvec,
     "h340" -> mscratch,
@@ -348,19 +352,20 @@ class Hutt(
     // Every other CSR reads 0.
   )
   val csrGroups: Seq[Seq[(String, UInt)]] = csrEntries.grouped(6).toSeq
+  val csrSelBits = math.max(1, log2Ceil(csrGroups.size))
 
   // Stage 1 (combinational, during sExec).
   val csrGroupValComb = VecInit(csrGroups.map { terms =>
     terms.map { case (addrHex, value) => Mux(csrAddr === addrHex.U, value, 0.U(xlen.W)) }
          .reduce(_ | _)
   })
-  val csrGroupSelComb = MuxCase(0.U(2.W), csrGroups.zipWithIndex.flatMap { case (terms, gi) =>
-    terms.map { case (addrHex, _) => (csrAddr === addrHex.U) -> gi.U(2.W) }
+  val csrGroupSelComb = MuxCase(0.U(csrSelBits.W), csrGroups.zipWithIndex.flatMap { case (terms, gi) =>
+    terms.map { case (addrHex, _) => (csrAddr === addrHex.U) -> gi.U(csrSelBits.W) }
   })
 
   // Stage 2, registered on sExec -> sCsrSel; without pipelinedCsrRead, read stage 1 directly.
   val csrPipeRegs: Option[(Vec[UInt], UInt)] =
-    if (pipelinedCsrRead) Some((Reg(Vec(csrGroups.size, UInt(xlen.W))), Reg(UInt(2.W)))) else None
+    if (pipelinedCsrRead) Some((Reg(Vec(csrGroups.size, UInt(xlen.W))), Reg(UInt(csrSelBits.W)))) else None
   val csrReadData: UInt = csrPipeRegs match {
     case Some((valReg, selReg)) => valReg(selReg)
     case None                   => csrGroupValComb(csrGroupSelComb)
