@@ -49,3 +49,4 @@ set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks usb_
 
 ## USB-UART (J13), named from the PC: uart_rx_out is what the FPGA sends
 set_property -dict { PACKAGE_PIN AA19 IOSTANDARD LVCMOS33 } [get_ports { uart_rx_out }]
+set_property -dict { PACKAGE_PIN V18  IOSTANDARD LVCMOS33 } [get_ports { uart_tx_in }]

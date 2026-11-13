@@ -16,6 +16,7 @@ import soc.{Emit, GpuMemArbiter, GpuMemBackend, GpuMemMig, HostLink, MinimalSoCL
   */
 class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
   val uart_rx_out = IO(Output(Bool()))   // the PC's receive line: what the FPGA sends
+  val uart_tx_in  = IO(Input(Bool()))    // what the PC sends
 
   def CLOCK_MHZ = 25
   override def xlen: Int = 64
@@ -28,7 +29,9 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
   def soc_clk   = clkGen.io.clk25
   def soc_rst_n = run
   lazy val soc_rst_reg_n: Bool = withClockAndReset(clkGen.io.clk25, boardReset) { RegNext(run, false.B) }
-  def soc_ui_in = 0.U(8.W)
+  lazy val soc_ui_in: UInt = withClockAndReset(clkGen.io.clk25, boardReset) {
+    Cat(ShiftRegister(uart_tx_in, 2, true.B, true.B), 0.U(7.W))
+  }
 
   uart_rx_out := wireSoC()(6)
 
