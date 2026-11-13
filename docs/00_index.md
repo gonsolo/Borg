@@ -91,6 +91,7 @@ depending on your goal:
 **Testing and status**
 
 - [Test and demo modes](B14_test_modes.md) — Where Mesa, the DRM driver, Linux and the GPU run: simulators, UML, QEMU, ULX3S, NiteFury II
+- [Linux on Hutt on the Nexys Video](B15_nexys_linux.md) — Plan: RV64 Linux on the board with Borg, no host; phases L1 to L6, frame rate levers
 - [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `api` result and known limits
 
 **Notes and history**
