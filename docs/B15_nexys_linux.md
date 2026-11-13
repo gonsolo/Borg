@@ -99,7 +99,13 @@ bursts too), and RAM moved to 512 MB at `0x80000000`.
 | a load that hits | about 21 cycles | about 5 |
 | 64 KB copy, per load and store | 67.7 cycles | 30.8 |
 
-81.7% of the LUTs. Next: L4.
+81.7% of the LUTs.
+
+L4: the Rust DRM driver (Linux 7.2.9) runs on the Nexys; Borg's addresses lie in a window of the
+DDR3 at 256 MB (`0x90000000`), which the device tree gives the driver, so borgvk's 128 MB layout
+works unchanged. `software/hutt` builds a static borgvk for Hutt (rv64ima, musl) with a program
+linked in: `clear_test` clears and draws a triangle, and Borg renders it in 85k cycles. Unmodified
+cube.c needs a display: L5.
 
 ## Frame rate (goal 2)
 
