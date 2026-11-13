@@ -39,7 +39,7 @@ trait MinimalSoCLogic { self: RawModule =>
   }
   lazy val borg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Borg(borgCfg.get)) }
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
-  lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
+  lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23, 4096)) }
   lazy val dCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.DataCache(25)) }
 
   /** Overridden by HDMI bring-up tops, where scanout owns the port. */
