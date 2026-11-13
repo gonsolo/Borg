@@ -86,6 +86,21 @@ boot ROM, the Linux MMC driver). Ethernet later, for ssh and an NFS root.
 
 Check: power on, Linux and vkcube with only the SD card.
 
+## Status
+
+2026-11-13: L1 and L2 done (a shell on the UART, keyboard input through a 64-byte queue). L3 done
+as far as planned: a 16 KB write-through data cache on Hutt's 64-bit bus with posted writes, a
+16 KB instruction cache, `HuttGpuMem` putting both caches straight on the memory port (Borg's
+bursts too), and RAM moved to 512 MB at `0x80000000`.
+
+| Measured on the board | L3 start | Now |
+|---|---|---|
+| Linux to `/init` | about 25 s (32 MB) | 8.1 s (512 MB), 6.3 s with 32 MB |
+| a load that hits | about 21 cycles | about 5 |
+| 64 KB copy, per load and store | 67.7 cycles | 30.8 |
+
+81.7% of the LUTs. Next: L4.
+
 ## Frame rate (goal 2)
 
 vkcube records its command buffers once; a frame updates a uniform buffer, submits and
