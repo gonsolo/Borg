@@ -19,7 +19,7 @@ MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms= -Dllvm=disab
   -Dtools= -Dvideo-codecs= -Dborg-compiler=full -Dborg-small-nir=true -Dvulkan-layers= -Dglvnd=disabled \
   -Dgbm=disabled -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dopengl=false -Dbuildtype=minsize \
   -Db_ndebug=true -Dvalgrind=disabled -Dlibunwind=disabled -Dlmsensors=disabled -Dshader-cache=disabled \
-  -Dzstd=disabled -Dspirv-tools=disabled -Dutil-without-cpp=true -Dborg-without-libdrm=true \
+  -Dzstd=disabled -Dspirv-tools=disabled -Dutil-without-cpp=true -Dallow-fallback-for=libdrm \
   -Ddefault_library=static
 
 .PHONY: all vkcube clean FORCE
@@ -44,8 +44,8 @@ $(CT)/borgvk_clear_test.o: clear_test/borgvk_clear_test.c $(CT)/tri_vert.h $(CT)
 	$(WRAPPER) -c -O2 -D_GNU_SOURCE -idirafter $(GCCINC) -I$(TOP)/mesa/include -I$(CT) -o $@ $<
 
 $(OUT)/borgvk_clear: $(CT)/borgvk_clear_test.o $(CROSS) FORCE
-	if [ ! -f $(MESA_B)/build.ninja ]; then env -u CC -u CXX -u PKG_CONFIG_PATH -u PKG_CONFIG_PATH_FOR_TARGET -u NIX_CFLAGS_COMPILE \
-	    meson setup $(MESA_B) $(TOP)/mesa --cross-file $(CROSS) $(MESON_OPTS) '-Dborg-app-objects=["$<"]'; fi
+	if [ ! -f $(MESA_B)/build.ninja ] || [ Makefile -nt $(MESA_B)/build.ninja ]; then env -u CC -u CXX -u PKG_CONFIG_PATH -u PKG_CONFIG_PATH_FOR_TARGET -u NIX_CFLAGS_COMPILE \
+	    meson setup $(if $(wildcard $(MESA_B)/build.ninja),--reconfigure) $(MESA_B) $(TOP)/mesa --cross-file $(CROSS) $(MESON_OPTS) '-Dborg-app-objects=["$<"]'; fi
 	env -u NIX_CFLAGS_COMPILE ninja -C $(MESA_B) src/borg/vulkan/borgvk_static
 	riscv64-none-elf-strip -o $@ $(MESA_B)/src/borg/vulkan/borgvk_static
 
@@ -60,8 +60,8 @@ $(OUT)/cube/vkdl.o: vkdl.c
 
 vkcube: $(OUT)/vkcube
 $(OUT)/vkcube: $(OUT)/cube/cube.o $(OUT)/cube/vkdl.o $(CROSS) FORCE
-	if [ ! -f $(OUT)/mesa-cube/build.ninja ]; then env -u CC -u CXX -u PKG_CONFIG_PATH -u PKG_CONFIG_PATH_FOR_TARGET -u NIX_CFLAGS_COMPILE \
-	    meson setup $(OUT)/mesa-cube $(TOP)/mesa --cross-file $(CROSS) $(MESON_OPTS) \
+	if [ ! -f $(OUT)/mesa-cube/build.ninja ] || [ Makefile -nt $(OUT)/mesa-cube/build.ninja ]; then env -u CC -u CXX -u PKG_CONFIG_PATH -u PKG_CONFIG_PATH_FOR_TARGET -u NIX_CFLAGS_COMPILE \
+	    meson setup $(if $(wildcard $(OUT)/mesa-cube/build.ninja),--reconfigure) $(OUT)/mesa-cube $(TOP)/mesa --cross-file $(CROSS) $(MESON_OPTS) \
 	    '-Dborg-app-objects=["$(OUT)/cube/cube.o", "$(OUT)/cube/vkdl.o"]'; fi
 	env -u NIX_CFLAGS_COMPILE ninja -C $(OUT)/mesa-cube src/borg/vulkan/borgvk_static
 	riscv64-none-elf-strip -o $@ $(OUT)/mesa-cube/src/borg/vulkan/borgvk_static
