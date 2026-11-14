@@ -107,6 +107,13 @@ works unchanged. `software/hutt` builds a static borgvk for Hutt (rv64ima, musl)
 linked in: `clear_test` clears and draws a triangle, and Borg renders it in 85k cycles. Unmodified
 cube.c needs a display: L5.
 
+L5 (2026-11-14): the unmodified cube.c runs with `--wsi display` and shows on HDMI. The Rust
+driver does KMS (a simple display pipe, 640x480 XRGB8888, framebuffers as GEM DMA objects in CMA);
+borgvk opens the primary node for Mesa's display WSI and exports memory as dma-bufs. Optimal
+images are tiled, so the WSI blits each frame to a linear dma-buf that KMS flips to. The first
+frame takes about 11 minutes, nearly all of it on the CPU; Borg renders a 640x480 frame in 12.7M
+cycles (0.51 s). Scanning out the tiled image directly removes the blit.
+
 ## Frame rate (goal 2)
 
 vkcube records its command buffers once; a frame updates a uniform buffer, submits and
