@@ -21,8 +21,8 @@ device memory the driver maps. borgvk builds the render lists itself.
 - **CTS**: `scripts/cts_par.sh` runs dEQP-VK cases on many instances in
   parallel, see [The Software Driver](03_software_driver.md).
 - **Speed**: about 90,000 to 125,000 cycles per second per instance on an idle
-  machine (the model goes through `opt -O3`), less under load. A large
-  fragment-bound pass is split into strips of tile rows, one instance each.
+  machine (the model goes through `opt -O3`), less under load. CTS runs on
+  the board ([B14](B14_test_modes.md)); the simulator is for debugging single cases.
 
 ## Linux Boot Harness
 
