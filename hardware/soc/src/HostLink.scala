@@ -16,21 +16,28 @@ import hutt.HuttBus
   *   'W' n (off val)*n   register writes      'R' off -> val
   *   'M' off len data    memory write         'm' off len -> data
   *   'P' off mask val    -> val once (reg & mask) == val, or after 200M cycles
-  *   'S' -> 1            'D' -> 0 (no pass cache)
+  *   'S' -> 1            'D' -> 2048 words: the 4 KB pages of the 256 MB window Borg wrote since the
+  *                                  last 'D', a bit each (page p: word p / 32, bit p % 32), cleared
   * }}}
   */
+class GpuWrite extends Bundle {
+  val addr = UInt(32.W)
+  val wlen = UInt(7.W)   // halfword beats
+}
+
 class HostLinkIO extends Bundle {
   val in   = Flipped(Decoupled(UInt(8.W)))
   val out  = Decoupled(UInt(8.W))
   val outEnd = Output(Bool())   // the byte on `out` ends a reply
   val mmio = new HuttBus(10)
   val mem  = new GpuMemIO
+  val written = Flipped(Valid(new GpuWrite))   // a write of Borg's that completed
 }
 
 class HostLink extends Module {
   val io = IO(new HostLinkIO)
 
-  val sCmd :: sArgs :: sExec :: sMmio :: sMmioResp :: sSend :: sData :: sBurstGo :: sBurst :: sRead :: Nil = Enum(10)
+  val sCmd :: sArgs :: sExec :: sMmio :: sMmioResp :: sSend :: sData :: sBurstGo :: sBurst :: sRead :: sDirty :: sDirtyGot :: Nil = Enum(12)
   val state = RegInit(sCmd)
   val cmd   = Reg(UInt(8.W))
   val args  = Reg(Vec(3, UInt(32.W)))
@@ -49,6 +56,43 @@ class HostLink extends Module {
   val half  = RegInit(false.B)
 
   val q = Module(new Queue(UInt(32.W), 32))
+
+  // The dirty pages: a write marks the pages of its first and last byte, a read-modify-write each.
+  val dirty  = SyncReadMem(2048, UInt(32.W))
+  val marks  = Module(new Queue(Vec(2, UInt(16.W)), 8))
+  val w      = io.written.bits
+  marks.io.enq.valid := io.written.valid
+  marks.io.enq.bits  := VecInit(w.addr(27, 12), (w.addr + (w.wlen << 1) - 1.U)(27, 12))
+  val mIdle :: mFirst :: mSecondRead :: mSecond :: Nil = Enum(4)
+  val m      = RegInit(mIdle)
+  val pages  = Reg(Vec(2, UInt(16.W)))
+  val ridx   = Reg(UInt(11.W))
+  val rdAddr = WireDefault(pages(0)(15, 5))
+  val rdData = dirty.read(rdAddr, true.B)
+  def bit(p: UInt) = UIntToOH(p(4, 0), 32)
+  val oneWord = pages(0)(15, 5) === pages(1)(15, 5)
+  marks.io.deq.ready := m === mIdle && state =/= sDirty && state =/= sDirtyGot
+  switch(m) {
+    is(mIdle) {
+      when(marks.io.deq.fire) {
+        pages := marks.io.deq.bits
+        rdAddr := marks.io.deq.bits(0)(15, 5)
+        m := mFirst
+      }
+    }
+    is(mFirst) {
+      dirty.write(pages(0)(15, 5), rdData | bit(pages(0)) | Mux(oneWord, bit(pages(1)), 0.U))
+      m := Mux(oneWord, mIdle, mSecondRead)
+    }
+    is(mSecondRead) {
+      rdAddr := pages(1)(15, 5)
+      m := mSecond
+    }
+    is(mSecond) {
+      dirty.write(pages(1)(15, 5), rdData | bit(pages(1)))
+      m := mIdle
+    }
+  }
   val full = Cat(io.in.bits, word(31, 8))
   def cmdIs(c: Char) = cmd === c.toInt.U
   def send(v: UInt, n: Int, next: UInt) = { tx := v; ntx := n.U; after := next; state := sSend }
@@ -83,6 +127,7 @@ class HostLink extends Module {
           'm'.toInt.U -> 2.U, 'P'.toInt.U -> 3.U))
         state := MuxLookup(io.in.bits, sCmd)(Seq('W'.toInt.U -> sArgs, 'R'.toInt.U -> sArgs, 'M'.toInt.U -> sArgs,
           'm'.toInt.U -> sArgs, 'P'.toInt.U -> sArgs, 'S'.toInt.U -> sExec, 'D'.toInt.U -> sExec))
+        ridx := 0.U
       }
     }
     is(sArgs) {
@@ -115,7 +160,7 @@ class HostLink extends Module {
       }.elsewhen(cmdIs('S')) {
         send(1.U, 1, sCmd)
       }.otherwise {
-        send(0.U, 4, sCmd)
+        state := sDirty
       }
     }
     is(sMmio) {
@@ -167,6 +212,18 @@ class HostLink extends Module {
         base := addr
         state := Mux(count === 0.U, sCmd, sData)
       }
+    }
+    // Once the marks are in: each word out, then cleared.
+    is(sDirty) {
+      when(m === mIdle && !marks.io.deq.valid) {
+        rdAddr := ridx
+        state := sDirtyGot
+      }
+    }
+    is(sDirtyGot) {
+      dirty.write(ridx, 0.U)
+      ridx := ridx + 1.U
+      send(rdData, 4, Mux(ridx.andR, sCmd, sDirty))
     }
     is(sRead) {
       when(io.mem.ready) {

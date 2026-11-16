@@ -1,0 +1,67 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+
+package soc
+
+import chisel3.{fromBigIntToLiteral, fromBooleanToLiteral, fromIntToLiteral}
+import chisel3.simulator.EphemeralSimulator._
+import utest._
+
+object HostLinkTests extends TestSuite {
+  /** Sends 'D' and collects the 2048 words of dirty pages as a set of page numbers. */
+  def dirtyPages(dut: HostLink): Set[Int] = {
+    dut.io.in.valid.poke(true.B)
+    dut.io.in.bits.poke('D'.toInt.U)
+    while (!dut.io.in.ready.peek().litToBoolean) dut.clock.step()
+    dut.clock.step()
+    dut.io.in.valid.poke(false.B)
+    dut.io.out.ready.poke(true.B)
+    val bytes = scala.collection.mutable.ArrayBuffer[Int]()
+    var steps = 0
+    while (bytes.size < 8192 && steps < 100000) {
+      if (dut.io.out.valid.peek().litToBoolean) {
+        bytes += dut.io.out.bits.peek().litValue.toInt
+        assert(dut.io.outEnd.peek().litToBoolean == (bytes.size == 8192))
+      }
+      dut.clock.step()
+      steps += 1
+    }
+    assert(bytes.size == 8192)
+    dut.io.out.ready.poke(false.B)
+    (0 until 65536).filter(p => (bytes(p / 8) >> (p % 8) & 1) == 1).toSet
+  }
+
+  def write(dut: HostLink, addr: Long, wlen: Int): Unit = {
+    dut.io.written.valid.poke(true.B)
+    dut.io.written.bits.addr.poke(BigInt(addr).U)
+    dut.io.written.bits.wlen.poke(wlen.U)
+    dut.clock.step()
+    dut.io.written.valid.poke(false.B)
+    dut.clock.step(2)
+  }
+
+  val tests = Tests {
+    test("dirty_pages_are_reported_once") {
+      simulate(new HostLink) { dut =>
+        dut.io.mmio.req.ready.poke(false.B)
+        dut.io.mmio.resp.valid.poke(false.B)
+        dut.io.mem.ready.poke(false.B)
+        dut.io.mem.waccept.poke(false.B)
+        dut.io.written.valid.poke(false.B)
+        dut.io.in.valid.poke(false.B)
+        dut.reset.poke(true.B); dut.clock.step(); dut.reset.poke(false.B)
+        dirtyPages(dut)                      // the RAM starts unknown: the first 'D' clears it
+        write(dut, 0x8400000L, 2)            // one word in the heap's first page
+        write(dut, 0x8400ff0L, 32)           // 64 bytes over pages 0x8400 and 0x8401: one RAM word
+        write(dut, 0x841f000L - 8, 8)        // pages 0x841e and 0x841f: one RAM word
+        write(dut, 0x8420000L - 8, 8)        // pages 0x841f and 0x8420: two RAM words
+        write(dut, 0x0fffff80L, 64)          // the window's last page, its last 128 bytes
+        write(dut, 0x18400000L, 2)           // beyond the window: wraps onto 0x8400
+        assert(dirtyPages(dut) == Set(0x8400, 0x8401, 0x841e, 0x841f, 0x8420, 0xffff))
+        assert(dirtyPages(dut).isEmpty)
+        write(dut, 0x1000L, 2)
+        assert(dirtyPages(dut) == Set(0x1))
+      }
+    }
+  }
+}

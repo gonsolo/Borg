@@ -25,6 +25,9 @@ class NexysLinkTop extends RawModule with NexysBoard {
     link.io.mmio <> b.io.mmio
     arb.io.in(0) <> b.io.gpuMem
     arb.io.in(1) <> link.io.mem
+    link.io.written.valid     := b.io.gpuMem.wr && b.io.gpuMem.ready
+    link.io.written.bits.addr := b.io.gpuMem.addr
+    link.io.written.bits.wlen := b.io.gpuMem.wlen
     link.io.in <> rx.deq
     tx.enq.valid      := link.io.out.valid
     tx.enq.bits       := Cat(link.io.outEnd, link.io.out.bits)
