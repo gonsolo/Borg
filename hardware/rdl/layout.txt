@@ -28,14 +28,14 @@ TBR_SETUP_ENTRY_BYTES       256
 # Push constants (128 bytes, word i at byte 4i of the range), the register-driven draw paths'
 # uniform window, the constant windows' u-index ranges, and the shader slots: a draw-mode shader
 # runs from DRAM through the instruction cache, so only its slot bounds its length.
-BORG_PUSH_CONST_SPI         0x400400
+BORG_PUSH_CONST_SPI         0x1FE0400     # below the heap, so the framebuffer, bins and setup records grow up to it
 BORG_PUSH_CONST_MAX_WORDS   32
 DRAW_UBO_SPI                BORG_PUSH_CONST_SPI + BORG_PUSH_CONST_MAX_WORDS * 4
 DRAW_FS_CONST_WORDS         12
 DRAW_FS_CONST_U0            20            # u20-u31
 DRAW_VS_CONST_MAX_WORDS     7
 DRAW_VS_CONST_U0            25            # u25-u31
-DRAW_VERT_SHADER_SPI        0x40098C
+DRAW_VERT_SHADER_SPI        BORG_PUSH_CONST_SPI + 0x58C
 DRAW_VERT_SHADER_MAX_WORDS  8188
 DRAW_FRAG_SHADER_SPI        DRAW_VERT_SHADER_SPI + DRAW_VERT_SHADER_MAX_WORDS * 4
 DRAW_FRAG_SHADER_MAX_WORDS  8188
