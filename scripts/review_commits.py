@@ -52,6 +52,18 @@ def git(*args, check=True, capture=True, cwd=ROOT):
     return r.stdout.strip() if capture else ""
 
 
+def worktree_of(branch: str):
+    path = None
+    for line in git("worktree", "list", "--porcelain").splitlines():
+        if line.startswith("worktree "):
+            path = Path(line[len("worktree "):])
+        elif line == f"branch refs/heads/{branch}":
+            # a submodule's main worktree is listed as its git dir
+            wt = git("config", "--get", "core.worktree", check=False, cwd=path)
+            return (path / wt).resolve() if wt else path
+    return None
+
+
 def ask(prompt: str, choices: str) -> str:
     while True:
         ans = input(f"{prompt} [{'/'.join(choices)}] ").strip().lower()
@@ -266,10 +278,15 @@ def main():
     print(f"\nReviewed-by added to {base}..HEAD on {reviewed}; {cur} is unchanged.")
     if ask(f"Fast-forward main to {reviewed}?", "yn") == "n":
         sys.exit(f"Nothing merged or pushed. Later: git switch main && git merge --ff-only {reviewed}")
-    git("switch", "main")
-    if subprocess.run(["git", "merge", "--ff-only", reviewed], cwd=ROOT).returncode:
+    where = worktree_of("main")
+    if where in (None, ROOT):
+        git("switch", "main")
+        where = ROOT
+    if subprocess.run(["git", "merge", "--ff-only", reviewed], cwd=where).returncode:
         sys.exit(f"main cannot fast-forward to {reviewed}; nothing pushed. Rebase {reviewed} on main first.")
     if ask(f"Delete {cur} and {reviewed}?", "yn") == "y":
+        if where != ROOT:
+            git("switch", "--detach", "main")
         git("branch", "-D", cur, reviewed)
     if unpushed:
         sys.exit("Not pushed: a submodule commit is not on its remote (see the warning above).")
