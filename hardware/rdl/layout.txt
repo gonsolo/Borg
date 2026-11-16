@@ -61,8 +61,8 @@ BORG_SIM_MEM_BYTES          0x8000000
 BORG_SCANOUT_SPI            BORG_SIM_MEM_BYTES
 BORG_SCANOUT_FB             BORG_SCANOUT_SPI + 0x1000
 BORG_SCANOUT_FB_BYTES       0x12C000
-BORG_DEVICE_BASE            0x10000000
-BORG_DEVICE_BYTES           0x10000000
+BORG_DEVICE_BASE            0x8400000     # the device heap, after the scan-out, to the end of
+BORG_DEVICE_BYTES           0x7C00000     # Borg's 256 MB window under Linux
 
 # The tile buffer's depth clear (65504, the largest finite FP16) and the fragment program's IMEM
 # offset.
