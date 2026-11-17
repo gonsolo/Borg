@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0 or MIT
 
 //! Borg GPU: DRM driver. Userspace (Mesa borgvk) programs the GPU with register writes and
-//! moves data in and out of the GPU memory carve-out; the kernel only validates offsets (against
-//! the register map generated from borg.rdl) and sequences the accesses. The HDMI scan-out is a
+//! moves data in and out of the carve-out's fixed layout; the kernel only validates offsets (against
+//! the register map generated from borg.rdl) and sequences the accesses. Buffer objects come from
+//! the rest of Borg's window, the device tree's `memory-region`, at an address Borg reads. The HDMI scan-out is a
 //! KMS display: its descriptor, in the carve-out, points at the framebuffer.
 
 mod reg_map;
@@ -20,7 +21,7 @@ use kernel::{
     uapi,
 };
 
-const ABI: u32 = 1;
+const ABI: u32 = 2;
 const MAX_WRITES: u32 = 4096;
 const CHUNK: usize = 512;
 const MAX_BO: u64 = 1 << 30;
@@ -47,6 +48,9 @@ struct BorgDeviceData {
 // DDR3's address for the CPU, as the descriptor counts from it.
 const SCANOUT: usize = 0x800_0000;
 const DDR3_BASE: u64 = 0x8000_0000;
+// Borg's address 0 for the CPU, and the window's size.
+const WINDOW: u64 = 0x9000_0000;
+const WINDOW_BYTES: u64 = 0x1000_0000;
 const DRM_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
 
 struct BorgDisplay;
@@ -184,6 +188,11 @@ impl BorgDrmFileData {
         }
         let size = (args.size as usize + 4095) & !4095;
         let obj = dma::Object::<BoData>::new(ddev, size)?;
+        let gpu = obj.dma_addr().wrapping_sub(WINDOW);
+        if gpu + size as u64 > WINDOW_BYTES {
+            return Err(ENOMEM);
+        }
+        args.gpu = gpu as u32;
         args.handle = obj.create_handle(file)?;
         Ok(0)
     }
@@ -247,6 +256,7 @@ impl platform::Driver for BorgPlatformDriver {
     ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
         let regs = pdev.io_request_by_index(0).ok_or(ENODEV)?.iomap()?.into_devres()?;
         let mem = pdev.io_request_by_index(1).ok_or(ENODEV)?.iomap()?.into_devres()?;
+        dma::use_reserved_memory(pdev.as_ref())?;
 
         let data = try_pin_init!(BorgDeviceData {
             regs,

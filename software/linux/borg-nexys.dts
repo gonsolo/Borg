@@ -122,11 +122,16 @@
             no-map;
         };
 
-        // The Borg's view of SDRAM starts here (VRAM region bit); Linux must not touch it.
-        // Borg's addresses from 0 (its 128 MB layout, then the scan-out's descriptor and two
-        // front buffers): NexysLinuxTop puts them at the DDR3's 256 MB.
-        borg_mem: gpu@90000000 {
-            reg = <0x0 0x90000000 0x0 0x08300000>;
+        // Borg's addresses from 0, at the DDR3's 256 MB (NexysLinuxTop): its fixed layout and
+        // the scan-out, then the buffer objects to the window's end.
+        gpu@90000000 {
+            reg = <0x0 0x90000000 0x0 0x08400000>;
+            no-map;
+        };
+
+        borg_bo: gpu@98400000 {
+            compatible = "shared-dma-pool";
+            reg = <0x0 0x98400000 0x0 0x07c00000>;
             no-map;
         };
     };
@@ -165,7 +170,9 @@
         borg@8000c00 {
             compatible    = "gonsolo,borg";
             reg           = <0x0 0x08000c00 0x0 0x400>,
-                            <0x0 0x90000000 0x0 0x08300000>;
+                            <0x0 0x90000000 0x0 0x08400000>;
+            memory-region = <&borg_bo>;
+            dma-coherent;
         };
 
         // Borg debug UART (write-only; RX not wired to this path).

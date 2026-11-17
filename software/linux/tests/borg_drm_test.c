@@ -78,6 +78,8 @@ int main(void) {
   struct drm_borg_gem_create a = {.size = 8192}, b = {.size = 8192};
   struct drm_borg_gem_mmap am, bm;
   CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &a) == 0 && ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &b) == 0, "two buffers");
+  CHECK(a.gpu >= info.mem_size && !(a.gpu & 4095) && (b.gpu >= a.gpu + 8192 || a.gpu >= b.gpu + 8192),
+        "GPU addresses past the fixed layout, apart");
   am.handle = a.handle; bm.handle = b.handle;
   CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &am) == 0 && ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &bm) == 0, "two offsets");
   uint8_t *pa = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED, fd, am.offset);

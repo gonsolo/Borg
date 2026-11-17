@@ -44,11 +44,11 @@ struct drm_borg_mem {
 	__u32 length;
 };
 
-/* A buffer object in system memory: `size` is rounded up to pages; the handle is closed with DRM_IOCTL_GEM_CLOSE. */
+/* A buffer object in Borg's memory, at GPU address `gpu`: `size` is rounded up to pages; the handle is closed with DRM_IOCTL_GEM_CLOSE. */
 struct drm_borg_gem_create {
 	__u64 size;
 	__u32 handle;
-	__u32 pad;
+	__u32 gpu;
 };
 
 /* The offset to pass to mmap() on the render node to map the object. */
