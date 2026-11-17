@@ -35,6 +35,8 @@ BORG_BIT     := $(BUILD_DIR)/borg/nexysvideo_top.bit
 # Borg alone, the host's device over the USB FIFO (borg_ftdi)
 LINK_VERILOG := $(ROOT)/out/nexysvideo_link/verilog
 LINK_BIT     := $(BUILD_DIR)/link/NexysLinkTop.bit
+LINUX_VERILOG := $(ROOT)/out/nexysvideo_linux/verilog
+LINUX_BIT     := $(BUILD_DIR)/linux/NexysLinuxTop.bit
 
 # Where the bootloader looks for the program in flash
 FLASH_OFFSET := 0x00400000
@@ -58,6 +60,10 @@ help:
 	@echo "make program-hdmi     - build if needed, then load onto the board"
 	@echo "make ddr3             - Chisel -> Verilog -> bitstream (DDR3 write/read-back test)"
 	@echo "make program-ddr3     - build if needed, then load onto the board"
+	@echo "make link             - bitstream: Borg alone, the host's device over USB (borg_ftdi)"
+	@echo "make program-link     - build if needed, then load onto the board"
+	@echo "make linux            - bitstream: Hutt running Linux with Borg (software: make -C ../../software nexys)"
+	@echo "make program-linux    - build if needed, then load onto the board"
 	@echo "make minimal          - Chisel -> Verilog -> bitstream (minimal SoC: CPU + UART + HDMI on DDR3)"
 	@echo "make program-minimal  - build if needed, then load onto the board"
 	@echo "make borg             - Chisel -> Verilog -> bitstream (full SoC: CPU + Borg GPU + UART + HDMI on DDR3)"
@@ -89,6 +95,11 @@ help:
 
 .verilog_stamp_link: $(CHISEL_SRCS)
 	cd $(ROOT) && mill fpga.nexysvideo.soc.runMain nexysvideo.NexysLinkTopMain
+	touch $@
+
+# Hutt running Linux with Borg, and the host link
+.verilog_stamp_linux: $(CHISEL_SRCS)
+	cd $(ROOT) && mill fpga.nexysvideo.soc.runMain nexysvideo.NexysLinuxTopMain
 	touch $@
 
 hdmi: $(HDMI_BIT)
@@ -137,6 +148,18 @@ $(LINK_BIT): .verilog_stamp_link build.tcl NexysLink.xdc $(wildcard $(MIG_IP)/*)
 	    $(call host_path,$(MIG_IP))
 
 program-link: $(LINK_BIT)
+	openFPGALoader -b nexysVideo $<
+
+linux: $(LINUX_BIT)
+
+$(LINUX_BIT): .verilog_stamp_linux build.tcl NexysLinux.xdc $(wildcard $(MIG_IP)/*)
+	mkdir -p $(BUILD_DIR)
+	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log linux.log \
+	    -source $(call host_path,build.tcl) \
+	    -tclargs NexysLinuxTop $(call host_path,$(LINUX_VERILOG)) $(call host_path,NexysLinux.xdc) linux \
+	    $(call host_path,$(MIG_IP))
+
+program-linux: $(LINUX_BIT)
 	openFPGALoader -b nexysVideo $<
 
 program-hdmi: $(HDMI_BIT)
@@ -237,4 +260,4 @@ flash-replay: $(BUILD_DIR)/replay_fw.bin flash.tcl
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal borg program-borg flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal borg program-borg link program-link linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
