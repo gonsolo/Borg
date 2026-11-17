@@ -204,3 +204,24 @@ where
         dumb_map_offset: None,
     };
 }
+
+/// Gives the device's DMA allocations, and with them these objects, the first `memory-region` of
+/// its device tree node, until the driver unbinds.
+pub fn use_reserved_memory(dev: &crate::device::Device<crate::device::Bound>) -> Result {
+    let raw = dev.as_raw();
+    // SAFETY: `raw` is a valid, bound device; its node may be null, which the helper rejects.
+    crate::error::to_result(unsafe { bindings::of_reserved_mem_device_init_by_idx(raw, (*raw).of_node, 0) })?;
+    crate::devres::register(dev, ReservedMem(raw), GFP_KERNEL)
+}
+
+struct ReservedMem(*mut bindings::device);
+
+// SAFETY: The pointer only goes back to the C side.
+unsafe impl Send for ReservedMem {}
+
+impl Drop for ReservedMem {
+    fn drop(&mut self) {
+        // SAFETY: Devres drops this on unbind, while the device is valid.
+        unsafe { bindings::of_reserved_mem_device_release(self.0) };
+    }
+}

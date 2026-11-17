@@ -21,6 +21,7 @@ def insert(path, anchor, text, after=True):
 
 insert("rust/kernel/drm/mod.rs", "pub mod ioctl;\n", "#[cfg(CONFIG_DRM_KMS_HELPER)]\npub mod kms;\n")
 insert("rust/kernel/drm/gem/mod.rs", "pub mod shmem;\n", "\n#[cfg(CONFIG_DRM_GEM_DMA_HELPER)]\npub mod dma;\n")
+insert("rust/bindings/bindings_helper.h", "#include <linux/of_device.h>\n", "#include <linux/of_reserved_mem.h>\n")
 insert("rust/bindings/bindings_helper.h", "#include <drm/drm_ioctl.h>\n",
        "".join(f"#include <drm/{h}.h>\n" for h in [
            "clients/drm_client_setup", "drm_atomic_helper", "drm_connector", "drm_edid", "drm_fb_dma_helper",
