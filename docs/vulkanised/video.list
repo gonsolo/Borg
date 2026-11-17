@@ -1,0 +1,4 @@
+# The video, cut by cut: a frame label from slides.tex (or a page number), what plays, seconds.
+# A voice take plays under its slide for its length; footage replaces the slide; - is a silent slide.
+coldopen  ../images/BorgVkcubeULX3S.gif  6
+title     narration.1.m4a
