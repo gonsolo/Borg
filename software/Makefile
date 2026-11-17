@@ -151,6 +151,7 @@ $(FW_PAYLOAD_BIN): opensbi
 # ---------------------------------------------------------------------------
 NEXYS_OUT ?= $(CURDIR)/../out/software/nexys
 NEXYS_HOST := $(CURDIR)/../fpga/nexysvideo/host
+NEXYS_INITRD ?= $(NEXYS_OUT)/initrd.cpio   # nexys-run boots another one, padded to 16 MB, if given
 
 nexys: $(NEXYS_OUT)/fw_payload.bin $(NEXYS_OUT)/initrd.cpio
 
@@ -178,4 +179,4 @@ $(NEXYS_OUT)/initrd.cpio: linux/nexys/init linux/nexys/initrd.list
 	truncate -s 16M $@
 
 nexys-run: nexys
-	python3 -I $(NEXYS_HOST)/hutt_run.py $(NEXYS_OUT)/fw_payload.bin --also $(NEXYS_OUT)/initrd.cpio@0x01c00000
+	python3 -I $(NEXYS_HOST)/hutt_run.py $(NEXYS_OUT)/fw_payload.bin --also $(NEXYS_INITRD)@0x01c00000
