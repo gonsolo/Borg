@@ -34,8 +34,10 @@
 \usetheme{Simple}
 \useblockstyle{Default}
 \usetitlestyle{Lava}
-\settitle{\centering\color{titlefgcolor}{\bfseries\Huge\@title\par}\vspace*{1.2em}
+\makeatletter
+\renewcommand{\TP@maketitle}{\centering\color{titlefgcolor}{\bfseries\Huge\@title\par}\vspace*{1.2em}
   {\huge\@author\par}\vspace*{0.5em}{\LARGE\@institute}}
+\makeatother
 \tikzposterlatexaffectionproofoff
 \usecolorstyle{Vulkanised}
 \newcommand{\photo}[1]{\fbox{\parbox[c][17cm]{0.9\linewidth}{\centering\textit{photo: #1}}}}
