@@ -58,6 +58,13 @@ struct drm_borg_gem_mmap {
 	__u64 offset;
 };
 
+/*
+ * Borg's 4x4 tiles (a tile's 16 pixels in a row of memory, tile after tile; a row of tiles after
+ * the other), as Borg renders and the scan-out reads them. A framebuffer's pitch is a pixel row's
+ * worth: a row of tiles is four times it. Provisional vendor: not registered in drm_fourcc.h.
+ */
+#define DRM_FORMAT_MOD_BORG_TILED_4X4 ((0x7fULL << 56) | 1)
+
 /* An enum, not #defines: bindgen turns enum constants into Rust constants. */
 enum {
 	DRM_IOCTL_BORG_INFO       = DRM_IOR(DRM_COMMAND_BASE + DRM_BORG_INFO, struct drm_borg_info),

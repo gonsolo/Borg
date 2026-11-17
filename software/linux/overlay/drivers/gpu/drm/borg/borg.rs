@@ -52,15 +52,20 @@ const DDR3_BASE: u64 = 0x8000_0000;
 const WINDOW: u64 = 0x9000_0000;
 const WINDOW_BYTES: u64 = 0x1000_0000;
 const DRM_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
+// Borg's 4x4 tiles (borg_drm.h), linear, and the list's end (DRM_FORMAT_MOD_INVALID).
+const MOD_TILED: u64 = 0x7f << 56 | 1;
+const MODIFIERS: [u64; 3] = [MOD_TILED, 0, 0x00ff_ffff_ffff_ffff];
 
 struct BorgDisplay;
 
 impl kms::DisplayOps<BorgDrmDriver> for BorgDisplay {
     fn update(dev: &BorgDrmDevice, fb: Option<&kms::Framebuffer>) {
-        // Base, pitch, width | height << 16, format (1: BGRA8 bytes, XRGB8888; 0: off).
+        // Base, pitch, width | height << 16, format (1: BGRA8 bytes, XRGB8888; 0: off; bit 2: tiled,
+        // the pitch a row of tiles).
         let desc = match fb {
             Some(f) if f.format == DRM_FORMAT_XRGB8888 => {
-                [(f.dma_addr - DDR3_BASE) as u32, f.pitch, f.width | f.height << 16, 1]
+                let (pitch, tiled) = if f.modifier == MOD_TILED { (f.pitch * 4, 4) } else { (f.pitch, 0) };
+                [(f.dma_addr - DDR3_BASE) as u32, pitch, f.width | f.height << 16, 1 | tiled]
             }
             _ => [0; 4],
         };
@@ -264,7 +269,7 @@ impl platform::Driver for BorgPlatformDriver {
             display <- kms::SimpleDisplay::new(640, 480),
         });
         let bdev = drm::UnregisteredDevice::<BorgDrmDriver>::new(pdev.as_ref(), data)?;
-        bdev.display.init(&bdev, &[DRM_FORMAT_XRGB8888])?;
+        bdev.display.init(&bdev, &[DRM_FORMAT_XRGB8888], &MODIFIERS)?;
         let bdev = drm::driver::Registration::new_foreign_owned(bdev, pdev.as_ref(), 0)?;
         kms::SimpleDisplay::<BorgDrmDriver, BorgDisplay>::setup_console(bdev);
 
