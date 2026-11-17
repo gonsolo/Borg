@@ -4,10 +4,27 @@
 \usepackage{qrcode}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta}
-\definecolor{borg}{HTML}{1B6E5A}
-\setbeamercolor{progress bar}{fg=borg}
-\setbeamercolor{frametitle}{bg=borg!85!black}
-\setbeamercolor{alerted text}{fg=borg}
+\usepackage[default]{lato}
+% Vulkanised 2027's colours; its artwork comes from `make art`, plain colours without it.
+\definecolor{vkred}{HTML}{A71C33}
+\definecolor{vkdark}{HTML}{1B1B1B}
+\setbeamercolor{normal text}{fg=vkdark, bg=white}
+\setbeamercolor{progress bar}{fg=vkred}
+\setbeamercolor{frametitle}{bg=vkred, fg=white}
+\setbeamercolor{alerted text}{fg=vkred}
+\setbeamerfont{frametitle}{series=\bfseries}
+\newcommand{\fullbleed}[3]{% image in build/art, anchor, fallback colour
+  \begin{tikzpicture}[remember picture, overlay]
+    \fill[#3] (current page.south west) rectangle (current page.north east);
+    \IfFileExists{build/art/#1}{\node[anchor=#2, inner sep=0] at (current page.#2)
+      {\includegraphics[height=\paperheight]{build/art/#1}};}{}
+  \end{tikzpicture}}
+\setbeamertemplate{section page}{%
+  \fullbleed{streaks.png}{center}{vkred}%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=west, text=white, font=\Huge\bfseries, text width=12cm] at ([xshift=1.2cm]current page.west)
+      {\insertsectionhead};
+  \end{tikzpicture}}
 \newcommand{\footage}[1]{\begin{center}\fbox{\parbox{0.8\linewidth}{\centering\vspace{2cm}\textit{footage: #1}\vspace{2cm}}}\end{center}}
 
 \title{Borg: Vulkan from vkcube Down to the Gates}
@@ -22,8 +39,13 @@
   \footage{unmodified vkcube on the Nexys Video, Linux on Hutt, full screen over HDMI, 30 s, no words}
 \end{frame}
 
-\begin{frame}[label=title]
-  \titlepage
+\begin{frame}[plain, label=title]
+  \fullbleed{header.jpg}{west}{vkred}%
+  \begin{tikzpicture}[remember picture, overlay]
+    \fill[black, opacity=0.55] ([yshift=-1.6cm]current page.west) rectangle ([yshift=2.4cm]current page.east);
+    \node[anchor=west, text=white, text width=13.5cm, align=left] at ([xshift=1.2cm, yshift=0.4cm]current page.west)
+      {{\LARGE\bfseries\inserttitle}\\[3mm]{\large\insertsubtitle}\\[5mm]{\insertauthor}};
+  \end{tikzpicture}
 \end{frame}
 
 % 1. What Borg is
