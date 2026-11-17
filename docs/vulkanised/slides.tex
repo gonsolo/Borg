@@ -19,7 +19,7 @@
 
 % 0. Cold open
 \begin{frame}[plain]
-  \footage{unmodified vkcube on the ULX3S over HDMI, 30 s, no words}
+  \footage{unmodified vkcube on the Nexys Video, Linux on Hutt, full screen over HDMI, 30 s, no words}
 \end{frame}
 
 \maketitle
@@ -29,11 +29,12 @@
 
 \begin{frame}{An open GPU you can read end to end}
   \begin{itemize}
-    \item The GPU: about 12,300 lines of Chisel. FP32 shader core running 2x2 quads, tile-based rasterizer,
+    \item The GPU: about 11,000 lines of Chisel. FP32 shader core running 2x2 quads, tile-based rasterizer,
       texture unit, MSAA, compute.
-    \item The system around it: Hutt, a small RISC-V CPU.
-    \item The driver: borgvk, a native Mesa Vulkan driver in Rust, with its own shader compiler, borgc.
-    \item One source, three targets: ULX3S (ECP5), Nexys Video (Artix-7), GF180 ASIC.
+    \item The system around it: Hutt, a small RV64 CPU that boots Linux.
+    \item The drivers: borgvk, a native Mesa Vulkan driver in Rust, with its own shader compiler, borgc;
+      a DRM/KMS driver in Rust.
+    \item One source: the Nexys Video (Artix-7, DDR3) and an ASIC flow (LibreLane, GF180).
     \item Everything open source.
   \end{itemize}
 \end{frame}
@@ -47,9 +48,9 @@
     \node[box, minimum width=4.8cm, below=3mm of rt.south west, anchor=north west] (vk) {borgvk (Rust)};
     \node[box, minimum width=4.8cm, below=3mm of rt.south east, anchor=north east] (cc) {borgc: NIR $\to$ Borg ISA};
     \node[box, minimum width=10cm, below=3mm of vk.south west, anchor=north west] (pk) {command stream};
-    \node[box, below=5mm of pk.south west, anchor=north west, minimum width=3cm] (sim) {simulator\\of the RTL (CTS)};
-    \node[box, below=5mm of pk.south, minimum width=3cm] (lin) {Linux on the board\\(Rust DRM driver)};
-    \node[box, below=5mm of pk.south east, anchor=north east, minimum width=3cm] (qemu) {QEMU RISC-V\\+ the same DRM};
+    \node[box, below=5mm of pk.south west, anchor=north west, minimum width=3cm] (sim) {simulator\\of the RTL};
+    \node[box, below=5mm of pk.south, minimum width=3cm] (lin) {the board over USB\\(CTS)};
+    \node[box, below=5mm of pk.south east, anchor=north east, minimum width=3cm] (qemu) {Linux on the board\\(Rust DRM driver)};
     \draw[arr] (app) -- (rt); \draw[arr] (rt.south -| vk) -- (vk); \draw[arr] (vk) -- (cc);
     \draw[arr] (vk.south) -- (vk.south |- pk.north);
     \draw[arr] (pk.south -| sim) -- (sim); \draw[arr] (pk) -- (lin); \draw[arr] (pk.south -| qemu) -- (qemu);
@@ -118,9 +119,10 @@
 \begin{frame}{borgvk and borgc}
   \begin{itemize}
     \item Mesa's Vulkan runtime for objects, synchronization and WSI; borgvk in Rust,
-      about 12,000 lines.
-    \item borgc takes NIR after Mesa's lowering; one instruction selector for graphics and compute.
-    \item 32 registers per lane; the ISA moves to a RISC-V subset plus GPU instructions.
+      about 12,400 lines.
+    \item borgc, about 7,500 lines of Rust, takes NIR after Mesa's lowering; one instruction selector
+      for graphics and compute.
+    \item 32 registers per lane; the ISA is a RISC-V subset plus GPU instructions.
     \item Refuse instead of guess: a refused pipeline is an honest CTS failure, a miscompiled one
       can pass by luck.
   \end{itemize}
@@ -136,7 +138,8 @@ sout.v2  rs2 index      31..25=0 14..12=0 6..2=0x16 1..0=3
 \end{verbatim}
   \normalsize
   \begin{itemize}
-    \item The format of RISC-V's \texttt{riscv-opcodes}.
+    \item The format of RISC-V's \texttt{riscv-opcodes}: RV32I, Zfinx, Zmmul, Zicond, and the GPU
+      instructions in the custom opcode space.
     \item The hardware decoder, the C header and the compiler's encoder are generated from it.
     \item A corpus of recorded shaders checks every compiler change.
   \end{itemize}
@@ -161,27 +164,53 @@ sout.v2  rs2 index      31..25=0 14..12=0 6..2=0x16 1..0=3
   \end{tabular}
 \end{frame}
 
-% 4. CTS against RTL
-\section{Running the CTS against the RTL}
-
-\begin{frame}{The direct simulator}
+\begin{frame}{One device heap, every target}
+  \centering\small
+  \begin{tabular}{lll}
+    \toprule
+    Target & CPU writes reach the GPU & GPU writes reach the CPU \\
+    \midrule
+    Simulator & shared memory & shared memory \\
+    Board over USB & changed pages, before a job & dirty pages, after a job \\
+    Linux on the board & GEM objects, no copy & write-through cache, flushed \\
+    \bottomrule
+  \end{tabular}
   \begin{itemize}
-    \item The GPU's RTL, without CPU, compiled to native code with CIRCT's arcilator.
-    \item Driven by the same command stream as the hardware; the CTS sees an ordinary Vulkan device.
-    \item About 120,000 cycles per second per instance, many instances in parallel, sharded on CI.
+    \item One heap at the same GPU address everywhere: buffers, images and render targets are used
+      in place.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Live: CTS cases on the simulator}
-  \footage{terminal: \texttt{scripts/cts\_par.sh} on a handful of cases, results coming in}
+% 4. CTS against the hardware
+\section{Running the CTS against the hardware}
+
+\begin{frame}{The simulator first}
+  \begin{itemize}
+    \item The GPU's RTL, without CPU, compiled to native code with CIRCT's arcilator.
+    \item Driven by the same command stream as the hardware; the CTS sees an ordinary Vulkan device.
+    \item About 120,000 cycles per second: where bring-up and debugging happen.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Then the board}
+  \begin{itemize}
+    \item The same command stream over USB to the Nexys Video: Borg at 25 MHz instead of 120,000
+      cycles per second, the link at about 15 MB/s.
+    \item The board and the simulator agree byte for byte: 825 recorded driver cases, 2,631 image hashes.
+    \item The board is where the conformance runs happen; the simulator is the debugger.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Live: CTS cases on the board}
+  \footage{terminal: \texttt{scripts/cts\_par.sh} on the quick list, 114 cases in 16 s}
 \end{frame}
 
 \begin{frame}{Throughput decides what you can test}
   \begin{itemize}
     \item Compute precision cases use one invocation per workgroup: three of four quad lanes idle.
       Packing four workgroups into one quad: \texttt{atan2} vec4 from over 40 minutes to about two.
-    \item Large render passes split into strips across simulators, per-draw work hoisted:
-      a pipeline barrier case from a 5.5 h timeout to a pass in under 2 h.
+    \item The slowest known cases pass on the board: explicit LOD at 128x128 in five to six minutes,
+      a 1 MiB storage buffer in 20 minutes, a 1 MiB uniform buffer in about an hour.
   \end{itemize}
 \end{frame}
 
@@ -216,9 +245,9 @@ sout.v2  rs2 index      31..25=0 14..12=0 6..2=0x16 1..0=3
 
 \begin{frame}{Next}
   \begin{itemize}
-    \item The full Vulkan 1.0 must-pass list.
-    \item The Nexys Video with Linux and DDR3.
-    \item A tapeout.
+    \item A clean full CTS run on the board, from one commit.
+    \item The fastest vkcube under Linux on Hutt, all on the board.
+    \item The ASIC flow again, and the early chip from Tiny Tapeout.
   \end{itemize}
 \end{frame}
 
