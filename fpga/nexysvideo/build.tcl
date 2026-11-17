@@ -24,7 +24,6 @@ if {$ip_dir ne ""} {
     file copy $ip_dir $ip_copy
 
     set xci [glob $ip_copy/*.xci]
-    set_property board_part digilentinc.com:nexys_video:part0:1.2 [current_project]   ;# the MIG was made with Digilent's board settings
     read_ip $xci
     set ip [get_ips [file rootname [file tail $xci]]]
     if {[get_property IS_LOCKED $ip]} { upgrade_ip $ip }   ;# made with an older Vivado
