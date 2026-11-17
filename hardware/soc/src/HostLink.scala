@@ -71,6 +71,11 @@ class HostLink extends Module {
   val rdData = dirty.read(rdAddr, true.B)
   def bit(p: UInt) = UIntToOH(p(4, 0), 32)
   val oneWord = pages(0)(15, 5) === pages(1)(15, 5)
+  // One write port, so the bitmap stays a block RAM.
+  val wrEn   = WireDefault(false.B)
+  val wrAddr = WireDefault(pages(0)(15, 5))
+  val wrData = WireDefault(0.U(32.W))
+  when(wrEn) { dirty.write(wrAddr, wrData) }
   marks.io.deq.ready := m === mIdle && state =/= sDirty && state =/= sDirtyGot
   switch(m) {
     is(mIdle) {
@@ -81,7 +86,8 @@ class HostLink extends Module {
       }
     }
     is(mFirst) {
-      dirty.write(pages(0)(15, 5), rdData | bit(pages(0)) | Mux(oneWord, bit(pages(1)), 0.U))
+      wrEn   := true.B
+      wrData := rdData | bit(pages(0)) | Mux(oneWord, bit(pages(1)), 0.U)
       m := Mux(oneWord, mIdle, mSecondRead)
     }
     is(mSecondRead) {
@@ -89,7 +95,9 @@ class HostLink extends Module {
       m := mSecond
     }
     is(mSecond) {
-      dirty.write(pages(1)(15, 5), rdData | bit(pages(1)))
+      wrEn   := true.B
+      wrAddr := pages(1)(15, 5)
+      wrData := rdData | bit(pages(1))
       m := mIdle
     }
   }
@@ -221,7 +229,8 @@ class HostLink extends Module {
       }
     }
     is(sDirtyGot) {
-      dirty.write(ridx, 0.U)
+      wrEn   := true.B
+      wrAddr := ridx
       ridx := ridx + 1.U
       send(rdData, 4, Mux(ridx.andR, sCmd, sDirty))
     }
