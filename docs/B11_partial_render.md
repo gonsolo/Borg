@@ -47,8 +47,7 @@ base and the triangle numbering carry on, so every topology, restart and instanc
 
 `part` counts the parts of a render. The first part runs with the application's `TILE_LOAD`;
 every later part, including the last Pass 2 at the end of the draw or list, loads every aspect
-that has an attachment and keeps the tiles no triangle reaches. `curBufIdx` toggles at the end
-of the render only.
+that has an attachment and keeps the tiles no triangle reaches.
 
 ### Pass 2
 

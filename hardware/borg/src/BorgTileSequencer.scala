@@ -15,7 +15,6 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val done  = Output(Bool())
   val busy  = Output(Bool())
   // Toggled by the wrapper once per frame; indexes the per-buffer dirty bits.
-  val curBufIdx = Input(UInt(1.W))
 
   val mmio    = new SeqMmioIO(cfg)
   val binner  = new SeqBinnerIO(cfg)  // only countReadAddr/countReadEn/countReadData used
@@ -135,19 +134,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     tileCompleteLatch := io.iter.complete
   }
 
-  // Skip-empty-tile flush: did the tile have content the last time this buffer
-  // was rendered? A RAM, since each tile's bit is read and rewritten once per
-  // render; as registers the 4096-tile array does not fit the ECP5. No reset
-  // contents needed: the ~0 colour sentinel flushes every tile on first use.
-  private val dirtyAddrBits = log2Ceil(cfg.maxBinTiles)
-  val tileDirtyMem  = SyncReadMem(2 * cfg.maxBinTiles, Bool())
-  val dirtyReadAddr = WireDefault(0.U((dirtyAddrBits + 1).W))
-  val dirtyReadEn   = WireDefault(false.B)
-  val dirtyReadData = tileDirtyMem.read(dirtyReadAddr, dirtyReadEn)
-  val tileWasDirty  = RegInit(true.B)
-  // The clear colour differs from this buffer's last render: flush every tile.
-  val colorChanged  = RegInit(true.B)
-  val lastClearColorBuf = RegInit(VecInit(Seq.fill(2)(~0.U(64.W))))
+  private val tileBits = log2Ceil(cfg.maxBinTiles)
 
   val dmaDescReg = RegInit(0.U.asTypeOf(new DMADescriptor))
 
@@ -307,10 +294,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   private def handleStartPass2(): Unit = {
     tileX := 0.U
     tileY := 0.U
-    if (BorgDebug.trace) printf("[SEQ] Pass2 start buf=%d\n", io.curBufIdx)
-    val clearColor = io.mmio.clearColorHi ## io.mmio.clearColorLo
-    colorChanged := clearColor =/= lastClearColorBuf(io.curBufIdx)
-    lastClearColorBuf(io.curBufIdx) := clearColor
+    if (BorgDebug.trace) printf("[SEQ] Pass2 start\n")
     readTile(0.U)
     state := sReadBinCount
   }
@@ -319,16 +303,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     attPass := 0.U
     // SyncReadMem data is valid only this cycle, while readEn was high.
     binTriCount := io.binner.countReadData
-    // Latch last render's dirty bit, write this render's.
-    val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
-    tileWasDirty := dirtyReadData || colorChanged
-    // TILE_LOAD.keep: an empty tile keeps what its attachments hold, so it is
-    // skipped whole and its dirty bit stays what the last full render left.
+    // TILE_LOAD.keep: an empty tile keeps what its attachments hold, so it is skipped whole.
     val keepTile = io.mmio.tileKeep && io.binner.countReadData === 0.U
-    when(!keepTile) {
-      tileDirtyMem.write(Cat(io.curBufIdx, tileLinear.pad(dirtyAddrBits)(dirtyAddrBits - 1, 0)),
-                         io.binner.countReadData =/= 0.U)
-    }
     if (BorgDebug.trace) printf("[SEQ] tile(%d,%d) binCount=%d\n",
       tileX >> 2, tileY >> 2, io.binner.countReadData)
     binTriIdx     := 0.U
@@ -336,9 +312,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     state         := Mux(keepTile, sNextRenderTile, sClearTile)
   }
 
-  /** Load the tile's attachments (BorgTileLoader), then continue as a clear,
-    * except that an empty tile always flushes: the dirty-tile skip assumes
-    * DRAM already holds the clear colour. */
+  /** Load the tile's attachments (BorgTileLoader), then continue as a clear. */
   private def handleLoadTile(): Unit = {
     clearTileComplete := true.B
     when(!loadStarted) {
@@ -370,17 +344,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       state             := sLoadTile
     }.otherwise {
       clearTileComplete := false.B
-      // A clean empty tile already holds the clear colour in DRAM.
-      when(binTriCount === 0.U) {
-        // Multiple colour attachments always flush.
-        when(io.mmio.attCount > 1.U || tileWasDirty) {
-          state := sWaitFlush
-        }.otherwise {
-          state := sNextRenderTile
-        }
-      }.otherwise {
-        state := sReadBinEntry
-      }
+      // An empty tile flushes its clear.
+      state := Mux(binTriCount === 0.U, sWaitFlush, sReadBinEntry)
     }
   }
 
@@ -539,14 +504,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     }
   }
 
-  /** Start a tile's two reads, both valid in sReadBinCount: its bin count
-    * (BorgBinner's count RAM) and its dirty bit in the current buffer. */
+  /** Start the read of a tile's bin count (BorgBinner's count RAM), valid in sReadBinCount. */
   private def readTile(tileLinear: UInt): Unit = {
-    val tile = tileLinear.pad(dirtyAddrBits)(dirtyAddrBits - 1, 0)
-    io.binner.countReadAddr := tile
+    io.binner.countReadAddr := tileLinear.pad(tileBits)(tileBits - 1, 0)
     io.binner.countReadEn   := true.B
-    dirtyReadAddr := Cat(io.curBufIdx, tile)
-    dirtyReadEn   := true.B
   }
 
   private def handleNextRenderTile(): Unit = {
