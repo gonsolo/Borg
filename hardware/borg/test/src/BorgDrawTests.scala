@@ -613,6 +613,19 @@ object BorgDrawTests extends TestSuite {
     * bit 1 says so. With room for both triangles the same draw renders. */
   /** Render lists: four draws with two fragment states in one render must leave what the
     * same draws leave one render at a time (each loading the colour the last one stored). */
+  /** A render list without a draw and no TILE_LOAD bit clears every tile, also the ones no
+    * triangle of the render before reached. */
+  def emptyListClears(rig: DrawRig): Unit = {
+    rig.draw(Seq(at(0.25, 0.25, 1.0, r = 1), at(8, 0.5, 4.0, g = 1), at(0.5, 8, 2.0)))
+    val list = 0xD000
+    rig.rom(list) = BigInt(0); rig.rom(list + 4) = BigInt(0)
+    rig.draw(Nil, keep = true, extra = Seq(BorgGpuRegs.render_list_offset -> BigInt(list),
+      BorgGpuRegs.seq_clear_hi_offset -> BigInt(0x38003400L), BorgGpuRegs.seq_clear_lo_offset -> BigInt(0x3A007BFFL)))
+    for (y <- 0 until Size; x <- 0 until Size)
+      Predef.assert(rig.pixel(x, y) == ((128, 64, 191)), s"pixel ($x,$y): ${rig.pixel(x, y)}")
+    println(s"  an empty render list cleared all ${Size * Size} pixels")
+  }
+
   def renderList(rig: DrawRig): Unit = renderListWith(rig, 32)
   def renderListParts(rig: DrawRig): Unit = renderListWith(rig, 2)
   def renderListOneShader(rig: DrawRig): Unit = renderListWith(rig, 32, oneShader = true)
@@ -1056,6 +1069,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("flat_shading_uses_the_provoking_vertex") {
       run("flat strip", suiteCfg)(flatStrip)
+    }
+    utest.test("an_empty_render_list_clears_every_tile") {
+      run("empty list", suiteCfg)(emptyListClears)
     }
     utest.test("render_list_of_draws_with_two_states") {
       run("render list", suiteCfg)(renderList)

@@ -156,7 +156,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val dw = Module(new BorgDrawWalker(cfg))
 
   private val (wIdle :: wPass1 :: wPass2 :: wDone :: wEntry :: wWaitEntry :: wPlayState :: wPlayParams :: wWaitPlay :: wDraw ::
-               wPartial :: wPartClear :: wResume :: Nil) = Enum(13)
+               wPartial :: wPartClear :: wResume :: wClearAll :: Nil) = Enum(14)
   private val wstate = RegInit(wIdle)
   io.fsm := Cat(p2.io.fsm, dw.io.fsm, wstate)
 
@@ -179,9 +179,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   player.io.start := false.B
   player.io.addr  := entry(0)
   io.regWrite <> player.io.write
-
-  // Toggles per frame, so neither pass can own it.
-  private val curBufIdx = RegInit(0.U(1.W))
 
   // Partial render (docs/B11_partial_render.md): a full bin pauses the walker on triangle t,
   // Pass 2 renders the triangles below t, and the walker resumes at t on cleared bins.
@@ -231,8 +228,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(io.dma.snoop.valid) { entry(entryWord) := io.dma.snoop.bits; entryWord := 1.U }
       when(!io.dma.busy) {
         when(entry(0) === 0.U) {
-          when(!anyDraw) { wstate := wDone }
-            .otherwise { p2.io.start := true.B; wstate := wPass2 }
+          // No draw: done, unless nothing loads, a clear of every tile.
+          val clearAll = !io.mmio.tileLoad && !io.mmio.tileKeep
+          when(anyDraw) { p2.io.start := true.B; wstate := wPass2 }
+            .elsewhen(clearAll) { partClear := true.B; wstate := wClearAll }
+            .otherwise { wstate := wDone }
         }.otherwise {
           wstate := Mux(entry(0) === lastState, wPlayParams, wPlayState)
         }
@@ -292,6 +292,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         wstate := Mux(listMode, wPlayState, wResume)
       }
     }
+    is(wClearAll) {
+      when(!io.binner.busy) { p2.io.start := true.B; wstate := wPass2 }
+    }
     is(wResume) {
       replaying := false.B
       dw.io.resume := true.B
@@ -305,7 +308,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     is(wDone) {
       if (BorgDebug.trace) printf("[SEQ] done -> idle\n")
       io.done   := true.B
-      curBufIdx := curBufIdx ^ 1.U
       wstate    := wIdle
     }
   }
@@ -342,7 +344,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.record.attrFlush := p2.io.start
   io.topLeft := p2.io.topLeft
   p2.io.mmio := io.mmio
-  p2.io.curBufIdx := curBufIdx
   p2.io.listMode := listMode
   p2.io.triLimit := triLimit
   p2.io.playDone := player.io.done

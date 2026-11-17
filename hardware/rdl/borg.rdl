@@ -519,6 +519,7 @@ reg occ_count_reg_t {
 // writes: colour from the framebuffer (FLUSH_FORMAT decides the format),
 // depth from FLUSH_ZB_BASE, stencil from FLUSH_SB_BASE. Aspects not loaded
 // keep their clear value, so per-attachment load ops map bit for bit.
+// A render list without a draw and no TILE_LOAD bit clears every tile.
 reg tile_load_reg_t {
     name = "Tile Load";
     desc = "nogen: decoded from the raw bus by Borg.scala.";
