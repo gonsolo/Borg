@@ -91,6 +91,9 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
     tx.enq.valid      := link.io.out.valid
     tx.enq.bits       := Cat(link.io.outEnd, link.io.out.bits)
     link.io.out.ready := tx.enq.ready
+    link.io.written.valid     := borg.io.gpuMem.wr && borg.io.gpuMem.ready
+    link.io.written.bits.addr := borg.io.gpuMem.addr
+    link.io.written.bits.wlen := borg.io.gpuMem.wlen
 
     // The link's registers: one, Hutt's run bit.
     val c    = link.io.mmio
