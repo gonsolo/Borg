@@ -1,8 +1,9 @@
-.PHONY: all poster art clean
+.PHONY: all poster stand art clean
 
 all: poster
 
 poster: build/poster.pdf
+stand: build/stand.pdf
 
 # FOSDEM's logo, downloaded, never committed; without it the title has none.
 art:
