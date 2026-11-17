@@ -18,7 +18,7 @@ Results are labelled with the tier they were measured on; a number from one tier
 | Tier | Setup | Proves | Does not prove | Status |
 |---|---|---|---|---|
 | 1 | Host: `deqp-vk`, borgvk and the DRM shim on x86, Borg RTL in `direct_sim` (arcilator) | Vulkan driver and Borg hardware design, full CTS | The kernel driver, Hutt, the board's memory | **All results in this document** |
-| 2 | QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt (`info` only so far) | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator (`GEM_CREATE`, `GEM_MMAP`) is implemented since 2026-10-08 (`../B5_gpu_memory.md`). Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
+| 2 | **Removed 2026-11-17** (Linux on the Nexys Video replaces it). QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt (`info` only so far) | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator (`GEM_CREATE`, `GEM_MMAP`) is implemented since 2026-10-08 (`../B5_gpu_memory.md`). Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
 | 3 | ULX3S: Hutt, Linux, Rust DRM driver, borgvk, Borg | The whole stack on real hardware | Most CTS groups: `deqp-vk` is about 100 MB, the board has 13.7 MB free | `vkcube` renders (`../evidence/`); a short list of small test programs is planned, not a CTS run |
 
 Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and shim parity alongside the

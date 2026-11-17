@@ -10,9 +10,9 @@ a shared heap ([Device Memory](B13_device_memory.md)). The unmodified Khronos
 
 - **On the host.** borgvk drives `direct_sim`, a compiled model of the Borg RTL
   ([Simulation](06_simulation.md)); the Vulkan CTS runs the same way.
-- **With the DRM driver.** Linux with the Borg DRM driver in User Mode Linux or
-  QEMU, the simulated GPU behind it, and on the boards: the ULX3S and the
-  NiteFury II behind PCIe (planned; [Test and demo modes](B14_test_modes.md)).
+- **With the DRM driver.** Linux with the Borg DRM driver on Hutt on the Nexys
+  Video, in User Mode Linux with the simulated GPU behind it, and on the NiteFury II
+  behind PCIe (both planned; [Test and demo modes](B14_test_modes.md)).
 
 ## Memory-Mapped Hardware
 

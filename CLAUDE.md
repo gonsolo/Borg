@@ -101,7 +101,7 @@ The **wafer.space tapeout clock is 8 MHz**, set only by `CLOCK_PERIOD: 125` in `
 
 ### Host Vulkan driver — `borgvk` (work in progress)
 
-A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodified** Khronos `Vulkan-Tools/cube.c` (never patch or copy it) through the general draw path. Demo modes: (1) on the host with the simulated GPU (`scripts/vkcube_host.sh`, done); (2) QEMU + RISC-V Linux + the Borg DRM driver; (3) the ULX3S, with Linux on its CPU if it fits, else Linux in QEMU on the host driving the FPGA. Two git submodules at the repo root, same pattern as `PeakRDL-chisel`:
+A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodified** Khronos `Vulkan-Tools/cube.c` (never patch or copy it) through the general draw path. Demo modes: (1) on the host with the simulated GPU (`scripts/vkcube_host.sh`, done); (2) Linux on Hutt on the Nexys Video with the Borg DRM driver; (3) the host driving the Nexys Video's Borg over USB (`BORG_HW_RAW`). Two git submodules at the repo root, same pattern as `PeakRDL-chisel`:
 
 - `Vulkan-Tools/` — upstream KhronosGroup, pinned; source of `cube/cube.c` (kept unmodified).
 - `mesa/` — the `gonsolo/mesa` fork, branch `borg`; the driver lives in-tree under `src/borg/vulkan/` (added post-restart once the toolchain is in `flake.nix`).

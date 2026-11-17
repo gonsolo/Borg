@@ -50,7 +50,7 @@ straight from the register BRAM, not the FMA (`fmaStages=4` changes nothing).
 
 The paragraphs below record the bring-up up to 2026-11-04. Its firmware, replays, `software/vkcube`
 (and its `headless.patch` of `cube.c`) and the serial demo were removed then: `cube.c` stays
-unmodified, and the board modes come back as Linux on the board or in QEMU with the DRM driver
+unmodified, and the board modes come back as Linux on the board with the DRM driver
 driving the FPGA, through the general draw path ([The Software Driver](03_software_driver.md)).
 
 Host-free frame: `make -C software/borg replay` links the captured borgvk burst into the
@@ -76,8 +76,8 @@ writes, register read, GPU-memory write and read; the kernel only bounds- and al
 `replay_drm` runs `borg_core.c` (the host build) with its register and memory hooks turned into
 these ioctls, so the frame no longer touches `/dev/mem`. On the board the frame equals the golden
 (0 of 16,384 pixels differ) and `Memory:` reports 17,260K of 32,768K available (14.5 MB reserved,
-5 MB of it the GPU region). The driver is developed on QEMU (`software/linux/tests/qemu-borg.sh`,
-a fake Borg made of reserved RAM) and then run on the board.
+5 MB of it the GPU region). The driver was developed on QEMU (a fake Borg made of reserved RAM; removed 2026-11-17) and then
+run on the board.
 
 Two things only the board showed: Hutt has no compressed instructions and LLVM 21 keeps `zca` in
 the Rust target even with `-c`, so the Rust build passes `-Ctarget-feature=-zca`; and user copies

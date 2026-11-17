@@ -10,11 +10,8 @@ of 2026-11-05.
 | 2 | host Mesa, no kernel driver | `direct_sim_v` (Verilator) | pipe | works: slower, the one with `BORG_TRACE` printfs |
 | 3 | User Mode Linux: Mesa, DRM driver | `direct_sim` | register region forwarded (`logic_iomem`) | planned |
 | 4 | User Mode Linux: Mesa, DRM driver | `direct_sim_v` | as 3 | planned, free with 3 |
-| 5 | RISC-V Linux in QEMU: Mesa, DRM driver | `direct_sim --bridge` | QEMU device model | planned (demo mode 2) |
-| 6 | RISC-V Linux in QEMU: Mesa, DRM driver | `direct_sim_v --bridge` | as 5 | planned, free with 5 |
 | 7 | Linux on Hutt: Mesa, DRM driver | ULX3S | on chip | worked 2026-10-06; RV64 with Sv39 no longer fits next to the FP32 Borg on the ECP5-85K |
 | 8 | host Mesa | ULX3S, Borg only | USB UART | needs a link (the serial path went 2026-11-04) |
-| 9 | RISC-V Linux in QEMU: Mesa, DRM driver | ULX3S, Borg only | USB UART | needs a link |
 | 10 | host Mesa | NiteFury II, Borg only | PCIe | planned |
 | 11 | host Linux: DRM driver as a PCIe driver, host Mesa | NiteFury II, Borg only | PCIe | planned |
 | 12 | Linux on Hutt: Mesa, DRM driver | NiteFury II | on chip | planned; no display, frames read back over PCIe |
@@ -27,9 +24,10 @@ on the other.
 forwarded to the simulator: the fast tier for the kernel driver. Open: whether the Rust driver
 builds for UML in our kernel version.
 
-**QEMU (5, 6)** is demo mode 2: the unmodified cube.c on riscv64 Mesa with `--wsi display`.
+QEMU (Linux on QEMU's RISC-V CPU, the simulator behind a device model) was removed 2026-11-17:
+Linux on Hutt on the Nexys Video runs the same stack on real hardware.
 
-**ULX3S (7 to 9)** is demo mode 3. Mode 7 comes back when the SoC fits again. Modes 8 and 9 need
+**ULX3S (7, 8)** is demo mode 3. Mode 7 comes back when the SoC fits again. Mode 8 needs
 a host-to-board link speaking the simulator's protocol; the USB UART runs at a few Mbit/s, enough
 for correctness, slow for the CTS.
 
@@ -39,8 +37,7 @@ kernel on real hardware behind a real bus, and comes first. The 200T (about 134k
 may fit RV64 with Sv39 next to Borg again, for mode 12. Needed: a DDR3 memory backend
 (LiteDRAM or MIG), a PCIe bridge to Borg's registers and memory, a PCIe probe in the DRM driver
 (11) or a VFIO mapping (10), and a toolchain for the PCIe block (openXC7's support to be checked,
-else Vivado). The Nexys Video port (same FPGA) is a starting point. A QEMU-over-PCIe mode, as 9,
-would need a host bridge process; 11 covers it.
+else Vivado). The Nexys Video port (same FPGA) is a starting point.
 
 Below Mesa: Chisel unit tests, cocotb SoC tests, the `MinimalSocSimTop` Linux boot harness
 ([Simulation](06_simulation.md)), and the wafer.space link tests on RTL, the synthesis netlist

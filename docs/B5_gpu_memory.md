@@ -5,7 +5,7 @@ Status: design note, written 2026-10-07. **Step 1 is implemented (2026-10-08):**
 page rounded, 1 GiB cap, no heap limit), not by the carve-out allocator below. The GPU still does not address
 these buffers; borgvk's sink copies into the carve-out at submit as before. The shim and Mesa's header use the
 same numbers (0x00-0x04 are the kernel's other ioctls; the shim-only ioctls start at 0x07, which the kernel
-answers with ENOTTY). QEMU tests: `software/linux/tests/borg_drm_test.c`. The carve-out allocator,
+answers with ENOTTY). Tests: `software/linux/tests/borg_drm_test.c`. The carve-out allocator,
 the advertised heap size and shim parity (below) are still open. Before this, borgvk's GEM numbers collided
 with the driver's INFO and REG_WRITES ioctls. It is a reading of
 `mesa/src/borg/vulkan/borgvk_memory.c`, `mesa/src/borg/drm/borg_shim.c`,
@@ -81,13 +81,13 @@ can compute the real heap size (`mem_size - mem_free_base`) instead of assuming 
 
 ## Test plan, cheapest first
 
-1. **QEMU, seconds.** Extend `software/linux/tests/borg_drm_test.c` (fake Borg in reserved RAM):
+1. **On the board, minutes.** Extend `software/linux/tests/borg_drm_test.c`:
    create and close, double close, size 0, exhaustion then recovery, fragmentation and
    coalescing, mmap read and write through the mapping, and the same through `MEM_READ`.
 2. **Allocation stress on the render node.** A static rv64 program that repeats what
    `allocation.basic` and `allocation.random` do (block sizes 64 B to 1 MiB, 1 to 1,000 blocks,
    forward, reverse and mixed free orders, seeded random allocate and free) directly on the ioctls.
-   Runs on QEMU and on the board.
+   Runs on the board.
 3. **Shim parity.** The host CTS with the shim limited to the board's heap size: the `memory.*`
    groups then see real out-of-memory results.
 4. **CTS against the real driver (stretch, not planned).** `deqp-vk` is about 100 MB and needs C++,
