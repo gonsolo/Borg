@@ -235,7 +235,7 @@ sout.v2  rs2 index      31..25=0 14..12=0 6..2=0x16 1..0=3
 \begin{frame}{Lessons for a new implementation}
   \begin{itemize}
     \item Bring up the \texttt{api} group first, and compute early.
-    \item Make the simulator fast before chasing failures.
+    \item Get onto an FPGA early; check it byte for byte against the simulator.
     \item Refuse what the compiler cannot do.
     \item Keep one source of truth for the ISA.
     \item Distrust a pass that comes too fast.
