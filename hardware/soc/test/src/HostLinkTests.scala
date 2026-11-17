@@ -40,7 +40,49 @@ object HostLinkTests extends TestSuite {
     dut.clock.step(2)
   }
 
+  /** Bytes into the link, a memory serving its writes meanwhile; then cycles until it is idle. */
+  def run(dut: HostLink, bytes: Seq[Int], mem: scala.collection.mutable.Map[Long, Int]): Unit = {
+    def serve(): Unit =
+      if (dut.io.mem.wr.peek().litToBoolean) {
+        val base = dut.io.mem.addr.peek().litValue.toLong
+        mem(base) = dut.io.mem.wdata.peek().litValue.toInt
+        for (i <- 1 until dut.io.mem.wlen.peek().litValue.toInt) {
+          dut.io.mem.waccept.poke(true.B); dut.clock.step()
+          mem(base + 2 * i) = dut.io.mem.wdata.peek().litValue.toInt
+        }
+        dut.io.mem.waccept.poke(false.B); dut.io.mem.ready.poke(true.B); dut.clock.step()
+        dut.io.mem.ready.poke(false.B)
+      } else dut.clock.step()
+    for (b <- bytes) {
+      dut.io.in.valid.poke(true.B); dut.io.in.bits.poke(b.U)
+      while (!dut.io.in.ready.peek().litToBoolean) serve()
+      dut.clock.step()
+    }
+    dut.io.in.valid.poke(false.B)
+    for (_ <- 0 until 200) serve()
+  }
+
+  def le(v: Long): Seq[Int] = (0 until 4).map(i => ((v >> (8 * i)) & 0xFF).toInt)
+
   val tests = Tests {
+    test("fill_writes_its_value_in_every_word") {
+      simulate(new HostLink) { dut =>
+        dut.io.mmio.req.ready.poke(false.B)
+        dut.io.mmio.resp.valid.poke(false.B)
+        dut.io.mem.ready.poke(false.B)
+        dut.io.mem.waccept.poke(false.B)
+        dut.io.written.valid.poke(false.B)
+        dut.io.in.valid.poke(false.B)
+        dut.reset.poke(true.B); dut.clock.step(); dut.reset.poke(false.B)
+        val mem = scala.collection.mutable.Map[Long, Int]()
+        // 96 bytes from 0x1060: across the 128-byte boundary at 0x1080, so two bursts.
+        run(dut, 'F'.toInt +: (le(0x1060) ++ le(96) ++ le(0x12345678L)), mem)
+        run(dut, 'F'.toInt +: (le(0x2000) ++ le(0) ++ le(0x9ABCDEF0L)), mem)
+        val want = (0x1060L until 0x10C0L by 2).map(a => a -> (if (a % 4 == 0) 0x5678 else 0x1234)).toMap
+        assert(mem.toMap == want)
+        println(s"  'F' wrote ${mem.size} halfwords, all of them its value, nothing else")
+      }
+    }
     test("dirty_pages_are_reported_once") {
       simulate(new HostLink) { dut =>
         dut.io.mmio.req.ready.poke(false.B)

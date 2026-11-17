@@ -15,6 +15,7 @@ import hutt.HuttBus
   * {{{
   *   'W' n (off val)*n   register writes      'R' off -> val
   *   'M' off len data    memory write         'm' off len -> data
+  *   'F' off len val     memory fill: `val` in every word
   *   'P' off mask val    -> val once (reg & mask) == val, or after 200M cycles
   *   'S' -> 1            'D' -> 2048 words: the 4 KB pages of the 256 MB window Borg wrote since the
   *                                  last 'D', a bit each (page p: word p / 32, bit p % 32), cleared
@@ -37,7 +38,8 @@ class HostLinkIO extends Bundle {
 class HostLink extends Module {
   val io = IO(new HostLinkIO)
 
-  val sCmd :: sArgs :: sExec :: sMmio :: sMmioResp :: sSend :: sData :: sBurstGo :: sBurst :: sRead :: sDirty :: sDirtyGot :: Nil = Enum(12)
+  val (sCmd :: sArgs :: sExec :: sMmio :: sMmioResp :: sSend :: sData :: sBurstGo :: sBurst :: sRead :: sDirty :: sDirtyGot ::
+      sFillGo :: sFill :: Nil) = Enum(14)
   val state = RegInit(sCmd)
   val cmd   = Reg(UInt(8.W))
   val args  = Reg(Vec(3, UInt(32.W)))
@@ -54,6 +56,7 @@ class HostLink extends Module {
   val timer = Reg(UInt(28.W))
   val wlen  = Reg(UInt(7.W))
   val half  = RegInit(false.B)
+  val fbytes = Reg(UInt(8.W))
 
   val q = Module(new Queue(UInt(32.W), 32))
 
@@ -119,9 +122,10 @@ class HostLink extends Module {
 
   io.mem.addr  := Mux(state === sRead, addr, base)
   io.mem.req   := state === sRead
-  io.mem.wr    := state === sBurst
+  io.mem.wr    := state === sBurst || state === sFill
   io.mem.wlen  := wlen
-  io.mem.wdata := Mux(half, q.io.deq.bits(31, 16), q.io.deq.bits(15, 0))
+  val wword = Mux(state === sFill, args(2), q.io.deq.bits)
+  io.mem.wdata := Mux(half, wword(31, 16), wword(15, 0))
   q.io.enq.valid := state === sData && io.in.valid && nbyte === 3.U
   q.io.enq.bits  := full
   q.io.deq.ready := state === sBurst && ((io.mem.waccept && half) || io.mem.ready)
@@ -132,9 +136,9 @@ class HostLink extends Module {
         cmd := io.in.bits
         arg := 0.U
         nargs := MuxLookup(io.in.bits, 0.U)(Seq('W'.toInt.U -> 1.U, 'R'.toInt.U -> 1.U, 'M'.toInt.U -> 2.U,
-          'm'.toInt.U -> 2.U, 'P'.toInt.U -> 3.U))
+          'm'.toInt.U -> 2.U, 'P'.toInt.U -> 3.U, 'F'.toInt.U -> 3.U))
         state := MuxLookup(io.in.bits, sCmd)(Seq('W'.toInt.U -> sArgs, 'R'.toInt.U -> sArgs, 'M'.toInt.U -> sArgs,
-          'm'.toInt.U -> sArgs, 'P'.toInt.U -> sArgs, 'S'.toInt.U -> sExec, 'D'.toInt.U -> sExec))
+          'm'.toInt.U -> sArgs, 'P'.toInt.U -> sArgs, 'F'.toInt.U -> sArgs, 'S'.toInt.U -> sExec, 'D'.toInt.U -> sExec))
         ridx := 0.U
       }
     }
@@ -162,6 +166,9 @@ class HostLink extends Module {
       }.elsewhen(cmdIs('M')) {
         addr := args(0); base := args(0); count := args(1)
         state := Mux(args(1) === 0.U, sCmd, sData)
+      }.elsewhen(cmdIs('F')) {
+        addr := args(0); count := args(1)
+        state := Mux(args(1) === 0.U, sCmd, sFillGo)
       }.elsewhen(cmdIs('m')) {
         addr := args(0); count := args(1)
         state := Mux(args(1) === 0.U, sCmd, sRead)
@@ -219,6 +226,24 @@ class HostLink extends Module {
         half := false.B
         base := addr
         state := Mux(count === 0.U, sCmd, sData)
+      }
+    }
+    // Bursts of `val` up to each 128-byte boundary, as 'M' writes them.
+    is(sFillGo) {
+      val toEdge = 128.U(8.W) - addr(6, 0)
+      val n = Mux(count < toEdge, count(7, 0), toEdge)
+      fbytes := n
+      wlen := n >> 1
+      base := addr
+      state := sFill
+    }
+    is(sFill) {
+      when(io.mem.waccept) { half := !half }
+      when(io.mem.ready) {
+        half := false.B
+        addr := addr + fbytes
+        count := count - fbytes
+        state := Mux(count === fbytes, sCmd, sFillGo)
       }
     }
     // Once the marks are in: each word out, then cleared.
