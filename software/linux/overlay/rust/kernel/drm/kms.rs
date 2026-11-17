@@ -27,6 +27,8 @@ pub struct Framebuffer {
     pub height: u32,
     /// The DRM fourcc of its pixels.
     pub format: u32,
+    /// Its layout: a DRM format modifier.
+    pub modifier: u64,
 }
 
 /// What a driver does when the display's picture changes.
@@ -98,8 +100,9 @@ impl<D: drm::Driver, T: DisplayOps<D>> SimpleDisplay<D, T> {
         })
     }
 
-    /// Sets up KMS on `dev` with this display showing `formats`; before `dev` is registered.
-    pub fn init<C: DeviceContext>(&self, dev: &Device<D, C>, formats: &'static [u32]) -> Result {
+    /// Sets up KMS on `dev` with this display showing `formats` in the layouts `modifiers` (ending
+    /// in `DRM_FORMAT_MOD_INVALID`); before `dev` is registered.
+    pub fn init<C: DeviceContext>(&self, dev: &Device<D, C>, formats: &'static [u32], modifiers: &'static [u64]) -> Result {
         let raw = dev.as_raw();
         // SAFETY: `raw` is a valid device that is not registered yet; the pipe and connector live
         // as long as the device's data, which holds `self`.
@@ -127,7 +130,7 @@ impl<D: drm::Driver, T: DisplayOps<D>> SimpleDisplay<D, T> {
                 &Self::PIPE_FUNCS,
                 formats.as_ptr(),
                 formats.len() as u32,
-                ptr::null(),
+                modifiers.as_ptr(),
                 conn,
             ))?;
             bindings::drm_mode_config_reset(raw);
@@ -172,6 +175,7 @@ impl<D: drm::Driver, T: DisplayOps<D>> SimpleDisplay<D, T> {
                 width: (*fb).width,
                 height: (*fb).height,
                 format: (*(*fb).format).format,
+                modifier: (*fb).modifier,
             };
             T::update(dev, Some(&fb_info));
         }
