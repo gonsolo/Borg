@@ -108,6 +108,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val eClipW = Reg(Vec(ctxs, Vec(3, UInt(32.W))))
   private val eScreen = Reg(Vec(ctxs, Vec(6, UInt(32.W))))
   private val eDet   = Reg(Vec(ctxs, UInt(32.W)))
+  private val eClipped = Reg(Vec(ctxs, Bool()))   // setup_clipped: the box bounds a triangle with W <= 0
   private val head   = RegInit(0.U(1.W))           // the context the back finishes next: triangle order
   private val bTri   = eTri(head)
   private val isBack = RegInit(false.B)
@@ -396,9 +397,10 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val back = !det(31) ^ io.mmio.frontFaceInvert
         isBack := back
         val culled = degenerate || Mux(back, io.mmio.cullMode(1), io.mmio.cullMode(0))
-        // A corner at or behind the eye has no screen position: bin the whole grid.
+        // A corner at or behind the eye has no screen position: the setup ROM's near-clipped box,
+        // or the whole grid when that is unbounded.
         def front(w: UInt) = !w(31) && w(30, 0) =/= 0.U
-        val allFront = eClipW(head).map(front).reduce(_ && _)
+        val boxed = eClipW(head).map(front).reduce(_ && _) || eClipped(head)
         def minOf(a: UInt, b: UInt) = Mux(ordered(a) <= ordered(b), a, b)
         def maxOf(a: UInt, b: UInt) = Mux(ordered(a) >= ordered(b), a, b)
         val xs = Seq(screen(0), screen(2), screen(4)); val ys = Seq(screen(1), screen(3), screen(5))
@@ -409,17 +411,17 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val ox = Cat(io.mmio.fbOriginX, 0.U(2.W)); val oy = Cat(io.mmio.fbOriginY, 0.U(2.W))
         val wx = Cat(io.mmio.fbWidthTiles, 0.U(2.W)); val wy = Cat(io.mmio.fbHeightTiles, 0.U(2.W))
         // One pixel of slack on the far side for the ~22-bit reciprocal corners.
-        val outside = allFront && (hiX +& 1.U < ox || hiY +& 1.U < oy || loX >= ox +& wx || loY >= oy +& wy)
+        val outside = boxed && (hiX +& 1.U < ox || hiY +& 1.U < oy || loX >= ox +& wx || loY >= oy +& wy)
         def local(v: UInt, o: UInt, w: UInt) = Mux(v < o, 0.U, Mux(v - o >= w, w - 1.U, v - o))
         val full = ((1 << cfg.coordWidth) - 1).U
         val lx = local(loX, ox, wx); val ly = local(loY, oy, wy)
         val hx = local(hiX +& 1.U, ox, wx); val hy = local(hiY +& 1.U, oy, wy)
-        bboxMinX := Mux(allFront, Cat(lx(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
-        bboxMinY := Mux(allFront, Cat(ly(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
-        bboxMaxX := Mux(allFront, hx(cfg.coordWidth - 1, 0), full)
-        bboxMaxY := Mux(allFront, hy(cfg.coordWidth - 1, 0), full)
+        bboxMinX := Mux(boxed, Cat(lx(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
+        bboxMinY := Mux(boxed, Cat(ly(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
+        bboxMaxX := Mux(boxed, hx(cfg.coordWidth - 1, 0), full)
+        bboxMaxY := Mux(boxed, hy(cfg.coordWidth - 1, 0), full)
         def unit(v: UInt) = { val u = v >> 4; Mux(u > 255.U, 255.U, u(7, 0)) }
-        bCacheWord := Mux(culled, "h00ff00ff".U, Mux(allFront,
+        bCacheWord := Mux(culled, "h00ff00ff".U, Mux(boxed,
           Cat(unit(hiY +& 1.U), unit(loY), unit(hiX +& 1.U), unit(loX)), "hff00ff00".U))
         bSkip := culled || outside
         when(io.mmio.bboxMode(0)) { bState := bCache }
@@ -491,6 +493,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   for (c <- 0 until ctxs) when(eValid(c) && !eDone(c) && io.csrSlot === c.U && io.csrWrite(0).en) {
     for (r <- 0 until 6) when(io.csrWrite(0).addr === (Csr.SetupScreen0 + r).U) { eScreen(c)(r) := io.csrWrite(0).data(31, 0) }
     when(io.csrWrite(0).addr === Csr.SetupDet.U) { eDet(c) := io.csrWrite(0).data(31, 0) }
+    when(io.csrWrite(0).addr === Csr.SetupClipped.U) { eClipped(c) := io.csrWrite(0).data(0) }
   }
 }
 

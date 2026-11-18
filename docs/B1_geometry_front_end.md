@@ -149,11 +149,17 @@ orientation of the visible part even when some `w < 0`; with
 counter-clockwise (`det M < 0`).
 
 The ROM reads its inputs as the CSRs `uniform0..24`, writes the record with
-`SOUT` (stride 1), and hands the walker the corners' screen positions and
-`det M` through the CSRs `setup_screen0..5` and `setup_det`. The walker culls a triangle when
-`det M` is zero, when its facing is culled, or when every `W <= 0`, and bins
-the whole grid when some `W <= 0`. Otherwise the bounding box comes from the
-screen positions, with a pixel of slack for the reciprocal's rounding.
+`SOUT` (stride 1), and hands the walker a bounding box (minimum, maximum,
+maximum), `det M` and whether the box holds for a corner behind the eye through
+the CSRs `setup_screen0..5`, `setup_det` and `setup_clipped`. The box is the
+near plane's clip, without clipping the triangle: the corners with `Z >= 0` and
+the edges' crossings of `Z = 0` (a pixel wider for their reciprocals). A
+triangle crossing the eye plane gets the box of what it can draw instead of the
+whole grid; a candidate point with `W <= 0` leaves the box unbounded
+(`setup_clipped` 0), and then the walker bins the whole grid when some `W <= 0`.
+The walker culls a triangle when `det M` is zero or its facing is culled, and
+skips one whose box misses the render window, with a pixel of slack for the
+reciprocals' rounding.
 
 The ROM has three exits and a second entry. A box-only run (mode 3 below)
 stops once `setup_det` and the screen positions are written (`boxPc`); a
@@ -319,7 +325,7 @@ With the registers at reset the window is the whole, square framebuffer.
 triangle, even the ones it then culls as outside. `SEQ_TILE_ROWS` bits 13:12
 keep a word per triangle below `SEQ_SETUP_BASE` (triangle t at
 `SEQ_SETUP_BASE - 4 - 4t`): its framebuffer box, x low, x high, y low, y high
-in 16-pixel bytes, empty when culled and full with a corner behind the eye.
+in 16-pixel bytes, empty when culled and full when the setup box is unbounded.
 Mode 1 writes it, mode 2 skips the vertex shader and setup of each triangle
 whose box misses the window. Draws with primitive restart do not skip.
 Mode 3 writes it for the triangles t = k (mod n) only, k and n in bits 20:16
