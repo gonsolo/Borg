@@ -4,6 +4,7 @@
 package borg
 
 import chisel3._
+import chisel3.util._
 
 /** The GPU's memory port, master side: hold [[req]] until [[ready]] pulses with the read [[data]]
   * or the write's completion. A write word is one halfword, wdata(15, 0): every memory behind the
@@ -27,4 +28,19 @@ object GpuMemIO {
     * maxStorageBufferRange (2^27) and a 4096^2 RGBA32F image need more than 25 bits.
     */
   val AddrBits = 32
+
+  /** Shares `port` between `users`, the first first; a request keeps it until it is answered. */
+  def arbitrate(users: Seq[GpuMemIO], port: GpuMemIO): Unit = {
+    val want  = VecInit(users.map(m => m.req || m.wr)).asUInt
+    val owner = RegInit(0.U(users.length.W))
+    val grant = Mux((owner & want).orR, owner, PriorityEncoderOH(want))
+    owner := Mux(port.ready, 0.U, grant)
+    users.zip(grant.asBools).foreach { case (m, g) => m.data := port.data; m.ready := port.ready && g; m.waccept := port.waccept && g }
+    def pick[T <: Data](f: GpuMemIO => T): T = Mux1H(grant, users.map(f))
+    port.req   := pick(_.req)
+    port.addr  := pick(_.addr)
+    port.wr    := pick(_.wr)
+    port.wdata := pick(_.wdata)
+    port.wlen  := pick(_.wlen)
+  }
 }

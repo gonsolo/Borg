@@ -366,18 +366,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // The memory port: the sampler, the instruction cache, the memory unit, in that order; a request
   // keeps the port until it is answered.
   locally {
-    val users = Seq(texUnit.io.mem, fetch.io.mem, memUnit.io.mem)
-    val want  = VecInit(users.map(m => m.req || m.wr)).asUInt
-    val owner = RegInit(0.U(users.length.W))
-    val grant = Mux((owner & want).orR, owner, PriorityEncoderOH(want))
-    owner := Mux(io.gpuMem.ready, 0.U, grant)
-    users.zip(grant.asBools).foreach { case (m, g) => m.data := io.gpuMem.data; m.ready := io.gpuMem.ready && g; m.waccept := io.gpuMem.waccept && g }
-    def pick[T <: Data](f: GpuMemIO => T): T = Mux1H(grant, users.map(f))
-    io.gpuMem.req   := pick(_.req)
-    io.gpuMem.addr  := pick(_.addr)
-    io.gpuMem.wr    := pick(_.wr)
-    io.gpuMem.wdata := pick(_.wdata)
-    io.gpuMem.wlen  := pick(_.wlen)
+    GpuMemIO.arbitrate(Seq(texUnit.io.mem, fetch.io.mem, memUnit.io.mem), io.gpuMem)
     io.memBusy := texUnit.io.busy || fetch.io.filling || memUnit.io.busy
   }
 
