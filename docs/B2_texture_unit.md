@@ -129,7 +129,8 @@ layer, which is all Vulkan requires of linear images.
    do.
 3. **Taps**: 1, or 2/4/8 (1D/2D/3D) per level when filtering. Each is
    fetched (1-4 words), decoded to FP32, compared if asked, and added to the
-   result with its weight on one FP32 FMA. Single taps and integer formats
+   result with its weight on one FP32 FMA, its four channels issued on
+   consecutive cycles into the FMA's pipeline. Single taps and integer formats
    bypass the FMA and are exact.
 4. **Cube maps** filter seamlessly: a tap off a face reads the neighbouring
    face across the edge (the remap is derived from the face definitions at

@@ -286,6 +286,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val raw = Reg(Vec(4, UInt(32.W)))
   private val vals = Reg(Vec(4, UInt(32.W)))
   private val acc = Reg(Vec(4, UInt(32.W)))
+  private val accIssue = WireDefault(false.B); private val accIdx = WireDefault(0.U(2.W))
+  when(ShiftRegister(accIssue, fmaLatency)) { acc(ShiftRegister(accIdx, fmaLatency)) := fma.io.out }
 
   io.busy := state =/= sIdle
   io.done := false.B
@@ -713,7 +715,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         // A gathered corner texel is the average of the three, as filtered.
         fmaA := "h3EAAAAAB".U; fmaB := gathered                         // 1/3
         fmaC := Mux(subTap === 0.U, 0.U, acc(tap(1, 0)))
-        k := tap(1, 0); fmaWait := fmaLatency.U
+        accIssue := true.B; accIdx := tap(1, 0); fmaWait := (fmaLatency - 1).U
         state := sAccWait
       }.elsewhen(isGather) {
         // An integer corner keeps its own face's texel, one of the three:
@@ -724,17 +726,14 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         acc := vals
         state := sTapNext
       }.otherwise {
+        // One channel per cycle into the FMA pipeline; each result lands fmaLatency cycles later.
         fmaA := tWeight; fmaB := vals(k(1, 0)); fmaC := acc(k(1, 0))
-        fmaWait := fmaLatency.U
-        state := sAccWait
+        accIssue := true.B; accIdx := k(1, 0)
+        when(k === 3.U) { k := 0.U; fmaWait := (fmaLatency - 1).U; state := sAccWait }.otherwise { k := k + 1.U }
       }
     }
     is(sAccWait) {
-      when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }
-        .otherwise {
-          acc(k(1, 0)) := fma.io.out
-          when(k === 3.U || isGather) { state := sTapNext }.otherwise { k := k + 1.U; state := sAcc }
-        }
+      when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }.otherwise { state := sTapNext }
     }
     is(sTapNext) {
       val nTaps = Mux(isGather, 4.U, Mux(linear && !isFetch, 1.U << dims, 1.U))
