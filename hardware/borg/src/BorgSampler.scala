@@ -177,12 +177,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   /** Signed ordered compare key for floats. */
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
-  private val states = Enum(27)                            // (three patterns: tuples stop at 22)
+  private val states = Enum(26)                            // (three patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLane :: sLaneSetup ::
                sLevel :: sLevelDims :: sLayer :: sLodLam :: sAxisMul :: Nil) = states.take(11)
   private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
-               sAccWait :: sTapNext :: sResp :: Nil) = states.slice(11, 23)
-  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(23)
+               sTapNext :: sResp :: Nil) = states.slice(11, 22)
+  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(22)
   private val state = RegInit(sIdle)
   private val mulRet = Reg(chiselTypeOf(sIdle))
   locally {
@@ -190,7 +190,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     val phases = Seq(Seq(sTexDesc, sSampDesc), Seq(sLod),
       Seq(sLane, sLodLam, sLaneSetup, sLevelDims, sLayer, sLayerOff, sAxisMul, sAxisFix, sWrap, sMul),
       Seq(sLevel), Seq(sTap, sTapLayer, sTapMul, sTapSlice, sTapAddr), Seq(sFetch),
-      Seq(sDecode, sCompare, sAcc, sAccWait, sTapNext), Seq(sResp))
+      Seq(sDecode, sCompare, sAcc, sTapNext), Seq(sResp))
     val phase = Mux(tapMul, 5.U, PriorityMux(phases.zipWithIndex.map { case (ss, i) =>
       ss.map(state === _).reduce(_ || _) -> (i + 1).U(4.W) } :+ (true.B -> 0.U(4.W))))
     io.prof := Cat(state === sIdle && io.req.valid, phase)
@@ -252,7 +252,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmaA = RegInit(0.U(32.W)); private val fmaB = RegInit(0.U(32.W)); private val fmaC = RegInit(0.U(32.W))
   fma.io.a := fmaA; fma.io.b := fmaB; fma.io.c := fmaC
   fma.io.negate := false.B; fma.io.pipeEn1 := true.B; fma.io.pipeEn2 := true.B
-  private val fmaWait = RegInit(0.U(3.W))
   private val fmaLatency = 4
 
   // The one multiplier, registered on both sides: issue with `mul`, read `product` on return.
@@ -304,10 +303,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val acc = Reg(Vec(4, UInt(32.W)))
   private val accIssue = WireDefault(false.B); private val accIdx = WireDefault(0.U(2.W))
   when(ShiftRegister(accIssue, fmaLatency)) { acc(ShiftRegister(accIdx, fmaLatency)) := fma.io.out }
+  // Taps overlap the sums still in the pipeline; only the answer waits for them.
+  private val accBusy = (1 to fmaLatency).map(ShiftRegister(accIssue, _)).reduce(_ || _)
 
   io.busy := state =/= sIdle
   io.done := false.B
-  io.resp.valid := state === sResp
+  io.resp.valid := state === sResp && !accBusy
   io.resp.bits.lane := lane
   // The image view's component swizzle (VkComponentMapping), on the result
   // (gather applied it to its component instead).
@@ -692,9 +693,13 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       // The border replaces only the channels the format has.
       val hold = fmt.kind === TexFormat.SRGB.U && !isAlpha && !tBorder && w =/= 0.U && !srgbWait
       srgbWait := hold
+      // A filtered tap's channel goes from the decoder straight into the FMA.
+      val filt = !doCmp && !isGather && !isInt && !((!linear || isFetch) && nLev === 1.U)
       when(!hold) {
-        vals(k(1, 0)) := Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
-        when(k === 3.U) { k := 0.U; state := Mux(doCmp, sCompare, sAcc) }.otherwise { k := k + 1.U }
+        val c = Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
+        vals(k(1, 0)) := c
+        when(filt) { fmaA := tWeight; fmaB := c; fmaC := acc(k(1, 0)); accIssue := true.B; accIdx := k(1, 0) }
+        when(k === 3.U) { k := 0.U; state := Mux(filt, sTapNext, Mux(doCmp, sCompare, sAcc)) }.otherwise { k := k + 1.U }
       }
     }
     is(sCompare) {
@@ -719,8 +724,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         // A gathered corner texel is the average of the three, as filtered.
         fmaA := "h3EAAAAAB".U; fmaB := gathered                         // 1/3
         fmaC := Mux(subTap === 0.U, 0.U, acc(tap(1, 0)))
-        accIssue := true.B; accIdx := tap(1, 0); fmaWait := (fmaLatency - 1).U
-        state := sAccWait
+        accIssue := true.B; accIdx := tap(1, 0)
+        state := sTapNext
       }.elsewhen(isGather) {
         // An integer corner keeps its own face's texel, one of the three:
         // the spec's "may", which only requires equal texels to stay equal.
@@ -730,14 +735,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         acc := vals
         state := sTapNext
       }.otherwise {
-        // One channel per cycle into the FMA pipeline; each result lands fmaLatency cycles later.
+        // A compared tap: one channel per cycle into the FMA pipeline.
         fmaA := tWeight; fmaB := vals(k(1, 0)); fmaC := acc(k(1, 0))
         accIssue := true.B; accIdx := k(1, 0)
-        when(k === 3.U) { k := 0.U; fmaWait := (fmaLatency - 1).U; state := sAccWait }.otherwise { k := k + 1.U }
+        when(k === 3.U) { k := 0.U; state := sTapNext }.otherwise { k := k + 1.U }
       }
-    }
-    is(sAccWait) {
-      when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }.otherwise { state := sTapNext }
     }
     is(sTapNext) {
       val nTaps = Mux(isGather, 4.U, Mux(linear && !isFetch, 1.U << dims, 1.U))
@@ -754,11 +756,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
 
     is(sResp) {
-      if (BorgDebug.trace) when(io.respReady) {
+      if (BorgDebug.trace) when(io.respReady && io.resp.valid) {
         printf("[TEX] lane %d u=0x%x v=0x%x lod=0x%x levels=%d lvl=%d taps i0=(%d,%d) addr=0x%x -> %x %x %x %x\n", lane,
           args(lane).u, args(lane).v, args(lane).lod, levels, lvl(0), i0(0), i0(1), addr, acc(0), acc(1), acc(2), acc(3))
       }
-      when(io.respReady) {
+      when(io.respReady && io.resp.valid) {
         when(lane === (N - 1).U) { io.done := true.B; state := sIdle }
           .otherwise { lane := lane + 1.U; state := sLane }
       }
