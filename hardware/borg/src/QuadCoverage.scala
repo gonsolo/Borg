@@ -42,29 +42,40 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeftOf: UInt => Vec[Bool]
     (raw, VecInit(raw.map(t => VecInit(t.map(ordered)))))
   }.unzip
 
+  /** Slot q's per-sample tests at MSAA. */
+  private def sampleTests(q: UInt): Vec[Vec[Bool]] = {
+    val (threshRaw, thresh) = thresholds(q)
+    val topLeft = topLeftOf(q)
+    def zeroMag(x: UInt) = x(w - 2, 0) === 0.U
+    VecInit((0 until N).map { i =>
+      VecInit((0 until cfg.samples).map { s =>
+        def test(e: Int) = ordered(e_val.get(q)(i)(e)) >= thresh.get(e)(s)
+        def edge(e: Int) = {
+          val v = e_val.get(q)(i)(e); val th = threshRaw.get(e)(s)
+          val tie = v === th || (zeroMag(v) && zeroMag(th))
+          Mux(drawMode, (ordered(v) > thresh.get(e)(s) && !tie) || (tie && topLeft(e)), test(e))
+        }
+        (0 until 3).map(edge).reduce(_ && _) && (!drawMode || (test(3) && test(4)))
+      })
+    })
+  }
+  // One evaluator for every slot: the values only change while the ROM writes them, so it tests
+  // the slot written last cycle and keeps the result; that cycle's readers take it live.
+  private val wrote = RegInit(false.B)
+  private val wroteSlot = RegInit(0.U(cfg.slotBits.W))
+  private val live = Option.when(cfg.samples > 1)(sampleTests(wroteSlot))
+  private val tested = live.map(l => Reg(Vec(cfg.quadSlots, chiselTypeOf(l))))
+  tested.foreach(t => when(wrote) { t(wroteSlot) := live.get })
+
   /** Slot q's coverage. */
   class View(q: UInt) {
-    private val (threshRaw, thresh) = thresholds(q)
-    private val topLeft = topLeftOf(q)
     /** Per lane, per sample: inside the triangle. */
     val geom: Vec[Vec[Bool]] = cfg.samples match {
       case 1 =>
         VecInit((0 until N).map(i =>
           VecInit(Seq(!e0_outside(q)(i) && !e1_outside(q)(i) && !e2_outside(q)(i) &&
                       (!drawMode || (!z_outside(q)(i)(0) && !z_outside(q)(i)(1)))))))
-      case _ =>
-        def zeroMag(x: UInt) = x(w - 2, 0) === 0.U
-        VecInit((0 until N).map { i =>
-          VecInit((0 until cfg.samples).map { s =>
-            def test(e: Int) = ordered(e_val.get(q)(i)(e)) >= thresh.get(e)(s)
-            def edge(e: Int) = {
-              val v = e_val.get(q)(i)(e); val th = threshRaw.get(e)(s)
-              val tie = v === th || (zeroMag(v) && zeroMag(th))
-              Mux(drawMode, (ordered(v) > thresh.get(e)(s) && !tie) || (tie && topLeft(e)), test(e))
-            }
-            (0 until 3).map(edge).reduce(_ && _) && (!drawMode || (test(3) && test(4)))
-          })
-        })
+      case _ => Mux(wrote && wroteSlot === q, live.get, tested.get(q))
     }
 
     /** Per lane, per sample: covered, after the static sample mask. */
@@ -87,9 +98,12 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeftOf: UInt => Vec[Bool]
   }
 
   /** The raster ROM's writes for slot q, while it runs. */
-  def capture(csr: Vec[CsrWriteIO], rast: Bool, q: UInt): Unit = for (i <- 0 until N) {
+  def capture(csr: Vec[CsrWriteIO], rast: Bool, q: UInt): Unit = {
+    wrote := rast && csr.map(_.en).reduce(_ || _); wroteSlot := q
+    for (i <- 0 until N) laneCapture(csr(i), rast, q, i)
+  }
+  private def laneCapture(c: CsrWriteIO, rast: Bool, q: UInt, i: Int): Unit = {
     val topLeft = topLeftOf(q)
-    val c = csr(i)
     def at(n: Int) = c.en && rast && c.addr === n.U
     def out(e: Int): Bool = isOutside(c.data) || (drawMode && c.data(w - 2, 0) === 0.U && !topLeft(e))
     when(at(Csr.RastE0))     { e0_outside(q)(i) := out(0) }
