@@ -15,16 +15,17 @@ class TexUnitIO(cfg: BorgConfig) extends CoreUnitIO(cfg) {
 
 /** TEX, TEXA and TEXS (docs/B2_texture_unit.md). TEXA keeps each lane's w or layer, LOD or bias
   * and depth reference, TEXS the sampler descriptor and control word, for the TEXs after them.
-  * TEX hands the whole quad to [[BorgSampler]], which takes the LOD from the quad's derivatives,
-  * and writes each lane's four words to rd..rd+3 as the sampler answers. */
+  * TEX hands the quad to two [[BorgSampler]]s, each sampling half of its lanes with the LOD from
+  * the quad's derivatives, and writes each lane's four words to rd..rd+3 as they answer. */
 class TexUnit(cfg: BorgConfig) extends Module {
   val io = IO(new TexUnitIO(cfg))
   private val N = cfg.fragLanes
   io.idle()
 
-  private val sampler = Module(new BorgSampler(cfg))
-  sampler.io.invalidate := io.descWritten
-  io.prof := sampler.io.prof
+  // Two samplers, each a half of the quad's lanes; both take the LOD from all four.
+  private val samplers = Seq.fill(2)(Module(new BorgSampler(cfg)))
+  samplers.foreach(_.io.invalidate := io.descWritten)
+  io.prof := samplers.head.io.prof
 
   // TEXA's and TEXS's state, per quad slot.
   private val S = cfg.quadSlots
@@ -54,17 +55,25 @@ class TexUnit(cfg: BorgConfig) extends Module {
   }
 
   private def lead(ops: Vec[UInt]): UInt = PriorityMux(io.mask.asBools, ops)
-  sampler.io.req.valid := false.B
-  sampler.io.req.bits.ctl := sCtl(q)
-  sampler.io.req.bits.texAddr := lead(io.c)(GpuMemIO.AddrBits - 1, 0)
-  sampler.io.req.bits.sampAddr := sAddr(q)
+  private val req = Wire(new SamplerReq(N))
+  req.ctl := sCtl(q)
+  req.texAddr := lead(io.c)(GpuMemIO.AddrBits - 1, 0)
+  req.sampAddr := sAddr(q)
   for (i <- 0 until N) {
-    sampler.io.req.bits.active(i) := io.mask(i)
-    val a = sampler.io.req.bits.lane(i)
+    req.active(i) := io.mask(i)
+    val a = req.lane(i)
     a.u := io.a(i); a.v := io.b(i); a.w := auxW(q)(i); a.lod := auxLod(q)(i); a.dref := auxRef(q)(i)
   }
   // Taken into respData at once: the sampler works on the next lane during the write-back.
-  sampler.io.respReady := st === sWait
+  private val answering = VecInit(samplers.map(_.io.resp.valid))
+  private val take = PriorityEncoderOH(answering.asUInt)
+  private val left = RegInit(0.U(2.W))                      // samplers not done yet
+  samplers.zipWithIndex.foreach { case (s, h) =>
+    s.io.req.valid := false.B
+    s.io.req.bits := req
+    for (i <- 0 until N) s.io.req.bits.active(i) := io.mask(i) && (i * 2 / N == h).B
+    s.io.respReady := st === sWait && take(h)
+  }
 
   when(io.atOps && isTexs) {
     sAddr(q) := lead(io.a); sCtl(q) := lead(io.b)
@@ -77,15 +86,20 @@ class TexUnit(cfg: BorgConfig) extends Module {
   private val start = io.atOps && isTex && st === sIdle
   private val mask = RegEnable(io.mask, start)   // the sampler latches the rest
   when(start) {
-    sampler.io.req.valid := true.B
+    samplers.foreach(_.io.req.valid := true.B)
+    left := 3.U
     st := sWait
   }
-  when(st === sWait) {
-    when(sampler.io.resp.valid) {
-      respLane := sampler.io.resp.bits.lane; respData := sampler.io.resp.bits.data
-      lastResp := sampler.io.done
-      wbK := 0.U; st := sWB
-    }
+  when(st === sWait && answering.asUInt.orR) {
+    val r = Mux1H(take, samplers.map(_.io.resp.bits))
+    val last = (left & ~VecInit(samplers.map(_.io.done)).asUInt) === 0.U
+    left := left & ~VecInit(samplers.map(_.io.done)).asUInt
+    respLane := r.lane; respData := r.data
+    lastResp := last
+    wbK := 0.U
+    // A lane the other sampler or no pixel has needs no write-back.
+    when(mask(r.lane) && VecInit((0 until N).map(i => (i * 2 / N).U(1.W)))(r.lane) === OHToUInt(take)) { st := sWB }
+      .elsewhen(last) { finish() }
   }
   when(st === sWB) {
     io.wb.zipWithIndex.foreach { case (w, i) =>
@@ -98,14 +112,7 @@ class TexUnit(cfg: BorgConfig) extends Module {
     }
   }
 
-  io.busy := sampler.io.busy
+  io.busy := samplers.map(_.io.busy).reduce(_ || _)
   io.wbWant := st === sWB
-  sampler.io.gpuMem.data    := io.mem.data
-  sampler.io.gpuMem.ready   := io.mem.ready && sampler.io.busy
-  sampler.io.gpuMem.waccept := false.B
-  io.mem.req   := sampler.io.gpuMem.req
-  io.mem.addr  := sampler.io.gpuMem.addr
-  io.mem.wr    := false.B
-  io.mem.wdata := 0.U
-  io.mem.wlen  := 1.U
+  GpuMemIO.arbitrate(samplers.map(_.io.gpuMem), io.mem)
 }
