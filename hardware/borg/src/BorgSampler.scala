@@ -177,17 +177,17 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   /** Signed ordered compare key for floats. */
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
-  private val states = Enum(28)                            // (three patterns: tuples stop at 22)
-  private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
-               sLevel :: sLevelDims :: sLayer :: sLodLam :: sAxisMul :: Nil) = states.take(12)
+  private val states = Enum(27)                            // (three patterns: tuples stop at 22)
+  private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLane :: sLaneSetup ::
+               sLevel :: sLevelDims :: sLayer :: sLodLam :: sAxisMul :: Nil) = states.take(11)
   private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
-               sAccWait :: sTapNext :: sResp :: Nil) = states.slice(12, 24)
-  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
+               sAccWait :: sTapNext :: sResp :: Nil) = states.slice(11, 23)
+  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(23)
   private val state = RegInit(sIdle)
   private val mulRet = Reg(chiselTypeOf(sIdle))
   locally {
     val tapMul = state === sMul && (mulRet === sTapMul || mulRet === sTapSlice || mulRet === sTapAddr)
-    val phases = Seq(Seq(sTexDesc, sSampDesc), Seq(sLod, sLodWait),
+    val phases = Seq(Seq(sTexDesc, sSampDesc), Seq(sLod),
       Seq(sLane, sLodLam, sLaneSetup, sLevelDims, sLayer, sLayerOff, sAxisMul, sAxisFix, sWrap, sMul),
       Seq(sLevel), Seq(sTap, sTapLayer, sTapMul, sTapSlice, sTapAddr), Seq(sFetch),
       Seq(sDecode, sCompare, sAcc, sAccWait, sTapNext), Seq(sResp))
@@ -214,7 +214,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val tcData = Mem(64, UInt(32.W)); private val tcTag = Mem(64, UInt((GpuMemIO.AddrBits - 2).W))
   private val tcOk = RegInit(VecInit(Seq.fill(64)(false.B)))
   when(io.invalidate) { tdOk.foreach(_ := false.B); sdOk := false.B; tcOk.foreach(_ := false.B) }
-  private val k = RegInit(0.U(4.W))                       // word / step / channel counter
+  private val k = RegInit(0.U(5.W))                       // word / step / channel counter
 
   // Descriptor fields.
   private val base    = td(0)
@@ -263,6 +263,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
   private val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y
   private val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8
+  private val lodIssue = WireDefault(false.B); private val lodDst = WireDefault(0.U(3.W))   // 6, 7: lodSum
+  when(ShiftRegister(lodIssue, fmaLatency)) {
+    val d = ShiftRegister(lodDst, fmaLatency)
+    when(d < 6.U) { lodTmp(d) := fma.io.out }.otherwise { lodSum(d(0)) := fma.io.out }
+  }
 
   private val lane   = RegInit(0.U(log2Up(N).W))
   private val nLev   = RegInit(1.U(2.W)); private val lvIdx = RegInit(0.U(1.W))
@@ -374,6 +379,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && (N >= 3).B && !unnorm
       // One level and one filter: the LOD changes nothing.
       val matters = levels =/= 1.U || magLin =/= minLin
+      val is3D = ttype === T3D.U
       when(!needQuad || (!matters && !isQuery)) {
         quadLod := 0.S; lane := 0.U; state := sLane
       }.otherwise {
@@ -381,46 +387,33 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         def neg(x: UInt) = Cat(~x(31), x(30, 0))
         def abs(x: UInt) = Cat(0.U(1.W), x(30, 0))
         val one = "h3F800000".U
-        val is3D = ttype === T3D.U
         if (N >= 3) {
-          // k 0..5: the differences d{u,v,w}/dx, d{u,v,w}/dy into lodTmp;
-          // k 6..8 and 9..11: the scaled sums in x and in y.
+          // Steps 0..5 issue the differences (x and y interleaved) into lodTmp, the x and y sums
+          // follow in pairs once their inputs are back: one FMA pipeline, no waits between.
           val coords = (l: Int) => Seq(a(l).u, a(l).v, a(l).w)
-          val step = WireDefault(0.U(4.W)); step := k
-          val diffs = (for (l <- Seq(1, 2); c <- 0 until 3) yield (coords(l)(c), neg(coords(0)(c))))
+          val diffs = for (c <- 0 until 3; l <- Seq(1, 2)) yield (coords(l)(c), neg(coords(0)(c)))
+          val sum = WireDefault(false.B); val j = WireDefault(0.U(2.W)); val y = WireDefault(false.B)
+          Seq(6, 7, 11, 12, 16, 17).zipWithIndex.foreach { case (s, i) =>
+            when(k === s.U) { sum := true.B; j := (i / 2).U; y := (i % 2 == 1).B } }
           when(k < 6.U) {
-            fmaA := VecInit(diffs.map(_._1))(k); fmaB := one; fmaC := VecInit(diffs.map(_._2))(k)
-          }.otherwise {
-            val j = Mux(k < 9.U, k - 6.U, k - 9.U)                     // axis 0..2
-            val src = Mux(k < 9.U, lodTmp(j), lodTmp(j +& 3.U))
+            fmaA := VecInit(diffs.map(_._1))(k(2, 0)); fmaB := one; fmaC := VecInit(diffs.map(_._2))(k(2, 0))
+            lodIssue := true.B; lodDst := Mux(k(0), 3.U, 0.U) +& k(2, 1)
+          }.elsewhen(sum) {
+            val src = lodTmp(Mux(y, 3.U, 0.U) +& j)
             // 1D arrays carry the layer in v: only u counts (dt = 0 for 1D).
             fmaA := Mux((j === 2.U && !is3D) || (j === 1.U && ttype === T1D.U), 0.U, abs(src))
             fmaB := uintToFp32(MuxLookup(j, dimW)(Seq(1.U -> dimH, 2.U -> Mux(is3D, dimD, 0.U))), 0.S)
-            fmaC := Mux(j === 0.U, 0.U, Mux(k < 9.U, lodSum(0), lodSum(1)))
+            fmaC := Mux(j === 0.U, 0.U, lodSum(y))
+            lodIssue := true.B; lodDst := Mux(y, 7.U, 6.U)
           }
         }
-        fmaWait := fmaLatency.U
-        state := sLodWait
+        k := k + 1.U
+        when(k === Mux(is3D, 22.U, 17.U)) {
+          val rx = lodSum(0); val ry = lodSum(1)
+          quadLod := fpLog2(Mux(ordered(rx) >= ordered(ry), rx, ry))
+          k := 0.U; lane := 0.U; state := sLane
+        }
       }
-    }
-    is(sLodWait) {
-      when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }
-        .otherwise {
-          val r = fma.io.out
-          when(k < 6.U) { lodTmp(k) := r }
-            .elsewhen(k < 9.U) { lodSum(0) := r }
-            .otherwise { lodSum(1) := r }
-          when(k === 11.U) {
-            val rx = lodSum(0); val ry = r
-            val rho = Mux(ordered(rx) >= ordered(ry), rx, ry)
-            quadLod := fpLog2(rho)
-            lane := 0.U
-            state := sLane
-          }.otherwise {
-            k := k + 1.U
-            state := sLod
-          }
-        }
     }
 
     is(sLane) {
