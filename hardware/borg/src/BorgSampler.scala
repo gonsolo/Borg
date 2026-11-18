@@ -196,7 +196,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val tdMem = Option.when(nTd > 1)(Mem(nTd, Vec(4, UInt(32.W))))
   private val sd = Reg(Vec(4, UInt(32.W))); private val sdTag = Reg(UInt((GpuMemIO.AddrBits - 4).W)); private val sdOk = RegInit(false.B)
   private val tAddr = Reg(UInt(GpuMemIO.AddrBits.W)); private val sAddr = Reg(UInt(GpuMemIO.AddrBits.W))
-  when(io.invalidate) { tdOk.foreach(_ := false.B); sdOk := false.B }
+  // Texel cache: 64 words, direct-mapped on a fold of the word address so a tile's vertical
+  // neighbours differ. Bilinear taps and magnified textures reread the same words.
+  private val tcIdx = (a: UInt) => a(7, 2) ^ a(13, 8)
+  private val tcData = Mem(64, UInt(32.W)); private val tcTag = Mem(64, UInt((GpuMemIO.AddrBits - 2).W))
+  private val tcOk = RegInit(VecInit(Seq.fill(64)(false.B)))
+  when(io.invalidate) { tdOk.foreach(_ := false.B); sdOk := false.B; tcOk.foreach(_ := false.B) }
   private val k = RegInit(0.U(4.W))                       // word / step / channel counter
 
   // Descriptor fields.
@@ -643,9 +648,14 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     is(sFetch) {
       val words = Mux(fmt.bytes >= 4.U, fmt.bytes >> 2, 1.U)
       val wordOff = Mux(split16, Cat(k(1), 0.U(4.W), k(0), 0.U(2.W)), k << 2)   // 128*(k>>1) + 4*(k&1)
-      read(Cat(addr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)) + wordOff) { d =>
+      val a = Cat(addr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)) + wordOff
+      val i = tcIdx(a)
+      def got(d: UInt): Unit = {
         raw(k(1, 0)) := d
         when(k === words - 1.U) { k := 0.U; state := sDecode }.otherwise { k := k + 1.U }
+      }
+      when(tcOk(i) && tcTag(i) === a(GpuMemIO.AddrBits - 1, 2)) { got(tcData(i)) }.otherwise {
+        read(a) { d => got(d); tcData(i) := d; tcTag(i) := a(GpuMemIO.AddrBits - 1, 2); tcOk(i) := true.B }
       }
     }
     is(sDecode) {

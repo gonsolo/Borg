@@ -338,7 +338,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private val texUnit = Module(new TexUnit(cfg))
   attach(texUnit.io, f => f.tex || f.texa || f.texs)
-  texUnit.io.descWritten := io.descWritten
+  texUnit.io.descWritten := io.descWritten || io.control.start   // a dispatch may sample what the last wrote
 
   attach(Module(new ExpLogUnit(cfg)).io, _.explog)
   // The lanes' write port, when write-back leaves it free, to one unit at a time.

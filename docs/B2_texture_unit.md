@@ -150,6 +150,11 @@ Everything is sequential: one multiplier, one FMA, one field extractor. A
 sample costs tens to hundreds of cycles, which is the design point:
 conformance at the area of a state machine.
 
+A 64-word texel cache (direct-mapped, indexed by a fold of the word address)
+answers the words bilinear taps and magnified textures read again without a
+memory request. `desc_flush` and an MMIO program start clear it, so a draw or
+dispatch never sees texels from before the last write.
+
 ## Using it: a textured fragment shader
 
     ; the texture and sampler descriptors in memory, and
