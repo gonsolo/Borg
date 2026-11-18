@@ -152,8 +152,11 @@ The ROM reads its inputs as the CSRs `uniform0..24`, writes the record with
 `SOUT` (stride 1), and hands the walker a bounding box (minimum, maximum,
 maximum), `det M` and whether the box holds for a corner behind the eye through
 the CSRs `setup_screen0..5`, `setup_det` and `setup_clipped`. The box is the
-near plane's clip, without clipping the triangle: the corners with `Z >= 0` and
-the edges' crossings of `Z = 0` (a pixel wider for their reciprocals). A
+clip to `0 <= Z <= W` (the raster's Zn and Zf tests), without clipping the
+triangle: the corners inside and the edges' crossings of `Z = 0` and `Z = W`
+with `W >= 0` (a pixel wider for their reciprocals). Both planes count because
+reversed depth (vkQuake's infinite projection, `Z = near`) puts the near plane
+at `Z = W`. A
 triangle crossing the eye plane gets the box of what it can draw instead of the
 whole grid; a candidate point with `W <= 0` leaves the box unbounded
 (`setup_clipped` 0), and then the walker bins the whole grid when some `W <= 0`.

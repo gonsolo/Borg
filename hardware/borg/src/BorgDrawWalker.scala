@@ -397,7 +397,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val back = !det(31) ^ io.mmio.frontFaceInvert
         isBack := back
         val culled = degenerate || Mux(back, io.mmio.cullMode(1), io.mmio.cullMode(0))
-        // A corner at or behind the eye has no screen position: the setup ROM's near-clipped box,
+        // A corner at or behind the eye has no screen position: the setup ROM's clipped box,
         // or the whole grid when that is unbounded.
         def front(w: UInt) = !w(31) && w(30, 0) =/= 0.U
         val boxed = eClipW(head).map(front).reduce(_ && _) || eClipped(head)

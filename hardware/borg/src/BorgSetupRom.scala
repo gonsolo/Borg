@@ -29,9 +29,9 @@ package borg
   *   u24      r's floor: 2^-15 for D16, 0 for D32_SFLOAT
   *
   * Outputs:
-  *   setup_screen0..5  screen x, y of the near-clipped box: minimum, maximum, maximum
-  *   setup_clipped     1 when that box bounds the triangle; else (a point with W <= 0 past the
-  *            near plane) the walker bins the whole viewport unless every W > 0
+  *   setup_screen0..5  screen x, y of the box clipped to 0 <= Z <= W: minimum, maximum, maximum
+  *   setup_clipped     1 when that box bounds the triangle; else (a point with W <= 0 inside)
+  *            the walker bins the whole viewport unless every W > 0
   *   setup_det         det M (the walker culls on its sign and on zero)
   *   record   via SOUT (see [[BorgSetupRom.Record]])
   */
@@ -203,9 +203,10 @@ private[borg] object BorgSetupRom {
       }
     }
 
-    // The bounding box of what the near plane (Vulkan's Z >= 0, the raster's Zn test) leaves: the
-    // corners with Z >= 0 and the edges' crossings of Z = 0, a crossing a pixel wider for its
-    // reciprocals. A point there with W <= 0 leaves it unbounded: setup_clipped 0, the whole grid.
+    // The bounding box of what 0 <= Z <= W (the raster's Zn and Zf tests) leaves: the corners
+    // inside and the edges' crossings of Z = 0 and Z = W, where the other test is W >= 0; a
+    // crossing a pixel wider for its reciprocals. Reversed depth puts the near plane at Z = W. A
+    // point there with W <= 0 leaves it unbounded: setup_clipped 0, the whole grid.
     locally {
       val (bx0, by0, bx1, by1, any, unb) = (21, 22, 23, 24, 25, 26)
       val (v, x, y, r, tmp, a, b, w, nw) = (3, 4, 5, 6, 7, 8, 27, 28, 29)
@@ -233,23 +234,26 @@ private[borg] object BorgSetupRom {
       }
       for (k <- 0 until 3) {
         ldAdd(w, uZ(k))
-        p += FLE_S(uu, 0, w)
+        p += FLE_S(uu, 0, w); p += FLE_S(tmp, w, rW(k)); p += AND(uu, uu, tmp)
         valid(uu, rW(k))
         rcp(rW(k), rNW(k), r, tmp)
         p += FMUL_S(x, rX(k), r); p += FMUL_S(y, rY(k), r)
         add(slack = false)
       }
-      for (i <- 0 until 3) {
+      for (far <- Seq(false, true); i <- 0 until 3) {
         val j = (i + 1) % 3
-        ldAdd(a, uZ(i)); ldAdd(b, uZ(j))
+        // The plane's value at corner k: Z, or W - Z.
+        def f(rd: Int, k: Int): Unit = if (!far) ldAdd(rd, uZ(k)) else { ld(uu, uZ(k)); p += FSUB_S(rd, rW(k), uu) }
+        f(a, i); f(b, j)
         p += FLT_S(tmp, a, 0); p += FLT_S(v, b, 0); p += XOR(uu, tmp, v)
-        p += FSUB_S(b, a, b)                                         // t = Zi / (Zi - Zj)
+        p += FSUB_S(b, a, b)                                         // t = fi / (fi - fj)
         p += FNEG(rs1 = b, rd = nw)
         rcp(b, nw, r, tmp)
         p += FMUL_S(a, a, r)
         for ((d, c) <- Seq(x -> rX, y -> rY, w -> rW)) {             // P = Pi + t (Pj - Pi)
           p += FSUB_S(d, c(j), c(i)); p += FMADD_S(d, a, d, c(i))
         }
+        p += FLE_S(tmp, 0, w); p += AND(uu, uu, tmp)
         valid(uu, w)
         p += FNEG(rs1 = w, rd = nw)
         rcp(w, nw, r, tmp)

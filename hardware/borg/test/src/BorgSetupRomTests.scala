@@ -263,12 +263,12 @@ object BorgSetupRomTests extends TestSuite {
           val hwDet = bitsToFloat(out(Csr.SetupDet)).toDouble
           Predef.assert(math.signum(hwDet) == math.signum(det), s"tri $n det sign")
           Predef.assert(math.abs(hwDet - det) <= 1e-5 * math.abs(det), s"tri $n det $hwDet vs $det")
-          // Every Z >= 0: the box is the corners'; a corner behind the eye with Z >= 0 leaves it unbounded.
+          // 0 <= Z <= W at every corner in front: the box is the corners'. One behind is outside Z <= W.
           val box = (0 until 4).map(i => bitsToFloat(out(Csr.SetupScreen0 + i)).toDouble)
           val want = Seq(screen.map(_._1).min, screen.map(_._2).min, screen.map(_._1).max, screen.map(_._2).max)
           if (t.c.forall(_(3) > 0))
             Predef.assert(box.zip(want).forall { case (h, r) => math.abs(h - r) < 1e-3 }, s"tri $n box $box, expected $want")
-          Predef.assert(out(Csr.SetupClipped) == (if (t.c.forall(_(3) > 0)) 1 else 0), s"tri $n setup_clipped")
+          Predef.assert(out(Csr.SetupClipped) == 1, s"tri $n setup_clipped")
         }
         println(f"  ${tris.size} triangles (12 with corners behind the eye): worst plane error $worst%.2e")
         println("  PASSED")
@@ -281,27 +281,26 @@ object BorgSetupRomTests extends TestSuite {
         idleInputs(core)
         resetCore(core)
         val rnd = new scala.util.Random(11)
-        // Vulkan's perspective projection, near 0.5 and far 100: Z = 0 at the near plane, W = -ze.
-        val (near, far) = (0.5, 100.0)
-        def project(xe: Double, ye: Double, ze: Double) =
-          Seq(xe, ye, far / (near - far) * ze + near * far / (near - far), -ze)
-        def corner(cut: Boolean) = {
+        // Near 0.5, W = -ze. Vulkan's perspective with far 100 (Z = 0 at the near plane) and the
+        // reversed infinite one (Z = near, Z = W at the near plane).
+        val near = 0.5
+        val projections: Seq[Double => Double] = Seq(ze => 100 / (near - 100) * ze + near * 100 / (near - 100), _ => near)
+        def corner(cut: Boolean, z: Double => Double) = {
           val ze = if (cut) -near + 2.5 * rnd.nextDouble() else -(near + 1 + 20 * rnd.nextDouble())
           val a = math.max(math.abs(ze), 1.0) * 1.5
-          project((rnd.nextDouble() * 2 - 1) * a, (rnd.nextDouble() * 2 - 1) * a, ze)
+          Seq((rnd.nextDouble() * 2 - 1) * a, (rnd.nextDouble() * 2 - 1) * a, z(ze), -ze)
         }
         val (sx, ox) = (W / 2, W / 2)
         def screen(c: Seq[Double]) = ((c(0) * sx + c(3) * ox) / c(3), (c(1) * sx + c(3) * ox) / c(3))
+        def clip(poly: Seq[Seq[Double]], f: Seq[Double] => Double) = poly.indices.flatMap { i =>
+          val (a, b) = (poly(i), poly((i + 1) % poly.size))
+          val cut = if ((f(a) < 0) != (f(b) < 0)) { val u = f(a) / (f(a) - f(b)); Some(a.zip(b).map { case (p, q) => p + u * (q - p) }) } else None
+          (if (f(a) >= 0) Some(a) else None) ++ cut
+        }
         var worst = 0.0
-        for (n <- 0 until 24) {
-          val t = Tri((0 until 3).map(k => corner(k < 1 + n % 2)))
-          // The near-clipped polygon: corners with Z >= 0 and the edges' crossings of Z = 0.
-          val cs = t.c.filter(_(2) >= 0) ++ (0 until 3).flatMap { i =>
-            val (a, b) = (t.c(i), t.c((i + 1) % 3))
-            if ((a(2) < 0) != (b(2) < 0)) { val u = a(2) / (a(2) - b(2)); Some(a.zip(b).map { case (p, q) => p + u * (q - p) }) }
-            else None
-          }
-          val pts = cs.map(screen)
+        for (n <- 0 until 48) {
+          val t = Tri((0 until 3).map(k => corner(k < 1 + n % 2, projections(n / 24))))
+          val pts = clip(clip(t.c, _(2)), c => c(3) - c(2)).map(screen)
           val want = Seq(pts.map(_._1).min, pts.map(_._2).min, pts.map(_._1).max, pts.map(_._2).max)
           val out = runSetup(core, t, scala.collection.mutable.Map[BigInt, BigInt]())
           Predef.assert(out(Csr.SetupClipped) == 1, s"tri $n not clipped")
@@ -314,7 +313,7 @@ object BorgSetupRomTests extends TestSuite {
             Predef.assert(d <= tol && d >= -1 - tol, s"tri $n box($i) $h, polygon $r")
           }
         }
-        println(f"  24 triangles cut by the near plane: box at most $worst%.3f px wider than the polygon's")
+        println(f"  48 triangles cut by the near plane, half with reversed depth: box at most $worst%.3f px wider than the polygon's")
         println("  PASSED")
       }
     }
