@@ -129,9 +129,10 @@ layer, which is all Vulkan requires of linear images.
    do.
 3. **Taps**: 1, or 2/4/8 (1D/2D/3D) per level when filtering. Each is
    fetched (1-4 words), decoded to FP32, compared if asked, and added to the
-   result with its weight on one FP32 FMA, its four channels issued on
-   consecutive cycles into the FMA's pipeline. Single taps and integer formats
-   bypass the FMA and are exact.
+   result with its weight on one FP32 FMA: each channel enters the FMA's
+   pipeline in the cycle it is decoded, and the next tap starts while the
+   sums are in flight; only the answer waits for them. Single taps and integer
+   formats bypass the FMA and are exact.
 4. **Cube maps** filter seamlessly: a tap off a face reads the neighbouring
    face across the edge (the remap is derived from the face definitions at
    elaboration, `CubeEdges`). A tap past a corner has no face; it becomes
@@ -147,7 +148,9 @@ layer, which is all Vulkan requires of linear images.
    face comes from TEXA's layer (0-5, +X -X +Y -Y +Z -Z); the direction's
    major-axis projection to (face, s, t) is the compiler's.
 
-Everything is sequential: one multiplier, one FMA, one field extractor. A
+Everything is sequential: one multiplier, one FMA, one field extractor. The
+implicit LOD's twelve FMA operations issue back to back (x and y interleaved).
+A
 sample costs tens to hundreds of cycles, which is the design point:
 conformance at the area of a state machine.
 
