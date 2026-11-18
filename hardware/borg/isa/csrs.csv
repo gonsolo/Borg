@@ -13,7 +13,7 @@
 0x809, "out_pos1"
 0x80a, "out_pos2"
 0x80b, "out_pos3"
-# The setup ROM's results for the draw walker: corner screen positions, det M.
+# The setup ROM's results for the draw walker: the bounding box, det M, whether the box is clipped.
 0x810, "setup_screen0"
 0x811, "setup_screen1"
 0x812, "setup_screen2"
@@ -21,6 +21,7 @@
 0x814, "setup_screen4"
 0x815, "setup_screen5"
 0x816, "setup_det"
+0x817, "setup_clipped"
 # The raster ROMs' results for the dispatcher: E0..E2, Zn, Zf, FragCoord.z, the sample depths.
 0x818, "rast_e0"
 0x819, "rast_e1"

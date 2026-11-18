@@ -208,7 +208,9 @@ object BorgSetupRomTests extends TestSuite {
           val (_, gbCsr, gbc) = run(0, box = true)
           val (_, pbCsr, pbc) = run(BorgSetupRom.pointPc, box = true)
           Predef.assert(gRec.forall(_.isDefined) && pRec == gRec, s"point $n record: $pRec vs $gRec")
-          Predef.assert(pCsr.forall(_.isDefined) && pCsr == gCsr && gbCsr == gCsr && pbCsr == gCsr, s"point $n CSRs")
+          // Behind the eye (n = 11) the general path's near-clipped box is empty; the point's is not clipped.
+          if (n != 11) Predef.assert(pCsr.forall(_.isDefined) && pCsr == gCsr, s"point $n CSRs")
+          Predef.assert(gbCsr == gCsr && pbCsr == pCsr, s"point $n box CSRs")
           for ((k, c) <- Seq("short" -> gc, "point" -> pc, "box" -> gbc, "point box" -> pbc)) cycles(k) += c
         }
         for (k <- Seq("short", "point", "box", "point box")) println(f"  $k%-9s ${cycles(k) / pts.size}%5d cycles")
@@ -261,13 +263,58 @@ object BorgSetupRomTests extends TestSuite {
           val hwDet = bitsToFloat(out(Csr.SetupDet)).toDouble
           Predef.assert(math.signum(hwDet) == math.signum(det), s"tri $n det sign")
           Predef.assert(math.abs(hwDet - det) <= 1e-5 * math.abs(det), s"tri $n det $hwDet vs $det")
-          if (t.c.forall(_(3) > 0)) for (k <- 0 until 3) {
-            val (x, y) = (bitsToFloat(out(Csr.SetupScreen0 + 2 * k)), bitsToFloat(out(Csr.SetupScreen0 + 2 * k + 1)))
-            Predef.assert(math.abs(x - screen(k)._1) < 1e-3 && math.abs(y - screen(k)._2) < 1e-3,
-                          s"tri $n corner $k at ($x, $y), expected ${screen(k)}")
-          }
+          // Every Z >= 0: the box is the corners'; a corner behind the eye with Z >= 0 leaves it unbounded.
+          val box = (0 until 4).map(i => bitsToFloat(out(Csr.SetupScreen0 + i)).toDouble)
+          val want = Seq(screen.map(_._1).min, screen.map(_._2).min, screen.map(_._1).max, screen.map(_._2).max)
+          if (t.c.forall(_(3) > 0))
+            Predef.assert(box.zip(want).forall { case (h, r) => math.abs(h - r) < 1e-3 }, s"tri $n box $box, expected $want")
+          Predef.assert(out(Csr.SetupClipped) == (if (t.c.forall(_(3) > 0)) 1 else 0), s"tri $n setup_clipped")
         }
         println(f"  ${tris.size} triangles (12 with corners behind the eye): worst plane error $worst%.2e")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("setup_rom_clips_the_box_at_the_near_plane") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgSetupRom: near-clipped box ---")
+        idleInputs(core)
+        resetCore(core)
+        val rnd = new scala.util.Random(11)
+        // Vulkan's perspective projection, near 0.5 and far 100: Z = 0 at the near plane, W = -ze.
+        val (near, far) = (0.5, 100.0)
+        def project(xe: Double, ye: Double, ze: Double) =
+          Seq(xe, ye, far / (near - far) * ze + near * far / (near - far), -ze)
+        def corner(cut: Boolean) = {
+          val ze = if (cut) -near + 2.5 * rnd.nextDouble() else -(near + 1 + 20 * rnd.nextDouble())
+          val a = math.max(math.abs(ze), 1.0) * 1.5
+          project((rnd.nextDouble() * 2 - 1) * a, (rnd.nextDouble() * 2 - 1) * a, ze)
+        }
+        val (sx, ox) = (W / 2, W / 2)
+        def screen(c: Seq[Double]) = ((c(0) * sx + c(3) * ox) / c(3), (c(1) * sx + c(3) * ox) / c(3))
+        var worst = 0.0
+        for (n <- 0 until 24) {
+          val t = Tri((0 until 3).map(k => corner(k < 1 + n % 2)))
+          // The near-clipped polygon: corners with Z >= 0 and the edges' crossings of Z = 0.
+          val cs = t.c.filter(_(2) >= 0) ++ (0 until 3).flatMap { i =>
+            val (a, b) = (t.c(i), t.c((i + 1) % 3))
+            if ((a(2) < 0) != (b(2) < 0)) { val u = a(2) / (a(2) - b(2)); Some(a.zip(b).map { case (p, q) => p + u * (q - p) }) }
+            else None
+          }
+          val pts = cs.map(screen)
+          val want = Seq(pts.map(_._1).min, pts.map(_._2).min, pts.map(_._1).max, pts.map(_._2).max)
+          val out = runSetup(core, t, scala.collection.mutable.Map[BigInt, BigInt]())
+          Predef.assert(out(Csr.SetupClipped) == 1, s"tri $n not clipped")
+          val box = (0 until 4).map(i => bitsToFloat(out(Csr.SetupScreen0 + i)).toDouble)
+          // Conservative, and at most the crossings' pixel of slack wider.
+          for (i <- 0 until 4) {
+            val (h, r) = (box(i), want(i)); val tol = 0.01 + 1e-5 * math.abs(r)
+            val d = if (i < 2) h - r else r - h        // > 0 when the box is tighter than the polygon
+            worst = math.max(worst, -d)
+            Predef.assert(d <= tol && d >= -1 - tol, s"tri $n box($i) $h, polygon $r")
+          }
+        }
+        println(f"  24 triangles cut by the near plane: box at most $worst%.3f px wider than the polygon's")
         println("  PASSED")
       }
     }

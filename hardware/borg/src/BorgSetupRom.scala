@@ -29,8 +29,9 @@ package borg
   *   u24      r's floor: 2^-15 for D16, 0 for D32_SFLOAT
   *
   * Outputs:
-  *   setup_screen0..5  screen x, y of corners 0..2 (meaningless when some W <= 0,
-  *            where the walker bins the whole viewport)
+  *   setup_screen0..5  screen x, y of the near-clipped box: minimum, maximum, maximum
+  *   setup_clipped     1 when that box bounds the triangle; else (a point with W <= 0 past the
+  *            near plane) the walker bins the whole viewport unless every W > 0
   *   setup_det         det M (the walker culls on its sign and on zero)
   *   record   via SOUT (see [[BorgSetupRom.Record]])
   */
@@ -103,12 +104,6 @@ private[borg] object BorgSetupRom {
       p += FNEG(rs1 = t, rd = t)
       p += FADD_S(rc, rc, t)
     }
-    // X'*r, Y'*r into SetupScreen idx and idx + 1.
-    def screen(x: Int, y: Int, r: Int, tmp: Int, idx: Int): Unit =
-      for ((c, o) <- Seq(x, y).zipWithIndex) {
-        p += FMUL_S(tmp, c, r)
-        p += CSRRW(0, tmp, Csr.SetupScreen0 + idx + o)
-      }
     // The two MSAA sample deltas of plane (a, b): d0 = -0.125a - 0.375b,
     // d1 = 0.375a - 0.125b; samples 2 and 3 are their negations.
     def delta(a: Int, b: Int, d: Int): Unit = {
@@ -208,6 +203,65 @@ private[borg] object BorgSetupRom {
       }
     }
 
+    // The bounding box of what the near plane (Vulkan's Z >= 0, the raster's Zn test) leaves: the
+    // corners with Z >= 0 and the edges' crossings of Z = 0, a crossing a pixel wider for its
+    // reciprocals. A point there with W <= 0 leaves it unbounded: setup_clipped 0, the whole grid.
+    locally {
+      val (bx0, by0, bx1, by1, any, unb) = (21, 22, 23, 24, 25, 26)
+      val (v, x, y, r, tmp, a, b, w, nw) = (3, 4, 5, 6, 7, 8, 27, 28, 29)
+      p += LUI(bx0, 0x7F800); p += LUI(by0, 0x7F800)                  // +inf
+      p += LUI(bx1, 0xFF800); p += LUI(by1, 0xFF800)                  // -inf
+      p += ADDI(any, 0, 0); p += ADDI(unb, 0, 0)
+      // (x, y) into the box when v != 0.
+      def add(slack: Boolean): Unit = {
+        for ((c, lo, hi) <- Seq((x, bx0, bx1), (y, by0, by1)); (bound, isMin) <- Seq((lo, true), (hi, false))) {
+          val src = if (!slack) c else { p += (if (isMin) FSUB_S(a, c, rOne) else FADD_S(a, c, rOne)); a }
+          p += CZERO_EQZ(a, src, v)
+          p += CZERO_NEZ(b, bound, v)
+          p += OR(a, a, b)
+          p += (if (isMin) FMIN_S(bound, bound, a) else FMAX_S(bound, bound, a))
+        }
+        p += OR(any, any, v)
+      }
+      // v = sign && W > +0 (as an integer); a sign with W <= 0 is unbounded.
+      def valid(sign: Int, wr: Int): Unit = {
+        p += SLT(a, 0, wr)
+        p += XORI(b, a, 1)
+        p += AND(b, b, sign)
+        p += OR(unb, unb, b)
+        p += AND(v, sign, a)
+      }
+      for (k <- 0 until 3) {
+        ldAdd(w, uZ(k))
+        p += FLE_S(uu, 0, w)
+        valid(uu, rW(k))
+        rcp(rW(k), rNW(k), r, tmp)
+        p += FMUL_S(x, rX(k), r); p += FMUL_S(y, rY(k), r)
+        add(slack = false)
+      }
+      for (i <- 0 until 3) {
+        val j = (i + 1) % 3
+        ldAdd(a, uZ(i)); ldAdd(b, uZ(j))
+        p += FLT_S(tmp, a, 0); p += FLT_S(v, b, 0); p += XOR(uu, tmp, v)
+        p += FSUB_S(b, a, b)                                         // t = Zi / (Zi - Zj)
+        p += FNEG(rs1 = b, rd = nw)
+        rcp(b, nw, r, tmp)
+        p += FMUL_S(a, a, r)
+        for ((d, c) <- Seq(x -> rX, y -> rY, w -> rW)) {             // P = Pi + t (Pj - Pi)
+          p += FSUB_S(d, c(j), c(i)); p += FMADD_S(d, a, d, c(i))
+        }
+        valid(uu, w)
+        p += FNEG(rs1 = w, rd = nw)
+        rcp(w, nw, r, tmp)
+        p += FMUL_S(x, x, r); p += FMUL_S(y, y, r)
+        add(slack = true)
+      }
+      p += CSRRW(0, bx0, Csr.SetupScreen0); p += CSRRW(0, by0, Csr.SetupScreen0 + 1)
+      for (s <- Seq(2, 4)) { p += CSRRW(0, bx1, Csr.SetupScreen0 + s); p += CSRRW(0, by1, Csr.SetupScreen0 + s + 1) }
+      p += XORI(a, unb, 1)
+      p += CSRRW(0, a, Csr.SetupClipped)
+    }
+
     // Edge plane k = (column i) x (column j), sign-flipped when det M < 0 so inside is >= 0.
     // Not divided by det M and no FMA: each component is round(p) - round(q), so a triangle
     // sharing the edge gets the exact negation and the tie rule on zeros is watertight.
@@ -223,12 +277,7 @@ private[borg] object BorgSetupRom {
         p += FMADD_S(rDet, rY(0), rb, rDet)
         p += FMADD_S(rDet, rW(0), rc, rDet)
         p += CSRRW(0, rDet, Csr.SetupDet)
-        // Screen positions for the bounding box: X'/W, Y'/W. A box-only run stops after them.
-        for (c <- 0 until 3) {
-          rcp(rW(c), rNW(c), 3, 4)
-          screen(rX(c), rY(c), 3, 5, 2 * c)
-        }
-        boxPc = p.length
+        boxPc = p.length                              // a box-only run stops here
         p += LUI(rSignMask, 0x80000)
         p += AND(rDetSign, rDet, rSignMask)
         p += FNEG(rs1 = rDet, rd = t)
@@ -356,7 +405,16 @@ private[borg] object BorgSetupRom {
           p += FMADD_S(rDet, rY(0), rb, rDet)
           p += FMADD_S(rDet, w, rc, rDet)
           p += CSRRW(0, rDet, Csr.SetupDet)
-          for (c <- 0 until 3) screen(rX(c), rY(c), r1, tmp, 2 * c)
+          // The box, as the general path's: minimum, maximum, maximum; never clipped.
+          val (lo, hi, c3) = (Seq(19, 21), Seq(20, 22), Seq(27, 28, 29))
+          for ((rc, a) <- Seq(rX, rY).zipWithIndex) {
+            for (c <- 0 until 3) p += FMUL_S(c3(c), rc(c), r1)
+            p += FMIN_S(lo(a), c3(0), c3(1)); p += FMIN_S(lo(a), lo(a), c3(2))
+            p += FMAX_S(hi(a), c3(0), c3(1)); p += FMAX_S(hi(a), hi(a), c3(2))
+          }
+          p += CSRRW(0, lo(0), Csr.SetupScreen0); p += CSRRW(0, lo(1), Csr.SetupScreen0 + 1)
+          for (s <- Seq(2, 4)) { p += CSRRW(0, hi(0), Csr.SetupScreen0 + s); p += CSRRW(0, hi(1), Csr.SetupScreen0 + s + 1) }
+          p += CSRRW(0, 0, Csr.SetupClipped)
           pointBox = p.length
           p += LUI(rSignMask, 0x80000)
           p += AND(rDetSign, rDet, rSignMask)
