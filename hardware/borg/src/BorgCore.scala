@@ -97,6 +97,7 @@ class IssueStatsIO extends Bundle {
   val drains     = Bool()
   val kind       = UInt(2.W)   // the issuing slot's program: 0 fragment, 1 vertex or compute, 2 setup, 3 raster
   val active     = Bool()      // the issuing slot runs
+  val tex        = UInt(5.W)   // BorgSampler's prof
 }
 
 /** A quad the core keeps: where its program is and whether it runs. */
@@ -339,6 +340,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val texUnit = Module(new TexUnit(cfg))
   attach(texUnit.io, f => f.tex || f.texa || f.texs)
   texUnit.io.descWritten := io.descWritten || io.control.start   // a dispatch may sample what the last wrote
+  io.issueStats.tex := texUnit.io.prof
 
   attach(Module(new ExpLogUnit(cfg)).io, _.explog)
   // The lanes' write port, when write-back leaves it free, to one unit at a time.

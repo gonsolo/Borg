@@ -1821,7 +1821,9 @@ addrmap borg_gpu {
     //      instruction waits for a register an instruction in flight writes, behind a branch,
     //      or behind or for a drain (a stall-FSM instruction, HALT, BARRIER); of the drain
     //      waits, those for the stages to empty and those while a unit holds them; drain
-    //      instructions issued. The last word of the 10-bit map. ----
+    //      instructions issued; 7..14 issued and active per program, 15 the FSM states; 16..24
+    //      the sampler's requests and its cycles per phase (Borg.scala). The last word of the
+    //      10-bit map. ----
     draw_word_reg_t perf_issue;
     perf_issue->nogen = true;
 };

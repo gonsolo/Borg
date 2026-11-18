@@ -83,6 +83,7 @@ class BorgSamplerIO(val cfg: BorgConfig) extends Bundle {
   val done       = Output(Bool())                                // pulse after the last lane
   val invalidate = Input(Bool())                                 // descriptors may have changed
   val gpuMem     = new GpuMemIO
+  val prof       = Output(UInt(5.W))                             // perf: bit 4 a request, 3:0 the phase
 }
 
 /** Seamless cube filtering: where a tap off face f across edge e (0: i = -1, 1: i = n,
@@ -183,6 +184,17 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
                sAccWait :: sTapNext :: sResp :: Nil) = states.slice(12, 24)
   private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
   private val state = RegInit(sIdle)
+  private val mulRet = Reg(chiselTypeOf(sIdle))
+  locally {
+    val tapMul = state === sMul && (mulRet === sTapMul || mulRet === sTapSlice || mulRet === sTapAddr)
+    val phases = Seq(Seq(sTexDesc, sSampDesc), Seq(sLod, sLodWait),
+      Seq(sLane, sLodLam, sLaneSetup, sLevelDims, sLayer, sLayerOff, sAxisMul, sAxisFix, sWrap, sMul),
+      Seq(sLevel), Seq(sTap, sTapLayer, sTapMul, sTapSlice, sTapAddr), Seq(sFetch),
+      Seq(sDecode, sCompare, sAcc, sAccWait, sTapNext), Seq(sResp))
+    val phase = Mux(tapMul, 5.U, PriorityMux(phases.zipWithIndex.map { case (ss, i) =>
+      ss.map(state === _).reduce(_ || _) -> (i + 1).U(4.W) } :+ (true.B -> 0.U(4.W))))
+    io.prof := Cat(state === sIdle && io.req.valid, phase)
+  }
 
   private val ctl   = Reg(UInt(32.W))
   private val act   = Reg(Vec(N, Bool()))
@@ -247,7 +259,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val mulA = WireDefault(0.S(30.W)); private val mulB = WireDefault(0.U(GpuMemIO.AddrBits.W))
   private val mulAR = RegNext(mulA); private val mulBR = RegNext(mulB)
   private val product = Reg(chiselTypeOf(mulAR * mulBR.zext))
-  private val mulRet = Reg(chiselTypeOf(sIdle))
 
   private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
   private val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y

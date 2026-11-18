@@ -10,6 +10,7 @@ class TexUnitIO(cfg: BorgConfig) extends CoreUnitIO(cfg) {
   val descWritten = Input(Bool())
   val mem  = new GpuMemIO
   val busy = Output(Bool())
+  val prof = Output(UInt(5.W))
 }
 
 /** TEX, TEXA and TEXS (docs/B2_texture_unit.md). TEXA keeps each lane's w or layer, LOD or bias
@@ -23,6 +24,7 @@ class TexUnit(cfg: BorgConfig) extends Module {
 
   private val sampler = Module(new BorgSampler(cfg))
   sampler.io.invalidate := io.descWritten
+  io.prof := sampler.io.prof
 
   // TEXA's and TEXS's state, per quad slot.
   private val S = cfg.quadSlots

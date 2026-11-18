@@ -186,11 +186,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val byKind = (0 until 4).flatMap(k => Seq(st.issued && st.kind === k.U, st.active && st.kind === k.U))
     val issue = (Seq(st.issued, st.waitReg, st.waitBranch, st.waitDrain, st.waitEmpty, st.waitUnit, st.drains) ++ byKind)
       .map(counter)
-    val sel = RegInit(0.U(4.W))
-    when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(3, 0) }
+    // After fsm: sampler requests, then cycles per phase (descriptors, LOD, lane setup, level offset,
+    // tap address, fetch, filter, answer).
+    val tex = (st.tex(4) +: (1 to 8).map(p => st.tex(3, 0) === p.U)).map(counter)
+    val sel = RegInit(0.U(5.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.perf_issue_offset) { sel := bus.data_in(4, 0) }
     // States: sequencer list, walker, walker binning, tile sequencer; binner; DMA, flusher, core busy.
     val fsm = Cat(core.io.status.running, flusher.io.busy, dma.io.busy, binner.io.fsm, sequencer.io.fsm)
-    perfIssueRead := VecInit(issue :+ fsm)(sel)
+    perfIssueRead := VecInit((issue :+ fsm) ++ tex ++ Seq.fill(7)(0.U(32.W)))(sel)
   }
 
   private def wireBus(): Unit = {
