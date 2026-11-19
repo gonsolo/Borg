@@ -396,7 +396,10 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val degenerate = det(30, 0) === 0.U
         val back = !det(31) ^ io.mmio.frontFaceInvert
         isBack := back
-        val culled = degenerate || Mux(back, io.mmio.cullMode(1), io.mmio.cullMode(0))
+        // A NaN or infinite det or W has no defined coverage: drop the triangle, as GPUs do.
+        def finite(x: UInt) = x(cfg.totalBits - 2, cfg.sig - 1) =/= ((1 << cfg.exp) - 1).U
+        val bad = !finite(det) || !eClipW(head).map(finite).reduce(_ && _)
+        val culled = degenerate || bad || Mux(back, io.mmio.cullMode(1), io.mmio.cullMode(0))
         // A corner at or behind the eye has no screen position: the setup ROM's clipped box,
         // or the whole grid when that is unbounded.
         def front(w: UInt) = !w(31) && w(30, 0) =/= 0.U

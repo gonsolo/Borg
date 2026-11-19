@@ -1005,6 +1005,18 @@ object BorgDrawTests extends TestSuite {
     }
   }
 
+  /** A NaN or infinite position covers nothing, whatever its sign, and leaves the other triangles. */
+  def nonFinite(rig: DrawRig): Unit = {
+    val good = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1))
+    val whole = rig.draw(good, sampleMaskCfg = 0xF | 0x40)
+    for (bad <- Seq(Double.NaN, -Double.NaN, Double.PositiveInfinity); c <- Seq("x", "w")) {
+      val v = if (c == "x") at(bad, 4, 1) else at(4, 4, bad)
+      val n = rig.draw(Seq(at(0, 8, 1), v, at(8, 8, 1)) ++ good, sampleMaskCfg = 0xF | 0x40)
+      println(s"  $c = $bad: $n pixels, the good triangle alone $whole")
+      utest.assert(n == whole)
+    }
+  }
+
   /** Flat shading takes the provoking vertex, corner 0: v_p for strip
     * primitive p, odd ones included (Vulkan's {v_p, v_p+2, v_p+1}). */
   def flatStrip(rig: DrawRig): Unit = {
@@ -1069,6 +1081,9 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("flat_shading_uses_the_provoking_vertex") {
       run("flat strip", suiteCfg)(flatStrip)
+    }
+    utest.test("non_finite_positions_cover_nothing") {
+      run("non-finite", suiteCfg)(nonFinite)
     }
     utest.test("an_empty_render_list_clears_every_tile") {
       run("empty list", suiteCfg)(emptyListClears)
