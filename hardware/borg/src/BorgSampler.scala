@@ -98,7 +98,7 @@ class BorgSamplerIO(val cfg: BorgConfig) extends Bundle {
   val busy       = Output(Bool())
   val resp       = Valid(new SamplerResp(cfg.fragLanes))         // held until respReady
   val respReady  = Input(Bool())
-  val done       = Output(Bool())                                // pulse after the last lane
+  val done       = Output(Bool())                                // pulse with the last answer
   val invalidate = Input(Bool())                                 // descriptors may have changed
   val gpuMem     = new GpuMemIO
   val prof       = Output(UInt(5.W))                             // perf: bit 4 a request, 3:0 the phase
@@ -305,6 +305,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val kTaps :: kZero :: kSize :: kQuery :: Nil = Enum(4)
   private val kind = RegInit(kTaps)                       // what the lane answers
   private val sj = Reg(new SamplerJob(N)); private val tj = Reg(new SamplerJob(N))
+  // Only active lanes answer; with none, lane N-1 answers zeros so that `done` comes.
+  private val actBits = act.asUInt
+  private val firstLane = Mux(actBits.orR, PriorityEncoder(actBits), (N - 1).U)
+  private val lastLane = Mux(actBits.orR, (N - 1).U - PriorityEncoder(Reverse(actBits)), (N - 1).U)
+  private def nextLane(l: UInt): UInt = PriorityEncoder(actBits & ~((2.U << l) - 1.U)(N - 1, 0))
   // Per tap.
   private val tap = RegInit(0.U(3.W))
   private val tx = Reg(SInt(20.W)); private val ty = Reg(SInt(20.W)); private val tz = Reg(SInt(20.W))
@@ -405,7 +410,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val matters = levels =/= 1.U || magLin =/= minLin
       val is3D = ttype === T3D.U
       when(!needQuad || (!matters && !isQuery)) {
-        quadLod := 0.S; lane := 0.U; state := sLane
+        quadLod := 0.S; lane := firstLane; state := sLane
       }.otherwise {
         val a = args
         def neg(x: UInt) = Cat(~x(31), x(30, 0))
@@ -435,7 +440,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         when(ks === Mux(is3D, 22.U, 17.U)) {
           val rx = lodSum(0); val ry = lodSum(1)
           quadLod := fpLog2(Mux(ordered(rx) >= ordered(ry), rx, ry))
-          ks := 0.U; lane := 0.U; state := sLane
+          ks := 0.U; lane := firstLane; state := sLane
         }
       }
     }
@@ -611,8 +616,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         when(kind === kQuery) { acc(0) := q8ToFp32(lvlQ); acc(1) := q8ToFp32(biasedR) }
         tst := Mux(kind === kTaps, sTap, sResp)
         when(kind === kTaps && lvIdx =/= nLev - 1.U) { lvIdx := lvIdx + 1.U; state := sLevel }
-          .elsewhen(lane === (N - 1).U) { state := sEnd }
-          .otherwise { lane := lane + 1.U; state := sLane }
+          .elsewhen(lane === lastLane) { state := sEnd }
+          .otherwise { lane := nextLane(lane); state := sLane }
       }
     }
     is(sEnd) { when(io.done) { state := sIdle } }
@@ -798,7 +803,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
           args(tj.lane).u, args(tj.lane).v, args(tj.lane).lod, levels, tj.i0(0), tj.i0(1), addr, acc(0), acc(1), acc(2), acc(3))
       }
       when(io.respReady && io.resp.valid) {
-        io.done := tj.lane === (N - 1).U
+        io.done := tj.lane === lastLane
         tst := tIdle
       }
     }
