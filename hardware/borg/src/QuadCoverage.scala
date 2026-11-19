@@ -10,7 +10,7 @@ import chisel3.util._
   * mode the near and far planes Zn and Zf) from its rast_* CSR writes, tested at the pixel centre
   * or per MSAA sample, then the pipeline's static sample mask.
   *
-  * A value is outside when negative and nonzero: -0 is inside. In draw mode a sample exactly on an
+  * A value is outside when negative and nonzero or NaN: -0 is inside. In draw mode a sample exactly on an
   * edge belongs to the triangle only if that edge is a top or left one. At MSAA, sample s's edge
   * value is e + d_s with per-triangle deltas (covDelta, two per plane: the standard positions are
   * symmetric, d_2 = -d_1 and d_3 = -d_0); the test e >= -d_s compares the bit patterns in float
@@ -32,7 +32,8 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeftOf: UInt => Vec[Bool]
 
   def ordered(x: UInt): UInt = Mux(x(w - 1), ~x, x | (1.U << (w - 1)))
   def fnegBits(x: UInt): UInt = x ^ (1.U << (w - 1))
-  def isOutside(data: UInt): Bool = data(w - 1).asBool && data(w - 2, 0) =/= 0.U
+  def isNaN(x: UInt): Bool = x(w - 2, cfg.sig - 1).andR && x(cfg.sig - 2, 0) =/= 0.U
+  def isOutside(data: UInt): Bool = (data(w - 1).asBool && data(w - 2, 0) =/= 0.U) || isNaN(data)
 
   // Slot q's triangle's per-sample thresholds.
   private def thresholds(q: UInt) = covDeltaOf.map { f => val cd = f(q)
@@ -49,11 +50,11 @@ class QuadCoverage(cfg: BorgConfig, drawMode: Bool, topLeftOf: UInt => Vec[Bool]
     def zeroMag(x: UInt) = x(w - 2, 0) === 0.U
     VecInit((0 until N).map { i =>
       VecInit((0 until cfg.samples).map { s =>
-        def test(e: Int) = ordered(e_val.get(q)(i)(e)) >= thresh.get(e)(s)
+        def test(e: Int) = ordered(e_val.get(q)(i)(e)) >= thresh.get(e)(s) && !isNaN(e_val.get(q)(i)(e))
         def edge(e: Int) = {
           val v = e_val.get(q)(i)(e); val th = threshRaw.get(e)(s)
           val tie = v === th || (zeroMag(v) && zeroMag(th))
-          Mux(drawMode, (ordered(v) > thresh.get(e)(s) && !tie) || (tie && topLeft(e)), test(e))
+          Mux(drawMode, ((ordered(v) > thresh.get(e)(s) && !tie) || (tie && topLeft(e))) && !isNaN(v), test(e))
         }
         (0 until 3).map(edge).reduce(_ && _) && (!drawMode || (test(3) && test(4)))
       })
