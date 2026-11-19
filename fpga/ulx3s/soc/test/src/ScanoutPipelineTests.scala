@@ -68,6 +68,7 @@ class ScanoutPipelineHarness extends Module {
   mem.io.gpuMem.req   := Mux(filling, false.B, io.gpuReq || scanout.io.gpuReq)
   mem.io.gpuMem.addr  := Mux(filling, io.gpuAddr, Mux(io.gpuReq, io.gpuAddr, scanout.io.gpuAddr))
   mem.io.gpuMem.wdata := io.gpuWdata
+  mem.io.gpuMem.wlen  := 1.U
 
   io.gpuReady := mem.io.gpuMem.ready
   io.gpuData  := mem.io.gpuMem.data

@@ -81,6 +81,8 @@ class BorgSdramHarness(rdDelay: Int = 4, wrDelay: Int = 2) extends Module {
   mem.io.gpuMem.req   := Mux(borgWantsPort, borg.io.gpuMem.req, io.rdReq)
   mem.io.gpuMem.addr  := Mux(borgWantsPort, borg.io.gpuMem.addr, io.rdAddr)
   mem.io.gpuMem.wdata := borg.io.gpuMem.wdata
+  mem.io.gpuMem.wlen  := Mux(borgWantsPort, borg.io.gpuMem.wlen, 1.U)
+  borg.io.gpuMem.waccept := mem.io.gpuMem.waccept && borgWantsPort
 
   // Feed ready/data back to Borg
   borg.io.gpuMem.ready := mem.io.gpuMem.ready && borgWantsPort
@@ -108,7 +110,7 @@ object BorgTriangleTests extends TestSuite {
   }
 
   def encodeADD(rs1: Int, rs2: Int, rd: Int): BigInt =
-    borg.Instructions.ADD(rs1, rs2, rd)
+    borg.Opcodes.FADD_S(rd, rs1, rs2)
 
   val tests = Tests {
 
@@ -503,6 +505,8 @@ class BorgScanoutContentionHarness extends Module {
   mem.io.gpuMem.addr  := Mux(borgReq, borg.io.gpuMem.addr,
                            Mux(tbReq, io.rdAddr, scanout.io.gpuAddr))
   mem.io.gpuMem.wdata := borg.io.gpuMem.wdata
+  mem.io.gpuMem.wlen  := Mux(borgReq, borg.io.gpuMem.wlen, 1.U)
+  borg.io.gpuMem.waccept := mem.io.gpuMem.waccept && borgReq
 
   // Borg: data/ready only when borgReq
   borg.io.gpuMem.ready := mem.io.gpuMem.ready && borgReq
