@@ -148,11 +148,15 @@ layer, which is all Vulkan requires of linear images.
    face comes from TEXA's layer (0-5, +X -X +Y -Y +Z -Z); the direction's
    major-axis projection to (face, s, t) is the compiler's.
 
-Everything is sequential: one multiplier, one FMA, one field extractor. The
-implicit LOD's twelve FMA operations issue back to back (x and y interleaved).
-A
-sample costs tens to hundreds of cycles, which is the design point:
-conformance at the area of a state machine.
+The sampler is two state machines. The setup reads the descriptors, takes
+the implicit LOD (its twelve FMA operations back to back, x and y
+interleaved), and per lane and level picks the level and scales, offsets
+and wraps the coordinates. It hands each lane's level to the taps, which
+address, fetch, decode and filter its texels and answer, and sets up the
+next lane meanwhile. Each has a multiplier; they share one FMA and the
+memory port, the taps' fetches first. A sample costs tens to hundreds of
+cycles, which is the design point: conformance at the area of a state
+machine.
 
 A 64-word texel cache (direct-mapped, indexed by a fold of the word address)
 answers the words bilinear taps and magnified textures read again without a
