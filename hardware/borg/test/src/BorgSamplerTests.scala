@@ -398,6 +398,23 @@ object BorgSamplerTests extends TestSuite {
       }
     }
 
+    utest.test("partial_quads_answer_their_lanes") {
+      withSampler { d =>
+        // Implicit LOD from all four lanes, answers from the active ones; none active still ends.
+        val t = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 16, 8, levels = 4)
+        val s = Samp(magLin = true, minLin = true, mipLin = true)
+        val lanes = Seq(Lane(0.1f, 0.2f), Lane(0.45f, 0.2f), Lane(0.1f, 0.55f), Lane(0.45f, 0.55f))
+        val mem = new Mem
+        setup(mem, Seq(t), Seq(s))
+        val texel = fill(mem, t, new scala.util.Random(5))
+        for (m <- 0 until 16) {
+          val active = (0 until 4).map(i => (m >> i & 1) == 1)
+          d.io.invalidate.poke(true.B); d.clock.step(1); d.io.invalidate.poke(false.B)
+          check(s"active $m", run(d, mem, 0L, lanes, active), reference(t, s, texel, 0L, lanes), active)
+        }
+      }
+    }
+
     utest.test("mipmaps_explicit_implicit_and_trilinear") {
       withSampler { d =>
         val fm = TexFormat.byName("R8G8B8A8_UNORM")
