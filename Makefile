@@ -168,9 +168,14 @@ mesa/build-borg/build.ninja:
 	meson setup mesa/build-borg mesa -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
 	  -Dcpp_rtti=false -Dtools=drm-shim -Dbuild-tests=false
 
-test-borgvk: mesa/build-borg/build.ninja
+# The driver build without Mesa's tests; this one adds the borgc and borgvk Rust unit tests.
+mesa/build-borg-test/build.ninja:
+	meson setup mesa/build-borg-test mesa -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
+	  -Dcpp_rtti=false -Dtools=drm-shim -Dbuild-tests=true
+
+test-borgvk: mesa/build-borg/build.ninja mesa/build-borg-test/build.ninja
 	ninja -C mesa/build-borg
-	meson test -C mesa/build-borg --suite borg
+	meson test -C mesa/build-borg-test --suite borg
 
 test-chisel-borg:
 	$(MILL) hardware.borg.test
