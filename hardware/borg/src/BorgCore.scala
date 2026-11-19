@@ -157,6 +157,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val programCounter = slot.pc
   val running = slot.running
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
+  private val rasterUnit = Module(new RasterUnit(cfg))
   // @doc:end
 
   // Bit k - 1: an instruction in stage k.
@@ -343,6 +344,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.issueStats.tex := texUnit.io.prof
 
   attach(Module(new ExpLogUnit(cfg)).io, _.explog)
+  private val rastSlot = attach(rasterUnit.io, _.rast)
+  rasterUnit.io.single := io.drawSingle
+  rasterUnit.io.page := slots(rastSlot).page
+  rasterUnit.io.unifData := uniformMem.read(
+    if (cfg.maxUniforms > 32) Cat(slots(rastSlot).page, rasterUnit.io.unifIdx) else rasterUnit.io.unifIdx,
+    rasterUnit.io.unifEn)
   // The lanes' write port, when write-back leaves it free, to one unit at a time.
   locally {
     val grant = PriorityEncoderOH(wbWants.toSeq)
@@ -469,6 +476,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr(4, 0), unifIdx(4, 0))
     val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data, io.bus.data_in(config.totalBits - 1, 0))
     when(unifWen) { uniformMem.write(unifAddr, unifData) }
+    rasterUnit.io.pageWritten.valid := unifWen
+    rasterUnit.io.pageWritten.bits  := (if (cfg.maxUniforms > 32) unifAddr(5) else 0.U)
   }
 
   /** Operands that are no register: x0, LUI's zero, AUIPC's address, immediates, CSRs. Latched
