@@ -98,6 +98,8 @@ amocas.w  rd rs1 rs2 aq rl 31..27=0x05 14..12=2 6..2=0x0B 1..0=3
 texd    rd rs1 rs2 rs3 26..25=0 14..12=0 6..2=0x0A 1..0=3
 texad   rs1 rs2 rs3 26..25=1 14..12=0 11..7=0 6..2=0x0A 1..0=3
 texs    rs1 rs2 31..25=0 14..12=1 11..7=0 6..2=0x0A 1..0=3
+# RAST: the draw front end's per-pixel planes, barycentrics and depths from the pixel centre.
+rast    rs1 rs2 31..25=0 14..12=4 11..7=0 6..2=0x0A 1..0=3
 # Custom-0..3 (B8 step 15), v1's special, attachment, geometry and control ops; named .v2 until
 # v1's go. Operand fields stay where v1 has them.
 frcp.v2   rd rs1 31..25=0 24..20=0 14..12=0 6..2=0x02 1..0=3

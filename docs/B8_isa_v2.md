@@ -67,7 +67,7 @@ end of a program: RISC-V defines it as illegal, so no valid program loses an enc
 | OP-FP 0x53, MADD 0x43, MSUB 0x47, NMSUB 0x4B, NMADD 0x4F | Zfinx (FP32 in x registers), Zhinxmin conversions |
 | AMO 0x2F | Zaamo, Zacas (32-bit) |
 | custom-0 0x0B | Special functions and derivatives: `FRCP`, `FRSQ`, `FEXP2`, `FLOG2`, `DDX`, `DDY` |
-| custom-1 0x2B | Texture and attachment: `TEX`, `TEXA`, `TEXS`, `TLD`, `ZTEST` |
+| custom-1 0x2B | Texture and attachment: `TEX`, `TEXA`, `TEXS`, `TLD`, `ZTEST`; `RAST` |
 | custom-2 0x5B | Geometry: `SOUT`, `FATTR`; `SWS`, the spill store |
 | custom-3 0x7B | Control and quad: `EXPUSH`, `EXELSE`, `EXPOP`, `EXANY`, `BARRIER`, `QBALLOT`, `QSHUF` |
 
@@ -84,6 +84,7 @@ file has them (`hardware/borg/isa/rv_i`, named `.v2` until v1's forms go):
 | `TEXS` | 0x2B | R | 1 | 0x00 | rs1 = sampler descriptor address, rs2 = control word |
 | `TLD` | 0x2B | R | 2 | 0x00 | rd; rs2 field = word |
 | `ZTEST` | 0x2B | R | 3 | 0x00 | — |
+| `RAST` | 0x2B | R | 4 | 0x00 | rs1, rs2 = pixel centre; the raster ROM's only computing instruction (B1) |
 | `SOUT` | 0x5B | R | 0 | 0x00 | rs2 = value; rs1 and rd fields = output component (as v1) |
 | `FATTR` | 0x5B | R | 1 | 0x00 | rd (group of 3); rs2 and rs1 fields = attribute (as v1) |
 | `SWS` | 0x5B | S | 2 | - | as SW (rs1 + imm12, rs2); helper lanes run it: a spill slot is the lane's own (B12) |

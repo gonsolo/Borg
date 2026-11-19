@@ -54,6 +54,7 @@ object Decode {
     flags.fattr  := rv.fattr
     flags.tex    := rv.texd
     flags.texs   := rv.texs
+    flags.rast   := rv.rast
     flags.smask  := rv.csrMask
     flags.tld    := rv.tld
     flags.texa   := rv.texad
@@ -65,7 +66,7 @@ object Decode {
     flags.csr  := rv.csr
     flags.explog := rv.fexp2 || rv.flog2
     flags.unit := flags.load || flags.store || flags.sout || flags.fattr || flags.tex || flags.texa ||
-      flags.texs || flags.explog || flags.ztest
+      flags.texs || flags.rast || flags.explog || flags.ztest
 
     (regs, flags)
   }

@@ -50,6 +50,7 @@ class FpuOpFlags extends Bundle {
   val rvNoWrite = Bool()  // a RISC-V instruction writing x0, or a CSR access (no reads yet)
   val csrw    = Bool()     // CSRRW
   val texs    = Bool()     // TEXS: sampler descriptor address and control word
+  val rast    = Bool()     // RAST: the draw raster values from the pixel centre
   val rvx     = Bool()     // a Zmmul/Zicond/Zbb op, rvxOp says which
   val rvxOp   = UInt(6.W)
   val negC    = Bool()     // FSUB, FMSUB, FNMADD: the FMA's addend negated

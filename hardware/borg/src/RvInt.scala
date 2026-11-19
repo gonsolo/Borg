@@ -38,6 +38,7 @@ class RvInt(instr: UInt) {
   val texd  = custom1 && f3 === 0.U && instr(26, 25) === 0.U
   val texad = custom1 && f3 === 0.U && instr(26, 25) === 1.U
   val texs  = custom1 && f3 === 1.U && f7 === 0.U
+  val rast  = (instr & Opcodes.MASK_RAST.U(32.W)) === Opcodes.MATCH_RAST.U(32.W)
   /** Custom-0..3: v1's special, attachment, geometry and control ops, same operand fields. */
   private def is(m: Long, k: Long) = (instr & k.U(32.W)) === m.U(32.W)
   val frcp   = is(Opcodes.MATCH_FRCP_V2, Opcodes.MASK_FRCP_V2); val frsq = is(Opcodes.MATCH_FRSQ_V2, Opcodes.MASK_FRSQ_V2)
@@ -106,7 +107,7 @@ class RvInt(instr: UInt) {
   /** The register fields read as registers, not as immediates or indices (B9's hazard check). */
   val readsRs1 = !(lui || auipc || jal || sout || fattr)
   // OP-FP: funct5 bit 30 is set exactly for the one-operand conversions and FCLASS.
-  val readsRs2 = op || br || store || amo || r4 || texd || texad || texs || sout ||
+  val readsRs2 = op || br || store || amo || r4 || texd || texad || texs || rast || sout ||
     opc === Opcodes.OPCODE_FADD_S.U && !instr(30)
   val readsRs3 = r4 || texd || texad || amocas
   val brOff  = (riscv.Rv.immB(instr, 13).asSInt >> 2).pad(20)
