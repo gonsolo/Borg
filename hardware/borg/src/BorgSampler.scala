@@ -177,18 +177,18 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   /** Signed ordered compare key for floats. */
   private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
-  private val states = Enum(26)                            // (three patterns: tuples stop at 22)
+  private val states = Enum(25)                            // (three patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLane :: sLaneSetup ::
                sLevel :: sLevelDims :: sLayer :: sLodLam :: sAxisMul :: Nil) = states.take(11)
   private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
                sTapNext :: sResp :: Nil) = states.slice(11, 22)
-  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(22)
+  private val (sMul :: sAxisFix :: sTapSlice :: Nil) = states.drop(22)
   private val state = RegInit(sIdle)
   private val mulRet = Reg(chiselTypeOf(sIdle))
   locally {
     val tapMul = state === sMul && (mulRet === sTapMul || mulRet === sTapSlice || mulRet === sTapAddr)
     val phases = Seq(Seq(sTexDesc, sSampDesc), Seq(sLod),
-      Seq(sLane, sLodLam, sLaneSetup, sLevelDims, sLayer, sLayerOff, sAxisMul, sAxisFix, sWrap, sMul),
+      Seq(sLane, sLodLam, sLaneSetup, sLevelDims, sLayer, sAxisMul, sAxisFix, sWrap, sMul),
       Seq(sLevel), Seq(sTap, sTapLayer, sTapMul, sTapSlice, sTapAddr), Seq(sFetch),
       Seq(sDecode, sCompare, sAcc, sTapNext), Seq(sResp))
     val phase = Mux(tapMul, 5.U, PriorityMux(phases.zipWithIndex.map { case (ss, i) =>
@@ -280,7 +280,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val lw = RegInit(0.U(16.W)); private val lh = RegInit(0.U(16.W)); private val ld = RegInit(0.U(16.W))
   private val tpr = RegInit(0.U(14.W))                    // tiles per row at this level
   private val sliceTexels = RegInit(0.U(GpuMemIO.AddrBits.W))            // tiled texels per 3D slice
-  private val layerOff = RegInit(0.U(GpuMemIO.AddrBits.W))
   // Per axis: first tap, second tap, border flags, fraction.
   private val ax  = RegInit(0.U(2.W))
   private val i0  = Reg(Vec(3, SInt(20.W))); private val i1 = Reg(Vec(3, SInt(20.W)))
@@ -503,9 +502,9 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val d = Mux(ttype === T3D.U, shr(dimD), 1.U)
       lw := w; lh := h; ld := d
       tpr := (w +& 3.U) >> 2
-      // Multiplies by zero are skipped: no slices but in 3D, layer 0.
-      when(ttype =/= T3D.U && layerN === 0.U) {
-        sliceTexels := 0.U; layerOff := 0.U; wrapEnd := 0.U
+      // Only 3D has slices; a tap multiplies its own layer.
+      when(ttype =/= T3D.U) {
+        sliceTexels := 0.U; wrapEnd := 0.U
         toAxis(0.U)
       }.otherwise {
         // texels per 3D slice: tiles per row * tile rows * 16
@@ -514,10 +513,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sLayer) {
       sliceTexels := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      mul(layerN.zext, stride, sLayerOff)
-    }
-    is(sLayerOff) {
-      layerOff := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       wrapEnd := 0.U
       toAxis(0.U)
     }
