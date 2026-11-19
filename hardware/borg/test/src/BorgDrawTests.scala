@@ -936,7 +936,7 @@ object BorgDrawTests extends TestSuite {
       XOR(19, dst, 19), AND(19, 19, 20), XOR(dst, dst, 19))
     val store128 = Seq(Opcodes.CSRRS(20, 0, Csr.Attachment), 
                        ldU(18, 26), SRL(20, 20, 18),
-                       XOR(18, 9, 9), SUB(20, 18, 20)) ++
+                       XOR(18, 0, 0), SUB(20, 18, 20)) ++
                    pick(26, 21, 24) ++ pick(27, 23, 25) :+ BigInt(0)
     val w23Clear = Seq(BorgGpuRegs.att_clear_w2_0_offset -> BigInt(0x0C0FFEE0L), BorgGpuRegs.att_clear_w3_0_offset -> BigInt(0x0FACADE0L))
     def at128(x: Int, y: Int): BigInt = {
@@ -1011,8 +1011,8 @@ object BorgDrawTests extends TestSuite {
     import Instructions._
     import Opcodes._
     val q = Seq(at(8, 0, 1, r = 0.2), at(0, 0, 1, r = 0.6), at(8, 8, 1, r = 0.4), at(0, 8, 1, r = 0.8))
-    val flat = Seq(FATTR(rd = 10, index = 0), XOR(26, 9, 9), OR(26, 26, 10),
-                   XOR(27, 9, 9), XOR(28, 9, 9), BigInt(0))
+    val flat = Seq(FATTR(rd = 10, index = 0), XOR(26, 0, 0), OR(26, 26, 10),
+                   XOR(27, 0, 0), XOR(28, 0, 0), BigInt(0))
     val tris = Seq(Seq(q(0), q(1), q(2)), Seq(q(1), q(3), q(2)))              // the strip's primitives
     for (indexed <- Seq(false, true)) {
       rig.draw(q, topology = 1, frag = flat, sampleMaskCfg = 0xF | 0x40, indices = if (indexed) Seq(0, 1, 2, 3) else Nil)
