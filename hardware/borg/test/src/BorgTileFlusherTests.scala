@@ -666,6 +666,9 @@ object BorgTileFlusherTests extends TestSuite {
     utest.test("msaa 4x rgba8 flush averages alpha across samples") {
       wideFlush(4, FlushFormat.RGBA8)
     }
+    utest.test("msaa 4x srgb rgba8 flush encodes the resolved channels") {
+      wideFlush(4, FlushFormat.RGBA8, srgb = true)
+    }
     utest.test("stencil flush follows depth as eight S8 halfword pairs") {
       // A stencil attachment used to be impossible: the plane never left the
       // chip. It now goes out after the depth burst, 16 bytes per tile, two
