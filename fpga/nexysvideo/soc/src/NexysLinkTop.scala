@@ -7,11 +7,11 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import borg.{Borg, BorgConfig}
-import soc.{Emit, GpuMemArbiter, GpuMemMig, HostLink}
+import soc.{Emit, GpuMemArbiter, GpuMemMig, HostLink, HuttBusSplit}
 
 /** Borg on the Nexys Video as the host's device (`borg_ftdi`, BORG_HW_RAW): the direct simulator's
   * protocol over the FT2232H's synchronous FIFO, memory on the DDR3, the presented picture on HDMI.
-  * No CPU.
+  * No CPU. Register offsets 0x400 and up reach LiteDRAM's calibration registers.
   */
 class NexysLinkTop extends RawModule with NexysBoard {
   val borgReset = resetIn(clkGen.io.clk25, !locked || usbLost)
@@ -20,9 +20,12 @@ class NexysLinkTop extends RawModule with NexysBoard {
   tx.enqClock := clkGen.io.clk25; tx.enqReset := borgReset
   withClockAndReset(clkGen.io.clk25, borgReset) {
     val b    = Module(new Borg(BorgConfig.Default))
-    val link = Module(new HostLink)
+    val link = Module(new HostLink(11))
     val arb  = Module(new GpuMemArbiter(2))
-    link.io.mmio <> b.io.mmio
+    val split = Module(new HuttBusSplit(11, 10))
+    split.io.in <> link.io.mmio
+    b.io.mmio <> split.io.lo
+    dramWindow().io.bus <> split.io.hi
     arb.io.in(0) <> b.io.gpuMem
     arb.io.in(1) <> link.io.mem
     link.io.written.valid     := b.io.gpuMem.wr && b.io.gpuMem.ready
@@ -35,13 +38,13 @@ class NexysLinkTop extends RawModule with NexysBoard {
 
     val ddr = Module(new GpuMemMig)
     ddr.io.gpu <> arb.io.out
-    ddr.io.uiClock := mig.ui_clk
-    ddr.io.uiReset := mig.ui_clk_sync_rst || resetIn(mig.ui_clk, usbLost)
+    ddr.io.uiClock := dram.user_clk
+    ddr.io.uiReset := dram.user_rst || resetIn(dram.user_clk, usbLost)
     gpuMig <> ddr.io.mig
 
     val down = Counter(link.io.in.fire, 1 << 12)._1
     val up   = Counter(link.io.out.fire, 1 << 12)._1
-    led := Cat(up(11), down(11), locked, RegNext(RegNext(mig.init_calib_complete)))
+    led := Cat(up(11), down(11), locked, RegNext(RegNext(dram.init_done)))
   }
 }
 

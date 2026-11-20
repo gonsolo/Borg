@@ -29,6 +29,7 @@ MIG_IP       := ip/mig_7series_0
 # The open DDR3 controller (LiteDRAM), generated from LiteDram.yml; litedram_gen comes from nixpkgs.
 LITEDRAM_V   := $(BUILD_DIR)/litedram/build/gateware/litedram_core.v
 LITEDRAM_SIM_V := $(BUILD_DIR)/litedram-sim/build/gateware/litedram_sim.v
+LITEDRAM_XDC := LiteDram.xdc LiteDramVivado.xdc
 
 MINIMAL_VERILOG := $(ROOT)/out/nexysvideo_minimal/verilog
 MINIMAL_BIT     := $(BUILD_DIR)/minimal/nexysvideo_minimal_top.bit
@@ -146,24 +147,24 @@ $(BORG_BIT): .verilog_stamp_borg build.tcl NexysVideoMinimal.xdc $(wildcard $(MI
 
 link: $(LINK_BIT)
 
-$(LINK_BIT): .verilog_stamp_link build.tcl NexysLink.xdc $(wildcard $(MIG_IP)/*)
+$(LINK_BIT): .verilog_stamp_link build.tcl NexysLink.xdc $(LITEDRAM_XDC) $(LITEDRAM_V)
 	mkdir -p $(BUILD_DIR)
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log link.log \
 	    -source $(call host_path,build.tcl) \
-	    -tclargs NexysLinkTop $(call host_path,$(LINK_VERILOG)) $(call host_path,NexysLink.xdc) link \
-	    $(call host_path,$(MIG_IP))
+	    -tclargs NexysLinkTop $(call host_path,$(LINK_VERILOG)) \
+	    "$(foreach f,NexysLink.xdc $(LITEDRAM_XDC),$(call host_path,$(f)))" link "" $(call host_path,$(LITEDRAM_V))
 
 program-link: $(LINK_BIT)
 	openFPGALoader -b nexysVideo $<
 
 linux: $(LINUX_BIT)
 
-$(LINUX_BIT): .verilog_stamp_linux build.tcl NexysLinux.xdc $(wildcard $(MIG_IP)/*)
+$(LINUX_BIT): .verilog_stamp_linux build.tcl NexysLinux.xdc $(LITEDRAM_XDC) $(LITEDRAM_V)
 	mkdir -p $(BUILD_DIR)
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log linux.log \
 	    -source $(call host_path,build.tcl) \
-	    -tclargs NexysLinuxTop $(call host_path,$(LINUX_VERILOG)) $(call host_path,NexysLinux.xdc) linux \
-	    $(call host_path,$(MIG_IP))
+	    -tclargs NexysLinuxTop $(call host_path,$(LINUX_VERILOG)) \
+	    "$(foreach f,NexysLinux.xdc $(LITEDRAM_XDC),$(call host_path,$(f)))" linux "" $(call host_path,$(LITEDRAM_V))
 
 program-linux: $(LINUX_BIT)
 	openFPGALoader -b nexysVideo $<

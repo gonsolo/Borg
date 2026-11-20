@@ -44,8 +44,8 @@ set_output_delay -clock usb_clk -max 8.0  $usb_out
 set_output_delay -clock usb_clk -min 0.0  $usb_out
 set_property IOB TRUE $usb_out
 
-## Borg (25 MHz), the MIG's ui_clk, the FIFO's and the pixels' clocks meet only in handshakes and Gray-coded FIFOs.
-set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks usb_clk] -group [get_clocks _mmcm_CLKOUT0] -group [get_clocks clk_pll_i] -group [get_clocks _mmcm_CLKOUT1]
+## Borg (25 MHz), LiteDRAM's clocks (from the 200 MHz one), the FIFO's and the pixels' clocks meet only in handshakes and Gray-coded FIFOs.
+set_clock_groups -asynchronous -group [get_clocks -include_generated_clocks usb_clk] -group [get_clocks _mmcm_CLKOUT0] -group [get_clocks -include_generated_clocks _mmcm_CLKOUT2] -group [get_clocks _mmcm_CLKOUT1]
 
 ## USB-UART (J13), named from the PC: uart_rx_out is what the FPGA sends
 set_property -dict { PACKAGE_PIN AA19 IOSTANDARD LVCMOS33 } [get_ports { uart_rx_out }]

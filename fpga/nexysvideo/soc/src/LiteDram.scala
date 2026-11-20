@@ -84,7 +84,7 @@ object LiteDramWindow {
   def ctrlWord(w: UInt): UInt = Mux(w(6), 0x400.U | w(5, 0), Mux(w(5), 0x200.U | w(4, 0), w(4, 0)))
 }
 
-/** Host register offsets 0x200-0x3FF, the 128 words above Borg's registers, onto [[litedram_core]]'s
+/** Host register offsets 0x400-0x5FF, the 128 words above Borg's registers, onto [[litedram_core]]'s
   * control bus on its own clock, for calibration from the host.
   */
 class LiteDramWindow extends Module {

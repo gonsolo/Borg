@@ -8,7 +8,7 @@ import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import borg.BorgConfig
 import hutt.{HuttBus, HuttInstrBus}
-import soc.{Emit, GpuMemArbiter, GpuMemMig, HostLink, HuttGpuMem, MinimalSoCLogic}
+import soc.{Emit, GpuMemArbiter, GpuMemMig, HostLink, HuttBusSplit, HuttGpuMem, MinimalSoCLogic}
 
 /** 64-bit Hutt with Borg on the Nexys Video, for Linux (docs/B15_nexys_linux.md): the minimal
   * SoC on the DDR3, sharing one memory port with the host link. The host loads memory over USB
@@ -85,7 +85,7 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
     arb.io.in(1) <> borg.io.gpuMem
     arb.io.in(1).addr := borg.io.gpuMem.addr + gpuWindow.U
 
-    val link = withReset(linkReset) { Module(new HostLink) }
+    val link = withReset(linkReset) { Module(new HostLink(11)) }
     arb.io.in(2) <> link.io.mem
     link.io.in <> rx.deq
     tx.enq.valid      := link.io.out.valid
@@ -95,8 +95,11 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
     link.io.written.bits.addr := borg.io.gpuMem.addr
     link.io.written.bits.wlen := borg.io.gpuMem.wlen
 
-    // The link's registers: one, Hutt's run bit.
-    val c    = link.io.mmio
+    // The link's registers: Hutt's run bit, and from 0x400 LiteDRAM's calibration registers.
+    val split = Module(new HuttBusSplit(11, 10))
+    split.io.in <> link.io.mmio
+    dramWindow().io.bus <> split.io.hi
+    val c    = split.io.lo
     val pend = RegInit(false.B)
     c.req.ready  := !pend
     c.resp.valid := pend
@@ -106,11 +109,11 @@ class NexysLinuxTop extends RawModule with NexysBoard with MinimalSoCLogic {
 
     val ddr = Module(new GpuMemMig)
     ddr.io.gpu <> arb.io.out
-    ddr.io.uiClock := mig.ui_clk
-    ddr.io.uiReset := mig.ui_clk_sync_rst
+    ddr.io.uiClock := dram.user_clk
+    ddr.io.uiReset := dram.user_rst
     gpuMig <> ddr.io.mig
 
-    led := Cat(uart_rx_out, run, locked, RegNext(RegNext(mig.init_calib_complete)))
+    led := Cat(uart_rx_out, run, locked, RegNext(RegNext(dram.init_done)))
   }
 }
 
