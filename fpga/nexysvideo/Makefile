@@ -28,6 +28,7 @@ MIG_IP       := ip/mig_7series_0
 
 # The open DDR3 controller (LiteDRAM), generated from LiteDram.yml; litedram_gen comes from nixpkgs.
 LITEDRAM_V   := $(BUILD_DIR)/litedram/build/gateware/litedram_core.v
+LITEDRAM_SIM_V := $(BUILD_DIR)/litedram-sim/build/gateware/litedram_sim.v
 
 MINIMAL_VERILOG := $(ROOT)/out/nexysvideo_minimal/verilog
 MINIMAL_BIT     := $(BUILD_DIR)/minimal/nexysvideo_minimal_top.bit
@@ -64,6 +65,7 @@ help:
 	@echo "make ddr3             - Chisel -> Verilog -> bitstream (DDR3 write/read-back test)"
 	@echo "make program-ddr3     - build if needed, then load onto the board"
 	@echo "make litedram         - generate the open DDR3 controller (litedram_gen, LiteDram.yml)"
+	@echo "make litedram-sim     - the same on LiteDRAM's DDR3 model, under GpuMemMig (LiteDramSimTests)"
 	@echo "make link             - bitstream: Borg alone, the host's device over USB (borg_ftdi)"
 	@echo "make program-link     - build if needed, then load onto the board"
 	@echo "make linux            - bitstream: Hutt running Linux with Borg (software: make -C ../../software nexys)"
@@ -267,7 +269,17 @@ $(LITEDRAM_V): LiteDram.yml
 	mkdir -p $(BUILD_DIR)/litedram
 	cd $(BUILD_DIR)/litedram && litedram_gen $(abspath $<) --no-compile > gen.log 2>&1
 
+# The same core on LiteDRAM's DDR3 model, run under GpuMemMig by LiteDramSimTests. litedram_gen
+# stops after the Verilog, wanting the simulator's network tap; the first line quiets Verilator.
+litedram-sim: $(LITEDRAM_SIM_V)
+	cd $(ROOT) && LITEDRAM_SIM_V=$(abspath $<) mill fpga.nexysvideo.soc.test.testOnly nexysvideo.LiteDramSimTests
+
+$(LITEDRAM_SIM_V): LiteDram.yml
+	rm -rf $(BUILD_DIR)/litedram-sim && mkdir -p $(BUILD_DIR)/litedram-sim
+	cd $(BUILD_DIR)/litedram-sim && { litedram_gen $(abspath $<) --sim --name litedram_sim --no-compile > gen.log 2>&1 || test -f $(abspath $@); }
+	sed -i '1i /* verilator lint_off WIDTHEXPAND */ /* verilator lint_off WIDTHTRUNC */ /* verilator lint_off CASEINCOMPLETE */' $@
+
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 litedram minimal program-minimal borg program-borg link program-link linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 litedram litedram-sim minimal program-minimal borg program-borg link program-link linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
