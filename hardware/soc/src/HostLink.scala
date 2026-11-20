@@ -26,17 +26,17 @@ class GpuWrite extends Bundle {
   val wlen = UInt(7.W)   // halfword beats
 }
 
-class HostLinkIO extends Bundle {
+class HostLinkIO(mmioBits: Int) extends Bundle {
   val in   = Flipped(Decoupled(UInt(8.W)))
   val out  = Decoupled(UInt(8.W))
   val outEnd = Output(Bool())   // the byte on `out` ends a reply
-  val mmio = new HuttBus(10)
+  val mmio = new HuttBus(mmioBits)
   val mem  = new GpuMemIO
   val written = Flipped(Valid(new GpuWrite))   // a write of Borg's that completed
 }
 
-class HostLink extends Module {
-  val io = IO(new HostLinkIO)
+class HostLink(mmioBits: Int = 10) extends Module {
+  val io = IO(new HostLinkIO(mmioBits))
 
   val (sCmd :: sArgs :: sExec :: sMmio :: sMmioResp :: sSend :: sData :: sBurstGo :: sBurst :: sRead :: sDirty :: sDirtyGot ::
       sFillGo :: sFill :: Nil) = Enum(14)
