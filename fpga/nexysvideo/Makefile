@@ -26,6 +26,9 @@ DDR3_VERILOG := $(ROOT)/out/nexysvideo_ddr3/verilog
 DDR3_BIT     := $(BUILD_DIR)/ddr3/DDR3Top.bit
 MIG_IP       := ip/mig_7series_0
 
+# The open DDR3 controller (LiteDRAM), generated from LiteDram.yml; litedram_gen comes from nixpkgs.
+LITEDRAM_V   := $(BUILD_DIR)/litedram/build/gateware/litedram_core.v
+
 MINIMAL_VERILOG := $(ROOT)/out/nexysvideo_minimal/verilog
 MINIMAL_BIT     := $(BUILD_DIR)/minimal/nexysvideo_minimal_top.bit
 
@@ -60,6 +63,7 @@ help:
 	@echo "make program-hdmi     - build if needed, then load onto the board"
 	@echo "make ddr3             - Chisel -> Verilog -> bitstream (DDR3 write/read-back test)"
 	@echo "make program-ddr3     - build if needed, then load onto the board"
+	@echo "make litedram         - generate the open DDR3 controller (litedram_gen, LiteDram.yml)"
 	@echo "make link             - bitstream: Borg alone, the host's device over USB (borg_ftdi)"
 	@echo "make program-link     - build if needed, then load onto the board"
 	@echo "make linux            - bitstream: Hutt running Linux with Borg (software: make -C ../../software nexys)"
@@ -257,7 +261,13 @@ flash-replay: $(BUILD_DIR)/replay_fw.bin flash.tcl
 	cd $(BUILD_DIR) && $(VIVADO) -mode batch -nojournal -log flash.log \
 	    -source $(call host_path,flash.tcl) -tclargs replay_fw.bin $(FLASH_OFFSET)
 
+litedram: $(LITEDRAM_V)
+
+$(LITEDRAM_V): LiteDram.yml
+	mkdir -p $(BUILD_DIR)/litedram
+	cd $(BUILD_DIR)/litedram && litedram_gen $(abspath $<) --no-compile > gen.log 2>&1
+
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 minimal program-minimal borg program-borg link program-link linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 litedram minimal program-minimal borg program-borg link program-link linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean

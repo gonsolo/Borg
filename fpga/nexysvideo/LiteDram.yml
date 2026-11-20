@@ -1,0 +1,30 @@
+# The Nexys Video DDR3 (MT41K256M16, 512 MiB, x16) for litedram_gen, as Borg's MIG had it: DDR3-800 at
+# 1.5 V, 4:1 PHY, 100 MHz controller clock, RZQ/7 drive, RZQ/6 nominal ODT, dynamic ODT off.
+# No CPU: calibration runs over the Wishbone control bus.
+{
+    "speedgrade": -1,
+    "cpu":        None,
+    "memtype":    "DDR3",
+
+    "cmd_latency":     0,
+    "sdram_module":    "MT41K256M16",
+    "sdram_module_nb": 2,
+    "sdram_rank_nb":   1,
+    "sdram_phy":       "A7DDRPHY",
+
+    "rtt_nom": "40ohm",
+    "rtt_wr":  "disabled",
+    "ron":     "34ohm",
+
+    "input_clk_freq":   100e6,
+    "sys_clk_freq":     100e6,
+    "iodelay_clk_freq": 200e6,
+
+    "cmd_buffer_depth": 16,
+
+    "user_ports": {
+        "native_0": {
+            "type": "native",
+        },
+    },
+}
