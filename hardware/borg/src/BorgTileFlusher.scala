@@ -242,9 +242,12 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       accA.foreach(_ := 0.U)
     }
 
-    // The last sample is added like the others; the average and its conversion are staged a cycle later.
-    val finish = RegInit(false.B)
-    when(v3 || (state === sIdle && io.start)) { finish := false.B }
+    // The last sample is added like the others; the average is converted a cycle later and staged
+    // the cycle after that.
+    val finish    = RegInit(false.B)
+    val converted = RegInit(false.B)
+    val conv      = Reg(Vec(4, UInt(8.W)))   // r, g, b, a
+    when(v3 || (state === sIdle && io.start)) { finish := false.B; converted := false.B }
     when(resolveBusy) {
       // Per sample (msReg): one sample, stored as is. Resolved: the average.
       val s = pendingSamples(Mux(msReg, sampleIdx, resolveSample))
@@ -257,24 +260,24 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         accA.foreach(a => a := a + Cat(pendingAlpha.get(Mux(msReg, sampleIdx, resolveSample)), 0.U(8.W)))
         when(msReg || resolveSample === (samples - 1).U) { finish := true.B }
           .otherwise { resolveSample := resolveSample + 1.U }
-      }.otherwise {
+      }.elsewhen(!converted) {
         // Per sample the accumulator holds that one sample's term.
         def pick(sum: UInt): UInt = Mux(msReg, sum, sum >> sampleBits)(15, 8)
         def colour(sum: UInt, h: UInt): UInt = {
           val avg = ((sum +& (if (sampleBits > 0) (1 << (sampleBits - 1)) else 0).U) >> sampleBits)(15, 0)   // rounded: samples * 65535 + half still fits
           Mux(srgbReg, SrgbCodec.encode(Mux(msReg, h, DepthQuantize.dequantize16(avg))), pick(sum))
         }
-        stagePixel(capIdx(3, 0),
-          colour(accR, s.r),
-          colour(accG, s.g),
-          colour(accB, s.b),
-          accA.map(pick).getOrElse(255.U(8.W)),
-          pendingExt.getOrElse(0.U(32.W)))
+        conv := VecInit(colour(accR, s.r), colour(accG, s.g), colour(accB, s.b),
+                        accA.map(pick).getOrElse(255.U(8.W)))
+        converted := true.B
+      }.otherwise {
+        stagePixel(capIdx(3, 0), conv(0), conv(1), conv(2), conv(3), pendingExt.getOrElse(0.U(32.W)))
         zVec.foreach(_(capIdx(3, 0)) := pendingSamples(Mux(msReg, sampleIdx, 0.U)).z)
         if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved from %d samples\n",
           capIdx, samples.U)
         capIdx       := capIdx + 1.U
         finish       := false.B
+        converted    := false.B
         resolveBusy  := false.B
         pipelineBusy := false.B
       }
