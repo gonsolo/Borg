@@ -38,10 +38,17 @@ class LiteDramMigUi extends Module {
   val u = io.ui
 
   val wq = Module(new Queue(new LiteDramWdata, 4))
-  wq.io.enq.valid     := u.app_wdf_wren
-  wq.io.enq.bits.data := u.app_wdf_data
-  wq.io.enq.bits.we   := ~u.app_wdf_mask
-  u.app_wdf_rdy       := wq.io.enq.ready
+  val in = RegInit(false.B)   // a register in front of the FIFO's LUT RAM, for timing
+  val inBits = Reg(new LiteDramWdata)
+  u.app_wdf_rdy   := !in || wq.io.enq.ready
+  wq.io.enq.valid := in
+  wq.io.enq.bits  := inBits
+  when(wq.io.enq.fire) { in := false.B }
+  when(u.app_wdf_wren && u.app_wdf_rdy) {
+    in          := true.B
+    inBits.data := u.app_wdf_data
+    inBits.we   := ~u.app_wdf_mask
+  }
   io.dram.wdata <> wq.io.deq
 
   io.dram.cmd.valid     := u.app_en
