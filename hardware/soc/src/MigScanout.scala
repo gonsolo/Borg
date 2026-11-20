@@ -151,9 +151,10 @@ class MigScanout(descAddr: Long) extends Module {
     val px   = (word >> Cat(RegNext(x(1, 0)), 0.U(5.W)))(31, 0)
     val on   = RegNext(win, false.B)
     val bgra = RegNext(pf === 1.U)
-    val red   = Mux(on, Mux(bgra, px(23, 16), px(7, 0)), 0.U)
-    val green = Mux(on, px(15, 8), 0.U)
-    val blue  = Mux(on, Mux(bgra, px(7, 0), px(23, 16)), 0.U)
+    // Registered before the encoders: ready three cycles before the next tick.
+    val red   = RegNext(Mux(on, Mux(bgra, px(23, 16), px(7, 0)), 0.U))
+    val green = RegNext(Mux(on, px(15, 8), 0.U))
+    val blue  = RegNext(Mux(on, Mux(bgra, px(7, 0), px(23, 16)), 0.U))
 
     val enc = Seq((blue, Cat(vsync, hsync)), (green, 0.U), (red, 0.U)).map { case (d, c) =>
       val e = Module(new TmdsEncoder)
