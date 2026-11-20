@@ -7,21 +7,27 @@ import chisel3._
 import chisel3.util._
 import hutt.HuttBus
 
-class HuttBusSplitIO(addrWidth: Int) extends Bundle {
+class HuttBusSplitIO(addrWidth: Int, bit: Int) extends Bundle {
   val in = Flipped(new HuttBus(addrWidth))
-  val lo = new HuttBus(addrWidth)
-  val hi = new HuttBus(addrWidth)
+  val lo = new HuttBus(bit)
+  val hi = new HuttBus(bit)
 }
 
-/** One [[HuttBus]] onto two by address bit `bit`: `hi` takes the accesses that set it. */
+/** One [[HuttBus]] onto two by address bit `bit`: `hi` takes the accesses that set it. Both see the
+  * address bits below it.
+  */
 class HuttBusSplit(addrWidth: Int, bit: Int) extends Module {
-  val io   = IO(new HuttBusSplitIO(addrWidth))
+  val io   = IO(new HuttBusSplitIO(addrWidth, bit))
   val toHi = io.in.req.bits.addr(bit)
   val hiOwns = RegInit(false.B)   // the outstanding access's side
   io.lo.req.valid := io.in.req.valid && !toHi
   io.hi.req.valid := io.in.req.valid && toHi
-  io.lo.req.bits  := io.in.req.bits
-  io.hi.req.bits  := io.in.req.bits
+  for (s <- Seq(io.lo, io.hi)) {
+    s.req.bits.addr  := io.in.req.bits.addr(bit - 1, 0)
+    s.req.bits.write := io.in.req.bits.write
+    s.req.bits.size  := io.in.req.bits.size
+    s.req.bits.data  := io.in.req.bits.data
+  }
   io.in.req.ready := Mux(toHi, io.hi.req.ready, io.lo.req.ready)
   when(io.in.req.fire) { hiOwns := toHi }
   io.in.resp.valid := Mux(hiOwns, io.hi.resp.valid, io.lo.resp.valid)

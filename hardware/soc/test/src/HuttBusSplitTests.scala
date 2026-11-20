@@ -27,13 +27,14 @@ object HuttBusSplitTests extends TestSuite {
           s.resp.valid.poke((pend(i).nonEmpty && rnd.nextBoolean()).B)
           s.resp.bits.poke(pend(i).getOrElse(0L).U)
         }
+        var sent = 0L   // the address of the access on its way
         def step(): Unit = {
           for (i <- 0 to 1) {
             val s = sides(i)
             if (s.resp.valid.peek().litToBoolean && s.resp.ready.peek().litToBoolean) pend(i) = None
             if (s.req.valid.peek().litToBoolean && s.req.ready.peek().litToBoolean) {
               val a = s.req.bits.addr.peek().litValue.toLong
-              assert(((a >> 9) & 1) == i)
+              assert(((sent >> 9) & 1) == i && a == (sent & 0x1ff))
               if (s.req.bits.write.peek().litToBoolean) { mems(i)(a) = s.req.bits.data.peek().litValue.toLong; pend(i) = Some(0L) }
               else pend(i) = Some(mems(i)(a))
             }
@@ -48,6 +49,7 @@ object HuttBusSplitTests extends TestSuite {
           val a = 4L * rnd.nextInt(256)
           val write = rnd.nextBoolean()
           val v = rnd.nextLong() & 0xffffffffL
+          sent = a
           c.req.valid.poke(true.B); c.req.bits.addr.poke(a.U); c.req.bits.write.poke(write.B)
           c.req.bits.size.poke(2.U); c.req.bits.data.poke(v.U)
           var t = 0
