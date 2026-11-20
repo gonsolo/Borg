@@ -267,7 +267,9 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val dims = Mux(ttype === T3D.U, 3.U, Mux(ttype === T1D.U, 1.U, 2.U))
 
   private val srgbRom = VecInit(TexFormat.srgbToLinear.map(_.U(32.W)))
-  private val srgbWait = RegInit(false.B)                  // an sRGB channel waits a cycle for its ROM read
+  private val decoding = RegInit(false.B)                  // sDecode's second stage holds channel decK
+  private val decK     = Reg(UInt(2.W))
+  private val decField = Reg(UInt(32.W))
 
   // The one FMA: implicit LOD and the filter's weighted sum.
   private val fma = Module(new BorgFma(cfg))
@@ -709,14 +711,19 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       }
     }
     is(sDecode) {
-      // One channel per cycle; sub-word texels shift down by their byte offset first.
+      // Two stages, one channel per cycle: extract channel k, convert the one extracted before.
+      // Sub-word texels shift down by their byte offset first.
       val all = Cat(raw(3), raw(2), raw(1), raw(0)) >> Mux(fmt.bytes < 4.U, addr(1, 0) << 3, 0.U)
-      val w = fmt.bits(k(1, 0))
-      val field = ((all >> fmt.off(k(1, 0))) & ((1.U(33.W) << w) - 1.U))(31, 0)
+      val w1 = fmt.bits(k(1, 0))
+      val field1 = ((all >> fmt.off(k(1, 0))) & ((1.U(33.W) << w1) - 1.U))(31, 0)
+      val srgbLin = RegNext(srgbRom(field1(7, 0)))          // block RAM, read beside the extraction
+      when(!k(2)) { decField := field1; decK := k(1, 0); decoding := true.B; k := k + 1.U }
+
+      val field = decField
+      val w = fmt.bits(decK)
       val sext = ((field << (32.U - w))(31, 0).asSInt >> (32.U - w)).asUInt
       val oneF = "h3F800000".U(32.W)
-      val isAlpha = k === 3.U
-      val srgbLin = RegNext(srgbRom(field(7, 0)))           // block RAM
+      val isAlpha = decK === 3.U
       val v = MuxLookup(fmt.kind, field)(Seq(
         TexFormat.UNORM.U  -> TexFormat.unormToFp32(field, w),
         TexFormat.SNORM.U  -> TexFormat.snormToFp32(field, w),
@@ -734,15 +741,13 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val bOne = Mux(isInt, 1.U(32.W), oneF)
       val bv = Mux(isAlpha, Mux(border >= 2.U, bOne, 0.U), Mux(border >= 4.U, bOne, 0.U))
       // The border replaces only the channels the format has.
-      val hold = fmt.kind === TexFormat.SRGB.U && !isAlpha && !tBorder && w =/= 0.U && !srgbWait
-      srgbWait := hold
       // A filtered tap's channel goes from the decoder straight into the FMA.
       val filt = !doCmp && !isGather && !isInt && !tj.single
-      when(!hold) {
+      when(decoding) {
         val c = Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
-        vals(k(1, 0)) := c
-        when(filt) { fmaA := tWeight; fmaB := c; fmaC := acc(k(1, 0)); accIssue := true.B; accIdx := k(1, 0) }
-        when(k === 3.U) { k := 0.U; tst := Mux(filt, sTapNext, Mux(doCmp, sCompare, sAcc)) }.otherwise { k := k + 1.U }
+        vals(decK) := c
+        when(filt) { fmaA := tWeight; fmaB := c; fmaC := acc(decK); accIssue := true.B; accIdx := decK }
+        when(decK === 3.U) { decoding := false.B; k := 0.U; tst := Mux(filt, sTapNext, Mux(doCmp, sCompare, sAcc)) }
       }
     }
     is(sCompare) {
