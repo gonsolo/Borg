@@ -7,6 +7,7 @@ import chisel3.{Bool, Bundle, Clock, ExtModule, Flipped, IO, Input, Module, Outp
 import chisel3.util.HasExtModulePath
 import chisel3.simulator.EphemeralSimulator._
 import borg.GpuMemIO
+import hutt.HuttBus
 import soc.{GpuMemMig, LiteDramMigUi}
 import utest._
 
@@ -48,17 +49,13 @@ class litedram_sim extends ExtModule with HasExtModulePath {
 
 class LiteDramSimRigIO extends Bundle {
   val gpu      = Flipped(new GpuMemIO)
-  val wbAdr    = Input(UInt(30.W))
-  val wbDatW   = Input(UInt(32.W))
-  val wbStb    = Input(Bool())
-  val wbWe     = Input(Bool())
-  val wbAck    = Output(Bool())
-  val wbDatR   = Output(UInt(32.W))
+  val ctrl     = Flipped(new HuttBus(10))
   val userRst  = Output(Bool())
   val initDone = Output(Bool())
 }
 
-/** GpuMemMig through the adapter on the generated controller and its DDR3 model, one clock. */
+/** GpuMemMig through the adapter on the generated controller and its DDR3 model, the control bus
+  * through the host's register window; one clock. */
 class LiteDramSimRig extends Module {
   val io   = IO(new LiteDramSimRigIO)
   val core = Module(new litedram_sim)
@@ -84,16 +81,20 @@ class LiteDramSimRig extends Module {
   core.user_port_native_0_rdata_ready := a.io.dram.rdata.ready
   a.io.dram.rdata.bits                := core.user_port_native_0_rdata_data
 
-  core.wb_ctrl_adr   := io.wbAdr
-  core.wb_ctrl_dat_w := io.wbDatW
-  core.wb_ctrl_sel   := "hf".U
-  core.wb_ctrl_cyc   := io.wbStb
-  core.wb_ctrl_stb   := io.wbStb
-  core.wb_ctrl_we    := io.wbWe
+  val w = Module(new LiteDramWindow)
+  w.io.bus <> io.ctrl
+  w.io.wbClock := clock
+  w.io.wbReset := core.user_rst
+  core.wb_ctrl_adr   := w.io.wb.adr
+  core.wb_ctrl_dat_w := w.io.wb.datW
+  core.wb_ctrl_sel   := w.io.wb.sel
+  core.wb_ctrl_cyc   := w.io.wb.cyc
+  core.wb_ctrl_stb   := w.io.wb.stb
+  core.wb_ctrl_we    := w.io.wb.we
   core.wb_ctrl_cti   := 0.U
   core.wb_ctrl_bte   := 0.U
-  io.wbAck    := core.wb_ctrl_ack
-  io.wbDatR   := core.wb_ctrl_dat_r
+  w.io.wb.datR := core.wb_ctrl_dat_r
+  w.io.wb.ack  := core.wb_ctrl_ack
   io.userRst  := core.user_rst
   io.initDone := core.init_done
 }
@@ -106,19 +107,30 @@ object LiteDramSimTests extends TestSuite {
         val ref = scala.collection.mutable.Map[Long, Int]().withDefaultValue(0)
         val g   = dut.io.gpu
         dut.reset.poke(true.B); dut.clock.step(4); dut.reset.poke(false.B)
-        dut.io.wbStb.poke(false.B)
+        dut.io.ctrl.req.valid.poke(false.B)
+        dut.io.ctrl.resp.ready.poke(false.B)
         var n = 0
         while (dut.io.userRst.peek().litToBoolean && n < 1000) { dut.clock.step(); n += 1 }
         assert(!dut.io.userRst.peek().litToBoolean)
-        def wbWrite(word: Int, v: Int): Unit = {
-          dut.io.wbAdr.poke(word.U); dut.io.wbDatW.poke(v.U); dut.io.wbWe.poke(true.B); dut.io.wbStb.poke(true.B)
+        // The host's register accesses at window word w: offset 0x200 + 4 w.
+        def access(w: Int, write: Boolean, v: Long = 0): Long = {
+          val c = dut.io.ctrl
+          c.req.valid.poke(true.B); c.req.bits.addr.poke((0x200 + 4 * w).U); c.req.bits.write.poke(write.B)
+          c.req.bits.size.poke(2.U); c.req.bits.data.poke(v.U)
           var t = 0
-          while (!dut.io.wbAck.peek().litToBoolean) { dut.clock.step(); t += 1; assert(t < 100) }
-          dut.clock.step(); dut.io.wbStb.poke(false.B); dut.clock.step()
+          while (!c.req.ready.peek().litToBoolean) { dut.clock.step(); t += 1; assert(t < 100) }
+          dut.clock.step(); c.req.valid.poke(false.B); c.resp.ready.poke(true.B)
+          while (!c.resp.valid.peek().litToBoolean) { dut.clock.step(); t += 1; assert(t < 100) }
+          val r = c.resp.bits.peek().litValue.toLong
+          dut.clock.step(); c.resp.ready.poke(false.B)
+          r
         }
+        assert(access(31, false) == LiteDramWindow.Id)
+        assert(access(0, false) == 0)
         assert(!dut.io.initDone.peek().litToBoolean)
-        wbWrite(0x1000 >> 2, 0x01)  // sdram_dfii_control: SEL (also its reset value), the controller drives the DRAM
-        wbWrite(0x0000 >> 2, 1)     // ddrctrl_init_done
+        access(64, true, 0x01)  // sdram_dfii_control: SEL (also its reset value), the controller drives the DRAM
+        access(0, true, 1)      // ddrctrl_init_done
+        assert(access(0, false) == 1)
         assert(dut.io.initDone.peek().litToBoolean)
 
         def await(): Unit = { var t = 0; while (!g.ready.peek().litToBoolean) { dut.clock.step(); t += 1; assert(t < 20000) } }

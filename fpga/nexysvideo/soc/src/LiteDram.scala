@@ -75,3 +75,34 @@ class litedram_core extends ExtModule {
     p.rdata.bits                   := user_port_native_0_rdata_data
   }
 }
+
+object LiteDramWindow {
+  /** Window word 31 reads this: the board's memory is LiteDRAM ("LDR1"). */
+  val Id = 0x4c445231L
+
+  /** Window word to control-bus word: 0-31 the controller, 32-63 the PHY, 64-127 the DFII. */
+  def ctrlWord(w: UInt): UInt = Mux(w(6), 0x400.U | w(5, 0), Mux(w(5), 0x200.U | w(4, 0), w(4, 0)))
+}
+
+/** Host register offsets 0x200-0x3FF, the 128 words above Borg's registers, onto [[litedram_core]]'s
+  * control bus on its own clock, for calibration from the host.
+  */
+class LiteDramWindow extends Module {
+  val io = IO(new soc.HuttWishboneIO(10))
+  val b  = Module(new soc.HuttWishbone(10))
+  b.io.wbClock := io.wbClock
+  b.io.wbReset := io.wbReset
+  io.wb <> b.io.wb
+  io.wb.adr := LiteDramWindow.ctrlWord(b.io.wb.adr(6, 0))
+
+  val isId = io.bus.req.bits.addr(8, 2) === 31.U
+  val id   = RegInit(false.B)
+  b.io.bus.req.valid  := io.bus.req.valid && !isId
+  b.io.bus.req.bits   := io.bus.req.bits
+  io.bus.req.ready    := b.io.bus.req.ready && !id
+  io.bus.resp.valid   := id || b.io.bus.resp.valid
+  io.bus.resp.bits    := Mux(id, LiteDramWindow.Id.U, b.io.bus.resp.bits)
+  b.io.bus.resp.ready := io.bus.resp.ready && !id
+  when(io.bus.req.fire && isId) { id := true.B }
+  when(io.bus.resp.fire && id) { id := false.B }
+}
