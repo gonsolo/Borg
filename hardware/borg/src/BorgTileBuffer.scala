@@ -97,12 +97,15 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1,
   val rdEn   = effectiveReadEn
   def coverageFor(s: Int): Bool = io.write.coverage(s)
 
-  val rgbzRead = VecInit(rgbzMems.zipWithIndex.map { case (mem, s) =>
-    when(clearing) {
-      mem.write(clearCounter, clearWord)
-    }.elsewhen(io.write.en && coverageFor(s)) {
-      mem.write(io.write.idx, io.write.data.asUInt)
+  // One .write per memory, so it gets one write port and Vivado can build it from LUT RAM.
+  // The clear wins over a write
+  def clearOrWrite(mem: SyncReadMem[UInt], doClear: Bool, clearData: UInt, wen: Bool, data: UInt): Unit =
+    when(doClear || wen) {
+      mem.write(Mux(doClear, clearCounter, io.write.idx), Mux(doClear, clearData, data))
     }
+
+  val rgbzRead = VecInit(rgbzMems.zipWithIndex.map { case (mem, s) =>
+    clearOrWrite(mem, clearing, clearWord, io.write.en && coverageFor(s), io.write.data.asUInt)
     mem.read(rdAddr, rdEn)
   })
 
@@ -115,11 +118,8 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1,
     when(io.clear.en && !clearing) { alphaClearReg := io.alphaClear.get }
 
     Some(VecInit(alphaMems.zipWithIndex.map { case (mem, s) =>
-      when(clearing) {
-        mem.write(clearCounter, alphaClearReg)
-      }.elsewhen(io.write.en && coverageFor(s) && io.alphaWriteMask.get) {
-        mem.write(io.write.idx, io.alphaWrite.get)
-      }
+      clearOrWrite(mem, clearing, alphaClearReg,
+        io.write.en && coverageFor(s) && io.alphaWriteMask.get, io.alphaWrite.get)
       mem.read(rdAddr, rdEn)
     }))
   }
@@ -135,11 +135,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1,
   val extReadRaw: Option[Vec[UInt]] = if (!hasExt) None else {
     val extMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(32.W)))
     Some(VecInit(extMems.zipWithIndex.map { case (mem, s) =>
-      when(clearing && extClearOn) {
-        mem.write(clearCounter, extClearReg)
-      }.elsewhen(extWriteNow && coverageFor(s)) {
-        mem.write(io.write.idx, io.extWrite.get)
-      }
+      clearOrWrite(mem, clearing && extClearOn, extClearReg, extWriteNow && coverageFor(s), io.extWrite.get)
       mem.read(rdAddr, rdEn)
     }))
   }
@@ -168,11 +164,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1,
     when(io.clear.en && !clearing) { stencilClearReg := io.stencilClear.get }
 
     val stencilRead = VecInit(stencilMems.zipWithIndex.map { case (mem, s) =>
-      when(clearing) {
-        mem.write(clearCounter, stencilClearReg)
-      }.elsewhen(io.stencilWriteMask.get(s).asBool) {
-        mem.write(io.write.idx, io.stencilWrite.get)
-      }
+      clearOrWrite(mem, clearing, stencilClearReg, io.stencilWriteMask.get(s).asBool, io.stencilWrite.get)
       mem.read(rdAddr, rdEn)
     })
 
