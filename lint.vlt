@@ -13,6 +13,9 @@ lint_off -rule UNUSEDSIGNAL -file "*BorgLane.sv"
 lint_off -rule UNUSEDSIGNAL -file "*ExpLogUnit.sv"
 lint_off -rule UNUSEDSIGNAL -file "*MemUnit.sv"
 lint_off -rule UNUSEDSIGNAL -file "*TexUnit.sv"
+lint_off -rule UNUSEDSIGNAL -file "*RasterUnit.sv"
+// Only the first sampler's phase reaches the perf counters.
+lint_off -rule PINCONNECTEMPTY -file "*TexUnit.sv"
 lint_off -rule UNUSEDSIGNAL -file "*SpecialFn.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Shifter.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Time.sv"
@@ -34,6 +37,8 @@ lint_off -rule UNUSEDSIGNAL -file "*rgbzMem*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*extMems*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*fcMem*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*tdMem*.sv"
+lint_off -rule UNUSEDSIGNAL -file "*tcData*.sv"
+lint_off -rule UNUSEDSIGNAL -file "*tcTag*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgTileLoader.sv"
 // The draw walker's address and pixel-box arithmetic drops alignment and
 // truncated high bits by construction (index-buffer word alignment, record
