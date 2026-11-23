@@ -73,7 +73,7 @@ inittest: build
 	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
 		$(BUILD_DIR)/borgvk_init_test
 
-# Run the system vulkaninfo against the borg driver (lists "Borg (ULX3S)").
+# Run the system vulkaninfo against the borg driver (lists "Borg").
 vulkaninfo: build
 	VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" vulkaninfo --summary
 
