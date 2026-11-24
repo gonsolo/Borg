@@ -116,7 +116,7 @@ mkdir -p "$OUT/chunks"
 [[ $total -gt 0 ]] && split -l "$CHUNK" -d -a 5 "$OUT/shuffled.txt" "$OUT/chunks/c"
 run_chunk() {   # $1 = chunk file; its run directory is named after it
   local d="$OUT/run_$(basename "$1")"
-  [[ -e "$OUT/STOP" ]] && return
+  [[ -e "$OUT/STOP" ]] && return 255   # xargs starts no further chunk
   local t0=$(date +%s)
   CTS_PAR_WORKER=1 OUT="$d" timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
   local rc=$?
@@ -130,6 +130,7 @@ run_chunk() {   # $1 = chunk file; its run directory is named after it
   if [[ -n "${STOP_ON_FAIL:-}" ]] && { [[ $rc != 0 ]] || (( ${ran:-0} < $(wc -l < "$1") )) ||
        grep -qE '^  (Fail|InternalError|ResourceError)( |$)' "$d/deqp.log"; }; then
     echo "$(basename "$1") rc $rc" > "$OUT/STOP"
+    return 255
   fi
   # With DIRECT_PROGRESS: the chunk's simulated cycles, and cts_one's exit status (124: timeout).
   if [[ -n "${DIRECT_PROGRESS:-}" ]]; then
@@ -148,7 +149,7 @@ collect() {     # per-case results of the run directories given
 }
 start=$(date +%s)
 : > "$OUT/chunk_times.txt"; : > "$OUT/chunk_cycles.txt"
-find "$OUT/chunks" -type f -name 'c*' 2>/dev/null | sort | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
+find "$OUT/chunks" -type f -name 'c*' 2>/dev/null | sort | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}' || true
 collect "$OUT"/run_c* > "$OUT/results.txt"
 # A one-case chunk that hit the limit has its answer: a second run would only hit it again.
 for rc in "$OUT"/run_c*.rc; do
