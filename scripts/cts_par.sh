@@ -20,6 +20,8 @@
 # PASS_DB=file remembers passing cases: cases listed in it are not run again (and are
 # counted as Pass), new passes are appended.  It is cleared only by hand (PASS_DB_RESET=1).
 #
+# STOP_ON_FAIL=1: no new chunk after one with a failure, timeout or crash ($OUT/STOP names it).
+#
 # On the board (BORG_HW_RAW, JOBS=1): BOARD_RESET="fpga/nexysvideo/host/board_reload.sh <bit>"
 # loads the bitstream again after a chunk that timed out or lost cases (log: $OUT/board_resets.txt).
 #
@@ -114,6 +116,7 @@ mkdir -p "$OUT/chunks"
 [[ $total -gt 0 ]] && split -l "$CHUNK" -d -a 5 "$OUT/shuffled.txt" "$OUT/chunks/c"
 run_chunk() {   # $1 = chunk file; its run directory is named after it
   local d="$OUT/run_$(basename "$1")"
+  [[ -e "$OUT/STOP" ]] && return
   local t0=$(date +%s)
   CTS_PAR_WORKER=1 OUT="$d" timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
   local rc=$?
@@ -123,6 +126,10 @@ run_chunk() {   # $1 = chunk file; its run directory is named after it
   local ran=$(grep -cE '^  (Pass|Fail|NotSupported|QualityWarning|CompatibilityWarning|InternalError|ResourceError)( |$)' "$d/deqp.log" 2>/dev/null)
   if [[ -n "${BOARD_RESET:-}" ]] && { [[ $rc != 0 ]] || (( ${ran:-0} < $(wc -l < "$1") )); }; then
     echo "$(basename "$1") rc $rc: $($BOARD_RESET 2>&1 | tail -1)" >> "$OUT/board_resets.txt"
+  fi
+  if [[ -n "${STOP_ON_FAIL:-}" ]] && { [[ $rc != 0 ]] || (( ${ran:-0} < $(wc -l < "$1") )) ||
+       grep -qE '^  (Fail|InternalError|ResourceError)( |$)' "$d/deqp.log"; }; then
+    echo "$(basename "$1") rc $rc" > "$OUT/STOP"
   fi
   # With DIRECT_PROGRESS: the chunk's simulated cycles, and cts_one's exit status (124: timeout).
   if [[ -n "${DIRECT_PROGRESS:-}" ]]; then
@@ -153,7 +160,7 @@ done
 # A crash takes the rest of its chunk with it: run the cases that have no result one by one.
 awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
 sort -u "$OUT/all.txt" | comm -23 - "$OUT/have.txt" > "$OUT/missing.txt"
-if [[ -s "$OUT/missing.txt" ]]; then
+if [[ -s "$OUT/missing.txt" && ! -e "$OUT/STOP" ]]; then
   echo "$(wc -l < "$OUT/missing.txt") cases without a result (a crash in their chunk): run singly"
   mkdir -p "$OUT/singles"
   split -l 1 -d -a 5 "$OUT/missing.txt" "$OUT/singles/s"
