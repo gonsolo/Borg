@@ -69,6 +69,7 @@ help:
 	@echo "make litedram-sim     - the same on LiteDRAM's DDR3 model, under GpuMemMig (LiteDramSimTests)"
 	@echo "make link             - bitstream: Borg alone, the host's device over USB (borg_ftdi)"
 	@echo "make program-link     - build if needed, then load onto the board"
+	@echo "make vkquake QUAKE=<dir with id1/pak0.pak> [VKQUAKE=<binary>] - e1m1 on the link bitstream"
 	@echo "make linux            - bitstream: Hutt running Linux with Borg (software: make -C ../../software nexys)"
 	@echo "make program-linux    - build if needed, then load onto the board"
 	@echo "make minimal          - Chisel -> Verilog -> bitstream (minimal SoC: CPU + UART + HDMI on DDR3)"
@@ -156,6 +157,20 @@ $(LINK_BIT): .verilog_stamp_link build.tcl NexysLink.xdc $(LITEDRAM_XDC) $(LITED
 
 program-link: $(LINK_BIT)
 	openFPGALoader -b nexysVideo $<
+
+# vkQuake (gonsolo/vkQuake, branch borg) on the board after program-link, with the paths Borg lacks off.
+VKQUAKE ?= vkquake
+vkquake:
+	@test -f "$(QUAKE)/id1/pak0.pak" || { echo "set QUAKE to the folder holding id1/pak0.pak"; exit 1; }
+	$(MAKE) -C host borg_ftdi
+	$(MAKE) -C $(ROOT) mesa/build-borg/build.ninja
+	ninja -C $(ROOT)/mesa/build-borg
+	VK_DRIVER_FILES=$(abspath $(ROOT))/mesa/build-borg/src/borg/vulkan/borg_devenv_icd.x86_64.json \
+	VK_LOADER_LAYERS_DISABLE='~implicit~' SDL_AUDIODRIVER=dummy \
+	BORGVK_HW=1 BORG_HW_RAW=$(abspath host/borg_ftdi) \
+	$(VKQUAKE) -basedir $(abspath $(QUAKE)) -window -width 320 -height 200 \
+	  +r_oit 0 +r_gpulightmapupdate 0 +r_waterwarpcompute 0 +r_waterwarp 0 +gl_polyblend 0 \
+	  +vid_fsaa 0 +r_particles 0 +scr_showfps 1 +cl_startdemos 0 +map e1m1
 
 linux: $(LINUX_BIT)
 
@@ -283,4 +298,4 @@ $(LITEDRAM_SIM_V): LiteDram.yml
 clean:
 	rm -rf $(BUILD_DIR) .verilog_stamp_*
 
-.PHONY: help hdmi program-hdmi ddr3 program-ddr3 litedram litedram-sim minimal program-minimal borg program-borg link program-link linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
+.PHONY: help hdmi program-hdmi ddr3 program-ddr3 litedram litedram-sim minimal program-minimal borg program-borg link program-link vkquake linux program-linux flash-slow-test flash-uart-hello flash-sdram-fb flash-uart-test flash-firmware flash-replay clean
