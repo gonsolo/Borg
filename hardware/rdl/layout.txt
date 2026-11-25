@@ -28,7 +28,7 @@ TBR_SETUP_ENTRY_BYTES       256
 # Push constants (128 bytes, word i at byte 4i of the range), the register-driven draw paths'
 # uniform window, the constant windows' u-index ranges, and the shader slots: a draw-mode shader
 # runs from DRAM through the instruction cache, so only its slot bounds its length.
-BORG_PUSH_CONST_SPI         0x1FE0400     # below the heap, so the framebuffer, bins and setup records grow up to it
+BORG_PUSH_CONST_SPI         0x1FD8400     # below the heap, so the framebuffer, bins and setup records grow up to it
 BORG_PUSH_CONST_MAX_WORDS   32
 DRAW_UBO_SPI                BORG_PUSH_CONST_SPI + BORG_PUSH_CONST_MAX_WORDS * 4
 DRAW_FS_CONST_WORDS         12
@@ -38,7 +38,7 @@ DRAW_VS_CONST_U0            25            # u25-u31
 DRAW_VERT_SHADER_SPI        BORG_PUSH_CONST_SPI + 0x58C
 DRAW_VERT_SHADER_MAX_WORDS  8188
 DRAW_FRAG_SHADER_SPI        DRAW_VERT_SHADER_SPI + DRAW_VERT_SHADER_MAX_WORDS * 4
-DRAW_FRAG_SHADER_MAX_WORDS  8188
+DRAW_FRAG_SHADER_MAX_WORDS  16380         # the PC reaches 16384 words; only the slot bounds a draw shader
 DRAW_ROOT_SPI               DRAW_FRAG_SHADER_SPI + DRAW_FRAG_SHADER_MAX_WORDS * 4   # LW base, texture, sampler and buffer tables
 
 # The simulator's memory: the per-batch heap, the render lists (entries first, then state and
