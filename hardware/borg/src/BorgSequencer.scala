@@ -143,6 +143,8 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val topLeft    = Output(Vec(3, Bool()))
   val attPass    = Output(UInt(3.W))
   val regWrite   = Decoupled(new RegWrite)
+  val codeBase    = Input(UInt(GpuMemIO.AddrBits.W))
+  val setCodeBase = Valid(UInt(GpuMemIO.AddrBits.W))
 }
 
 /** Runs a draw in two passes: [[BorgDrawWalker]] shades, sets up and bins every triangle, then
@@ -345,6 +347,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.topLeft := p2.io.topLeft
   p2.io.mmio := io.mmio
   p2.io.listMode := listMode
+  p2.io.codeBase := io.codeBase
+  io.setCodeBase := p2.io.setCodeBase
   p2.io.triLimit := triLimit
   p2.io.playDone := player.io.done
   when(p2.io.playReq) {

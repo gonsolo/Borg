@@ -24,7 +24,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val triggerSlot = Output(UInt(cfg.slotBits.W))
   val zTestSlot  = Input(UInt(cfg.slotBits.W))
 
-  val fragPcReg       = Input(UInt(6.W))
+  val fragPcReg       = Input(UInt(cfg.pcBits.W))
   val depthCompareOp  = Input(UInt(3.W))
   val depthWriteEn    = Input(Bool())
   val depthUnorm      = Input(Bool())

@@ -22,7 +22,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val helperSlot  = Input(UInt(cfg.slotBits.W))
   val triggerSlot = Output(UInt(cfg.slotBits.W))   // the slot coreTrigger starts
   val zTestSlot   = Input(UInt(cfg.slotBits.W))    // the slot zTestReq comes from
-  val fragPcReg  = Input(UInt(6.W))
+  val fragPcReg  = Input(UInt(cfg.pcBits.W))
 
   val depthCompareOp = Input(UInt(3.W))
   val depthWriteEn   = Input(Bool())

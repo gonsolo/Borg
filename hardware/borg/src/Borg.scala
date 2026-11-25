@@ -704,6 +704,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         codeBaseReg := bus.data_in
         flush := true.B
       }
+      when(s.io.setCodeBase.valid) {
+        codeBaseReg := s.io.setCodeBase.bits
+        flush := true.B
+      }
+      s.io.codeBase := codeBaseReg
       core.io.codeBase := codeBaseReg
       core.io.icacheFlush := flush
     }

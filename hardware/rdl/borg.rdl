@@ -197,12 +197,12 @@ reg frag_pc_reg_t {
 
     field {
         sw = rw; hw = r;
-        desc = "6-bit fragment shader program counter.";
-    } frag_pc[6] = 0;
+        desc = "Fragment shader program counter.";
+    } frag_pc[14] = 0;
 
     field {
         sw = rw; hw = na;
-    } RSVD[26] = 0;
+    } RSVD[18] = 0;
 };
 
 // --- DMA DRAM base address (Step 22.1) ---

@@ -48,7 +48,9 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val playReq  = Output(Bool())
   val playAddr = Output(UInt(GpuMemIO.AddrBits.W))
   val playDone = Input(Bool())
-
+  // A list's fragment shaders run from DRAM through the I-cache: the code base, and setting it.
+  val codeBase    = Input(UInt(GpuMemIO.AddrBits.W))
+  val setCodeBase = Valid(UInt(GpuMemIO.AddrBits.W))
 }
 
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -161,6 +163,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg
+    io.setCodeBase.valid := false.B
+    io.setCodeBase.bits  := io.mmio.fragShaderAddr - 4.U
 
     io.uniformWrite.en   := false.B
     io.uniformWrite.addr := 0.U
@@ -253,7 +257,15 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     desc.offset   := 1.U  // BORG_IMEM_FRAG_OFFSET
 
     constPage := 0.U
-    when(fsValid && fsAddr === io.mmio.fragShaderAddr && fsLen === io.mmio.fragShaderLen) {
+    // A list's shaders share one code base, each at its own FRAG_PC: only a new base flushes.
+    val base = io.mmio.fragShaderAddr - 4.U
+    when(io.listMode) {
+      when(!fsValid || io.codeBase =/= base) {
+        io.setCodeBase.valid := true.B
+      }
+      fsValid := true.B
+      state   := sLoadFsConst
+    }.elsewhen(fsValid && fsAddr === io.mmio.fragShaderAddr && fsLen === io.mmio.fragShaderLen) {
       state := sLoadFsConst
     }.otherwise {
       fsValid      := true.B
