@@ -84,7 +84,7 @@ class SamplerJob(val lanes: Int) extends Bundle {
   val lvlW = UInt(9.W)                                 // level weight, 256 = 1
   val layerN = UInt(12.W)
   val levelOff = UInt(GpuMemIO.AddrBits.W)
-  val lw = UInt(16.W)
+  val lw = UInt(17.W)                                  // a texel buffer reaches 65536
   val tpr = UInt(14.W)                                 // tiles per row at this level
   val sliceTexels = UInt(GpuMemIO.AddrBits.W)          // tiled texels per 3D slice
   // Per axis: first tap, second tap, border flags, fraction.

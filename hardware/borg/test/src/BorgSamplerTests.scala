@@ -659,6 +659,8 @@ object BorgSamplerTests extends TestSuite {
         sample(d, "texelFetch RGBA16F", Tex(TexFormat.byName("R16G16B16A16_SFLOAT"), 8, 8, levels = 3), Samp(), OpFetch.toLong << 16, lanes)
         sample(d, "texelFetch 2D array", Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 4, levels = 3), Samp(), OpFetch.toLong << 16, lanes)
         sample(d, "texelFetch 3D", Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 4, levels = 3, ttype = T3D), Samp(), OpFetch.toLong << 16, lanes)
+        val ends = Seq(Lane(0, fetch = (0, 0, 0, 0)), Lane(0, fetch = (65535, 0, 0, 0)), Lane(0, fetch = (40001, 0, 0, 0)), Lane(0, fetch = (1, 0, 0, 0)))
+        sample(d, "texelFetch 65536-texel buffer", Tex(TexFormat.byName("R32_UINT"), 65536, 1, layout = Linear, ttype = T1D), Samp(), OpFetch.toLong << 16, ends)
         println("  texelFetch of 16-byte texels, array layers and 3D slices")
       }
     }
