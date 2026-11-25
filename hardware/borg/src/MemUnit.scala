@@ -10,6 +10,8 @@ class MemUnitIO(cfg: BorgConfig) extends CoreUnitIO(cfg) {
   val record     = Input(new CoreRecordIO)
   val laneHelper = Input(Vec(cfg.fragLanes, Bool()))
   val seqBusy    = Input(Bool())
+  val cacheOk    = Input(Bool())   // a fragment or compute load may go through the load cache
+  val flush      = Input(Bool())   // a draw's descriptors or a dispatch: the load cache forgets
   val mem  = new GpuMemIO
   val busy = Output(Bool())
 }
@@ -40,7 +42,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
     regs := io.issue.bits.regs
   }
 
-  private val sIdle :: sReq :: sWB :: sAttrReq :: sAttrLook :: sAttrMem :: sAttrWB :: sAmoWr :: Nil = Enum(8)
+  private val sIdle :: sReq :: sWB :: sAttrReq :: sAttrLook :: sAttrMem :: sAttrWB :: sAmoWr :: sLook :: sFill :: Nil = Enum(10)
   private val state = RegInit(sIdle)
   private val lane = RegInit(0.U(log2Up(N).W))
   private val rd   = RegInit(0.U(5.W))
@@ -55,6 +57,11 @@ class MemUnit(cfg: BorgConfig) extends Module {
     val first = Mux1H(PriorityEncoderOH(io.mask), io.a)
     (0 until N).map(i => !io.mask(i) || io.a(i) === first).reduce(_ && _)
   }, start)
+
+  private val lcUse   = RegEnable(io.cacheOk, start)
+  private val lcLoad  = isLoad && !isAmo && rvMem && lcUse
+  private val lcStore = WireDefault(false.B)   // a store or AMO: its word in the load cache changes
+  private val lcKeep  = WireDefault(false.B)   // the store wrote a whole word: keep it
 
   // Word accesses are aligned: the low address bits select within the word.
   private val rvAddr = (curIndex.pad(32) + rvImm)(31, 0)
@@ -122,7 +129,8 @@ class MemUnit(cfg: BorgConfig) extends Module {
   when(state === sReq && !laneActive) {
     finishLane()
   }
-  when(state === sReq && laneActive) {
+  when(state === sReq && laneActive && lcLoad) { state := sLook }
+  when(state === sReq && laneActive && !lcLoad) {
     io.mem.addr  := byteAddr
     io.mem.req   := isLoad
     io.mem.wr    := isStore
@@ -136,6 +144,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
         amoNew := riscv.Rv.amoResult(amoOp, io.mem.data.pad(32)(31, 0), curData.pad(32),
                                      other = curData.pad(32), cmp = Some(curCmp.pad(32)))
       }.otherwise {
+        lcStore := true.B; lcKeep := rvMem && !isSout && rvWidth === 2.U
         finishLane()
       }
     }
@@ -145,7 +154,7 @@ class MemUnit(cfg: BorgConfig) extends Module {
     io.mem.addr  := byteAddr
     io.mem.wr    := true.B
     io.mem.wdata := amoNew
-    when(io.mem.ready) { state := sWB }
+    when(io.mem.ready) { lcStore := true.B; state := sWB }
   }
   when(state === sWB) {
     io.wb.zipWithIndex.foreach { case (w, i) =>
@@ -219,5 +228,44 @@ class MemUnit(cfg: BorgConfig) extends Module {
     when(io.wbReady) {
       when(attrK === 2.U) { finishInstr() }.otherwise { attrK := attrK + 1.U }
     }
+  }
+
+  // Loads of fragment and compute shaders through a direct-mapped cache of words, epochs as FATTR's:
+  // a draw's descriptors or a dispatch move to a new one. A store writes its word through and keeps
+  // it if it is a whole one, else drops it, as an AMO does. Vertex, setup and raster programs read
+  // what other units write during a pass: they bypass it.
+  private val lcLog2     = 8
+  private val lcTagBits  = GpuMemIO.AddrBits - 2 - lcLog2
+  private val lcWidth    = lcTagBits + 8 + 32                  // tag, epoch, word
+  private val lcMem      = SyncReadMem(1 << lcLog2, UInt(lcWidth.W))
+  private val lcEpoch    = RegInit(1.U(8.W))
+  private val lcSweeping = RegInit(true.B)
+  private val lcSweepIdx = RegInit(0.U(lcLog2.W))
+  private def lcIndex(a: UInt): UInt = a(lcLog2 + 1, 2)
+  private def lcTag(a: UInt): UInt   = a(GpuMemIO.AddrBits - 1, lcLog2 + 2)
+  private val lcRead  = lcMem.read(lcIndex(byteAddr), state === sReq && laneActive && lcLoad)
+  private val lcFill  = WireDefault(false.B)
+  when(lcSweeping) {
+    lcSweepIdx := lcSweepIdx + 1.U
+    when(lcSweepIdx === ((1 << lcLog2) - 1).U) { lcSweeping := false.B }
+  }
+  when(io.flush) {
+    when(lcEpoch === 255.U) { lcEpoch := 1.U; lcSweeping := true.B; lcSweepIdx := 0.U }
+      .otherwise { lcEpoch := lcEpoch + 1.U }
+  }
+  // One write port: the sweep wins, a lost fill only costs a hit and a lost store meets a swept entry.
+  when(lcSweeping || lcFill || lcStore) {
+    val word = Mux(lcFill, io.mem.data(31, 0), curData.pad(32)(31, 0))
+    lcMem.write(Mux(lcSweeping, lcSweepIdx, lcIndex(byteAddr)),
+      Mux(lcSweeping || !(lcFill || lcKeep), 0.U(lcWidth.W), Cat(lcTag(byteAddr), lcEpoch, word)))
+  }
+  when(state === sLook) {
+    val hit = !lcSweeping && lcRead(39, 32) === lcEpoch && lcRead(lcWidth - 1, 40) === lcTag(byteAddr)
+    when(hit) { data := rvLoadData(lcRead(31, 0))(W - 1, 0); state := sWB }.otherwise { state := sFill }
+  }
+  when(state === sFill) {
+    io.mem.addr := byteAddr
+    io.mem.req  := true.B
+    when(io.mem.ready) { lcFill := true.B; data := rvLoadData(io.mem.data.pad(32))(W - 1, 0); state := sWB }
   }
 }

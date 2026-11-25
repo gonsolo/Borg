@@ -337,6 +337,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   memUnit.io.record.outInterleave := Mux(slots(memSlot).byRasterizer, slots(memSlot).outInterleave, io.record.outInterleave)
   memUnit.io.laneHelper := io.laneHelper
   memUnit.io.seqBusy    := io.seqBusy
+  memUnit.io.cacheOk    := slots(memSlot).fragment && !slots(memSlot).fetchRast && !slots(memSlot).fetchSetup ||
+                           !slots(memSlot).byRasterizer
+  memUnit.io.flush      := io.descWritten || io.control.start
 
   private val texUnit = Module(new TexUnit(cfg))
   attach(texUnit.io, f => f.tex || f.texa || f.texs)
