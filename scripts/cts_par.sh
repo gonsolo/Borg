@@ -57,8 +57,8 @@ elif [[ -n "${MUSTPASS_NATIVE:-}" ]]; then
   if [[ -n "$ver" ]]; then
     git -C "$VK_GL_CTS" show "HEAD:external/vulkancts/mustpass/$ver/vk-default.txt" \
       | grep -E "$rx" | sort -u > "$OUT/all.txt" || true
-  else   # current CTS: one 'main' list, split into one file per group
-    cat "$VK_GL_CTS"/external/vulkancts/mustpass/main/vk-default/*.txt \
+  else   # current CTS: vk-default.txt names the group files, some in subdirectories
+    ( cd "$VK_GL_CTS"/external/vulkancts/mustpass/main && cat $(cat vk-default.txt) ) \
       | grep -E "$rx" | sort -u > "$OUT/all.txt" || true
   fi
 else
