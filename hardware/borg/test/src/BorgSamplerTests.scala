@@ -186,15 +186,14 @@ object BorgSamplerTests extends TestSuite {
         val mode = Seq(s.mode._1, s.mode._2, s.mode._3)
         val axes = (0 until dims).map { a =>
           val c = coords(a)
+          val f = mode(a) match { case Repeat => fixedMod(c, 0); case Mirror => fixedMod(c, 1); case _ => fixed(c, 24, 28) }
           val x8: BigInt =
             if (isFetch) BigInt(Seq(ln.fetch._1, ln.fetch._2, ln.fetch._3)(a)) << 8
             else if (s.unnorm) (fixed(c, 16, 32) + 128) >> 8
-            else {
-              val f = mode(a) match { case Repeat => fixedMod(c, 0); case Mirror => fixedMod(c, 1); case _ => fixed(c, 24, 28) }
-              (f * size(a) + (1 << 15)) >> 16
-            }
+            else (f * size(a) + (1 << 15)) >> 16
           val xs = if (linear) x8 - 128 else x8
-          val first = (xs >> 8).toInt + offs(a)
+          val near = if (isFetch || s.unnorm) x8 >> 8 else (f * size(a) + (1 << 11)) >> 12 >> 12
+          val first = (if (linear) xs >> 8 else near).toInt + offs(a)
           val frac = if (linear) (xs & 255).toInt else 0
           def wrap(i0: Int): (Int, Boolean) = {
             val sz = size(a); var i = i0
@@ -392,6 +391,13 @@ object BorgSamplerTests extends TestSuite {
           val s = Samp(magLin = lin, minLin = lin, mode = (ClampBorder, ClampEdge, ClampBorder), unnorm = true)
           val lanes = Seq(Lane(-0.0027f, 1.5f), Lane(4.999f, 0.4f), Lane(2.5f, -0.001f), Lane(0.3f, 2.9989f))
           sample(d, s"unnormalized lin $lin", Tex(fm, 5, 3), s, LodExplicit.toLong << 21, lanes, seed = 3)
+          n += 1
+        }
+        // Nearest: 23.9998 of 64 texels takes texel 23 (CTS 3D stencil); an FP32 error under 24 takes 24.
+        for (mode <- Seq(Repeat, ClampEdge)) {
+          val s = Samp(mode = (mode, mode, mode))
+          val lanes = Seq(Lane(0.374997f, 0.5f), Lane(Math.nextDown(0.375f), 0.5f), Lane(0.375f, 0.5f), Lane(0.3749f, 0.5f))
+          sample(d, s"nearest at a texel edge, $mode", Tex(fm, 64, 4), s, LodExplicit.toLong << 21, lanes, seed = 5)
           n += 1
         }
         println(s"  $n address mode / filter / border combinations on a 5x3 texture")
