@@ -6,7 +6,7 @@
 #   scripts/cts_one.sh --list FILE            # run every case in FILE (one per line), one deqp-vk process
 #
 # Env overrides:
-#   VK_GL_CTS    CTS checkout          (default $HOME/src/VK-GL-CTS-1.4.6.2 built with deqp-vk)
+#   VK_GL_CTS    CTS checkout          (default $HOME/src/VK-GL-CTS-1.4.7.1 built with deqp-vk)
 #   MESA_ROOT    mesa checkout         (default $HOME/work/Borg/mesa, with build-borg)
 #   OUT          scratch dir           (default /tmp/borg-cts-one)
 #   DIRECT_BIN   the simulator (default simulation/direct/direct_sim; direct_sim_v for BORG_TRACE)
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
+VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.7.1}"
 MESA_ROOT="${MESA_ROOT:-$HOME/work/Borg/mesa}"
 DIRECT_BIN="${DIRECT_BIN:-$REPO/simulation/direct/direct_sim}"
 OUT="${OUT:-/tmp/borg-cts-one}"
