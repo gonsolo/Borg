@@ -18,6 +18,20 @@ static void leave(void) {
 static volatile sig_atomic_t stop;
 static void on_signal(int sig) { stop = sig; }
 
+// After a link hang the first answer of a session can come twice: an ID read, then everything
+// until the link is quiet, is dropped, so the client's first answer is its own.
+static int sync_link(struct ftdi_context *f) {
+  unsigned char q[5] = {'R', 0x7c, 0x04, 0, 0}, b[512];
+  if (ftdi_write_data(f, q, sizeof q) != sizeof q) return -1;
+  for (int got = 0, idle = 0, n = 0; idle < 10 && n < 1000; n++) {
+    int r = ftdi_read_data(f, b, sizeof b);
+    if (r < 0) return -1;
+    got += r;
+    idle = r > 0 || got < 4 ? 0 : idle + 1;
+  }
+  return 0;
+}
+
 static int fail(struct ftdi_context *f, const char *what) {
   fprintf(stderr, "borg_ftdi: %s: %s\n", what, ftdi_get_error_string(f));
   leave();
@@ -39,6 +53,7 @@ int main(void) {
   ftdi_read_data_set_chunksize(f, 1 << 16);
   ftdi_write_data_set_chunksize(f, 1 << 16);
   ftdi_tcioflush(f);
+  if (sync_link(f) < 0) return fail(f, "sync");
 
   static unsigned char buf[1 << 16];
   struct pollfd in = {.fd = 0, .events = POLLIN};
