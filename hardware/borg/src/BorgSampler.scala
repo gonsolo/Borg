@@ -555,11 +555,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       // to the 8 bits of the linear weights, and for nearest to 12, so one truly short of it is not.
       val scaled = ((product + (1 << 15).S) >> 16).asSInt // Q.8
       val scaled12 = ((product + (1 << 11).S) >> 12).asSInt // Q.12
-      val x8 = Mux(isFetch, (c(19, 0).asSInt << 8), Mux(unnorm, (fpToFixed(c, 16, 32) +& 128.S) >> 8, scaled))
+      val fixed = fpToFixed(c, 16, 32) // Q.16
+      val x8 = Mux(isFetch, (c(19, 0).asSInt << 8), Mux(unnorm, (fixed +& 128.S) >> 8, scaled))
       val off = MuxLookup(ax, 0.S(4.W))(Seq(0.U -> offU(ctl), 1.U -> offV(ctl),
                                             2.U -> Mux(ttype === T3D.U, offW(ctl), 0.S)))
       val xs = Mux(sj.linear, x8 - 128.S, x8)                // texel centres at +0.5
-      val near = Mux(isFetch || unnorm, x8 >> 8, scaled12 >> 12)
+      val near = Mux(isFetch, x8 >> 8, Mux(unnorm, (fixed +& 8.S) >> 16, scaled12 >> 12))
       val first = Mux(sj.linear, xs >> 8, near) + off
       sj.i0(ax) := first; sj.i1(ax) := first + 1.S
       sj.fr(ax) := Mux(sj.linear, xs(7, 0).asUInt, 0.U)
